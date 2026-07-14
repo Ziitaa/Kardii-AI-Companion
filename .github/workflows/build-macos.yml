@@ -1,4 +1,4 @@
-name: Build Kardii macOS App
+name: Build Kardii macOS Intel App
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
     branches: [main]
 
 jobs:
-  build-macos:
+  build-macos-intel:
     runs-on: macos-latest
     permissions:
       contents: read
@@ -20,8 +20,10 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install Rust
+      - name: Install Rust with Intel target
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
 
       - name: Cache Rust
         uses: swatinem/rust-cache@v2
@@ -31,13 +33,13 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Build macOS app
-        run: npm run build
+      - name: Build Intel macOS app
+        run: npm run build -- --target x86_64-apple-darwin
 
-      - name: Upload macOS app
+      - name: Upload Intel macOS app
         uses: actions/upload-artifact@v4
         with:
-          name: Kardii-AI-Companion-macOS
+          name: Kardii-AI-Companion-macOS-Intel
           path: |
-            src-tauri/target/release/bundle/dmg/*.dmg
-            src-tauri/target/release/bundle/macos/*.app
+            src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+            src-tauri/target/x86_64-apple-darwin/release/bundle/macos/*.app
