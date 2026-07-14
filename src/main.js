@@ -12,14 +12,13 @@ let lastAction = Date.now();
 
 function setState(state) {
   current = states.indexOf(state);
-  pet.dataset.state = state;
-  image.src = `./${state}.png`;
+  image.src = `./${state}.svg?${Date.now()}`;
   menu.classList.add("hidden");
   lastAction = Date.now();
 }
 
 function applyScale() {
-  pet.style.transform = `scale(${scale})`;
+  image.style.transform = `scale(${scale})`;
   localStorage.setItem("kardii-scale", String(scale));
 }
 
@@ -43,7 +42,7 @@ document.addEventListener("contextmenu", (event) => {
 
 document.addEventListener("click", (event) => {
   const action = event.target?.dataset?.action;
-  if (action === "loading" || action === "sleep" || action === "error") setState(action);
+  if (states.includes(action)) setState(action);
   if (action === "smaller") {
     scale = Math.max(.55, +(scale - .1).toFixed(2));
     applyScale();
@@ -62,12 +61,12 @@ window.addEventListener("wheel", (event) => {
   lastAction = Date.now();
 });
 
-["mousemove","mousedown","keydown"].forEach(name =>
-  window.addEventListener(name, () => lastAction = Date.now())
+["mousemove", "mousedown", "keydown"].forEach((name) =>
+  window.addEventListener(name, () => { lastAction = Date.now(); })
 );
 
 setInterval(() => {
-  if (Date.now() - lastAction > 180000 && pet.dataset.state !== "sleep") setState("sleep");
+  if (Date.now() - lastAction > 180000 && current !== 1) setState("sleep");
 }, 10000);
 
 applyScale();
