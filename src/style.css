@@ -1,17 +1,12 @@
-*{box-sizing:border-box;user-select:none}
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}
-body{font-family:"Microsoft YaHei",system-ui,sans-serif}
-#pet{width:100%;height:100%;display:grid;place-items:center;cursor:grab;transform-origin:center bottom}
+*{box-sizing:border-box;-webkit-user-select:none;user-select:none}
+:root{color-scheme:light dark}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:rgba(0,0,0,0)!important}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+#pet{position:absolute;inset:0;display:grid;place-items:center;cursor:grab;background:transparent}
 #pet:active{cursor:grabbing}
-#petImage{width:100%;height:100%;object-fit:contain;pointer-events:none;filter:drop-shadow(0 5px 8px rgba(0,0,0,.12))}
-#pet[data-state="loading"]{animation:bob 1.8s ease-in-out infinite}
-#pet[data-state="sleep"]{animation:breathe 2.8s ease-in-out infinite}
-#pet[data-state="error"]{animation:shake 1.2s ease-in-out infinite}
-.menu{position:fixed;right:8px;bottom:8px;min-width:150px;padding:8px;border-radius:12px;background:rgba(255,255,255,.96);box-shadow:0 8px 28px rgba(0,0,0,.22);border:1px solid rgba(0,0,0,.08)}
+#petImage{display:block;width:100%;height:100%;object-fit:contain;pointer-events:none;background:transparent}
+.menu{position:fixed;right:10px;bottom:10px;z-index:10;min-width:155px;padding:8px;border-radius:12px;background:rgba(30,30,30,.9);color:white;box-shadow:0 8px 28px rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(18px)}
 .menu.hidden{display:none}
-.menu button{width:100%;border:0;background:transparent;padding:8px 10px;text-align:left;border-radius:8px;font-size:14px;cursor:pointer}
-.menu button:hover{background:#f1f1f1}
-.menu hr{border:0;border-top:1px solid #e8e8e8;margin:5px 0}
-@keyframes bob{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-5px) rotate(.7deg)}}
-@keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.018,.992) translateY(2px)}}
-@keyframes shake{0%,100%{transform:rotate(0)}30%{transform:rotate(-1.4deg)}70%{transform:rotate(1.4deg)}}
+.menu button{width:100%;border:0;background:transparent;color:inherit;padding:8px 10px;text-align:left;border-radius:8px;font-size:14px;cursor:pointer}
+.menu button:hover{background:rgba(255,255,255,.12)}
+.menu hr{border:0;border-top:1px solid rgba(255,255,255,.14);margin:5px 0}
