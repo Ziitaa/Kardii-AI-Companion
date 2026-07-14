@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Kardii AI Companion</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <main id="pet" data-state="loading" title="双击切换动作，右键打开菜单">
+    <img id="petImage" src="./loading.png" draggable="false" alt="Kardii">
+  </main>
+
+  <div id="menu" class="menu hidden">
+    <button data-action="loading">⏳ 进度条</button>
+    <button data-action="sleep">💤 睡觉</button>
+    <button data-action="error">❌ 报错</button>
+    <hr>
+    <button data-action="smaller">缩小</button>
+    <button data-action="larger">放大</button>
+    <hr>
+    <button data-action="quit">退出 Kardii</button>
+  </div>
+
+  <script src="./main.js"></script>
+</body>
+</html>

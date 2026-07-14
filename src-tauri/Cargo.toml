@@ -1,0 +1,18 @@
+[package]
+name = "kardii-ai-companion"
+version = "1.2.0"
+description = "Kardii Windows floating desktop pet"
+authors = ["Zt S"]
+edition = "2021"
+
+[lib]
+name = "kardii_ai_companion_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
