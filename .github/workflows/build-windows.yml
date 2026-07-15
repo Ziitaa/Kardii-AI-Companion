@@ -2,8 +2,9 @@ name: Build Kardii Windows App
 
 on:
   workflow_dispatch:
+  pull_request:
   push:
-    branches: [main]
+    branches: [main, "codex/**"]
 
 jobs:
   build-windows:
@@ -24,7 +25,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Build Windows app
         run: npm run build

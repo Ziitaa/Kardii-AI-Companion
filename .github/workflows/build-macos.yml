@@ -2,8 +2,9 @@ name: Build Kardii macOS Universal App
 
 on:
   workflow_dispatch:
+  pull_request:
   push:
-    branches: [main]
+    branches: [main, "codex/**"]
 
 jobs:
   build-macos-universal:
@@ -26,7 +27,7 @@ jobs:
           targets: x86_64-apple-darwin,aarch64-apple-darwin
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Build universal macOS app
         run: npm run build -- --target universal-apple-darwin

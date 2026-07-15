@@ -1,7 +1,7 @@
 {
   "name": "kardii-ai-companion",
   "private": true,
-  "version": "1.2.0",
+  "version": "0.2.0",
   "scripts": {
     "dev": "tauri dev",
     "build": "tauri build"

@@ -1,12 +1,82 @@
-*{box-sizing:border-box;-webkit-user-select:none;user-select:none}
-:root{color-scheme:light dark}
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent!important}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-#pet{position:absolute;inset:0;display:grid;place-items:center;cursor:grab;background:transparent}
-#pet:active{cursor:grabbing}
-#petCanvas{display:block;width:100%;height:100%;pointer-events:none;background:transparent}
-.menu{position:fixed;right:10px;bottom:10px;z-index:10;min-width:155px;padding:8px;border-radius:12px;background:rgba(30,30,30,.9);color:white;box-shadow:0 8px 28px rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(18px)}
-.menu.hidden{display:none}
-.menu button{width:100%;border:0;background:transparent;color:inherit;padding:8px 10px;text-align:left;border-radius:8px;font-size:14px;cursor:pointer}
-.menu button:hover{background:rgba(255,255,255,.12)}
-.menu hr{border:0;border-top:1px solid rgba(255,255,255,.14);margin:5px 0}
+* {
+  box-sizing: border-box;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+#pet {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: end center;
+  padding: 8px;
+  cursor: grab;
+  background: transparent;
+}
+
+#pet:active {
+  cursor: grabbing;
+}
+
+#petImage {
+  display: block;
+  width: min(100%, 420px);
+  height: min(100%, 340px);
+  object-fit: contain;
+  object-position: center bottom;
+  pointer-events: none;
+  transform: scale(var(--pet-scale, 1));
+  transform-origin: center bottom;
+  transition: transform 150ms ease;
+}
+
+.menu {
+  position: fixed;
+  right: 10px;
+  bottom: 10px;
+  z-index: 10;
+  min-width: 164px;
+  padding: 8px;
+  color: #fff;
+  background: rgba(28, 28, 32, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 14px;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(18px);
+}
+
+.menu.hidden {
+  display: none;
+}
+
+.menu button {
+  width: 100%;
+  padding: 8px 10px;
+  color: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+}
+
+.menu button:hover {
+  background: rgba(255, 255, 255, 0.13);
+}
+
+.menu hr {
+  margin: 5px 0;
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+}

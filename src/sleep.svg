@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 340" width="420" height="340">
-  <g transform-origin="210px 285px">
-    <animateTransform attributeName="transform" type="scale" values="1 1;1.018 .988;1 1" dur="2.4s" repeatCount="indefinite"/>
-    <image href="./sleep.png" x="30" y="10" width="360" height="320" preserveAspectRatio="xMidYMid meet"/>
-  </g>
-</svg>
