@@ -1,4 +1,4 @@
-const { getCurrentWindow, PhysicalPosition } = window.__TAURI__.window;
+const { getCurrentWindow, PhysicalPosition, LogicalSize } = window.__TAURI__.window;
 const { invoke } = window.__TAURI__.core;
 
 const appWindow = getCurrentWindow();
@@ -7,10 +7,10 @@ const petImage = document.getElementById("petImage");
 const menu = document.getElementById("menu");
 
 const states = ["idle", "loading", "sleep", "error"];
+const BASE_WINDOW = { width: 440, height: 360 };
 let currentState = "idle";
 let scale = Number(localStorage.getItem("kardii-scale") || "1");
 let lastInteraction = Date.now();
-let dragging = false;
 
 function touch() {
   lastInteraction = Date.now();
@@ -25,10 +25,14 @@ function setState(state) {
   touch();
 }
 
-function setScale(nextScale) {
-  scale = Math.max(0.6, Math.min(1.35, Number(nextScale.toFixed(2))));
+async function setScale(nextScale) {
+  scale = Math.max(0.6, Math.min(2.4, Number(nextScale.toFixed(2))));
   document.documentElement.style.setProperty("--pet-scale", scale);
   localStorage.setItem("kardii-scale", String(scale));
+  await appWindow.setSize(new LogicalSize(
+    Math.max(280, Math.round(BASE_WINDOW.width * scale)),
+    Math.max(230, Math.round(BASE_WINDOW.height * scale)),
+  ));
 }
 
 async function restorePosition() {
@@ -44,17 +48,13 @@ async function restorePosition() {
 
 pet.addEventListener("mousedown", async (event) => {
   if (event.button !== 0) return;
-  dragging = true;
+  // Let the second press reach the dblclick handler instead of starting a drag.
+  if (event.detail > 1) return;
   touch();
   await appWindow.startDragging();
 });
 
-window.addEventListener("mouseup", () => {
-  dragging = false;
-});
-
 pet.addEventListener("dblclick", () => {
-  if (dragging) return;
   const index = states.indexOf(currentState);
   setState(states[(index + 1) % states.length]);
 });
@@ -70,9 +70,9 @@ document.addEventListener("click", async (event) => {
   const action = event.target?.dataset?.action;
 
   if (state) setState(state);
-  if (action === "smaller") setScale(scale - 0.1);
-  if (action === "larger") setScale(scale + 0.1);
-  if (action === "reset") setScale(1);
+  if (action === "smaller") await setScale(scale - 0.1);
+  if (action === "larger") await setScale(scale + 0.1);
+  if (action === "reset") await setScale(1);
   if (action === "hide") await appWindow.hide();
   if (action === "quit") await invoke("quit_app");
 
@@ -81,7 +81,7 @@ document.addEventListener("click", async (event) => {
 
 window.addEventListener("wheel", (event) => {
   event.preventDefault();
-  setScale(scale + (event.deltaY < 0 ? 0.05 : -0.05));
+  void setScale(scale + (event.deltaY < 0 ? 0.1 : -0.1));
   touch();
 }, { passive: false });
 
@@ -99,5 +99,5 @@ setInterval(() => {
   }
 }, 10_000);
 
-setScale(scale);
+void setScale(scale);
 restorePosition();
