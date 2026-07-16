@@ -52,9 +52,14 @@ header {
   box-shadow: 0 3px 10px rgba(190, 84, 125, 0.25);
 }
 
-header strong, header span { display: block; }
-header strong { font-size: 15px; }
-header span { margin-top: 1px; color: #9a7885; font-size: 11px; }
+header strong {
+  display: block;
+  color: #6f4858;
+  font-family: "Comic Sans MS", "Segoe Print", "Microsoft YaHei", cursive;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
 
 .icon-button {
   width: 30px;

@@ -64,7 +64,7 @@ window.addEventListener("mousemove", (event) => {
     event.screenX - dragStart.x,
     event.screenY - dragStart.y,
   );
-  if (distance < 6) return;
+  if (distance < 12) return;
 
   dragStart = null;
   didDrag = true;
@@ -72,23 +72,24 @@ window.addEventListener("mousemove", (event) => {
   void appWindow.startDragging();
 });
 
-window.addEventListener("mouseup", () => {
+window.addEventListener("mouseup", (event) => {
+  if (event.button !== 0 || !dragStart) return;
+  const distance = Math.hypot(
+    event.screenX - dragStart.x,
+    event.screenY - dragStart.y,
+  );
   dragStart = null;
+
+  if (!didDrag && distance < 12) {
+    clearTimeout(clickTimer);
+    clickTimer = setTimeout(() => void toggleChat(), 240);
+  }
 });
 
 pet.addEventListener("dblclick", () => {
   clearTimeout(clickTimer);
   const index = states.indexOf(currentState);
   setState(states[(index + 1) % states.length]);
-});
-
-pet.addEventListener("click", () => {
-  if (didDrag) {
-    didDrag = false;
-    return;
-  }
-  clearTimeout(clickTimer);
-  clickTimer = setTimeout(() => void toggleChat(), 240);
 });
 
 async function toggleChat() {
