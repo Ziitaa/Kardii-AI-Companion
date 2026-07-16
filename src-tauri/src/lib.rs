@@ -5,7 +5,13 @@ use tauri::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::time::Duration;
+use std::{
+    collections::HashSet,
+    sync::Mutex,
+    time::Duration,
+};
+use futures_util::StreamExt;
+use tauri::ipc::Channel;
 
 const KEYRING_SERVICE: &str = "Kardii AI Companion";
 const KEYRING_ACCOUNT: &str = "deepseek-api-key";
@@ -21,6 +27,67 @@ struct ChatMessage {
 struct AiReply {
     text: String,
     model: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct StreamEvent {
+    event: String,
+    data: Option<String>,
+}
+
+#[derive(Default)]
+struct StreamState {
+    cancelled: Mutex<HashSet<String>>,
+}
+
+impl StreamState {
+    fn reset(&self, request_id: &str) {
+        if let Ok(mut cancelled) = self.cancelled.lock() {
+            cancelled.remove(request_id);
+        }
+    }
+
+    fn cancel(&self, request_id: String) {
+        if let Ok(mut cancelled) = self.cancelled.lock() {
+            cancelled.insert(request_id);
+        }
+    }
+
+    fn is_cancelled(&self, request_id: &str) -> bool {
+        self.cancelled
+            .lock()
+            .map(|cancelled| cancelled.contains(request_id))
+            .unwrap_or(false)
+    }
+}
+
+fn friendly_api_error(status: reqwest::StatusCode, payload: &serde_json::Value) -> String {
+    match status.as_u16() {
+        401 | 403 => "DeepSeek API Key 无效或没有权限，请在设置中重新填写。".into(),
+        402 => "DeepSeek 账户余额不足，请充值后再试。".into(),
+        429 => "DeepSeek 当前请求较多，请稍等一会儿再试。".into(),
+        500..=599 => "DeepSeek 服务暂时不可用，请稍后重试。".into(),
+        _ => payload["error"]["message"]
+            .as_str()
+            .map(|message| format!("DeepSeek 请求失败：{message}"))
+            .unwrap_or_else(|| format!("DeepSeek 请求失败（{status}）")),
+    }
+}
+
+fn extract_sse_event(buffer: &mut Vec<u8>) -> Option<Vec<u8>> {
+    let (index, delimiter_len) = buffer
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .map(|index| (index, 4))
+        .or_else(|| {
+            buffer
+                .windows(2)
+                .position(|window| window == b"\n\n")
+                .map(|index| (index, 2))
+        })?;
+    let event = buffer[..index].to_vec();
+    buffer.drain(..index + delimiter_len);
+    Some(event)
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -102,7 +169,13 @@ async fn request_deepseek(messages: Vec<ChatMessage>, max_tokens: u32) -> Result
         }))
         .send()
         .await
-        .map_err(|error| format!("无法连接 DeepSeek：{error}"))?;
+        .map_err(|error| {
+            if error.is_timeout() {
+                "连接 DeepSeek 超时，请检查网络后重试。".to_string()
+            } else {
+                "无法连接 DeepSeek，请检查网络连接。".to_string()
+            }
+        })?;
 
     let status = response.status();
     let payload: serde_json::Value = response
@@ -111,10 +184,7 @@ async fn request_deepseek(messages: Vec<ChatMessage>, max_tokens: u32) -> Result
         .map_err(|error| format!("DeepSeek 返回了无法读取的数据：{error}"))?;
 
     if !status.is_success() {
-        let message = payload["error"]["message"]
-            .as_str()
-            .unwrap_or("请检查 API Key、余额和网络连接");
-        return Err(format!("DeepSeek 请求失败（{status}）：{message}"));
+        return Err(friendly_api_error(status, &payload));
     }
 
     let text = payload["choices"][0]["message"]["content"]
@@ -131,6 +201,99 @@ async fn request_deepseek(messages: Vec<ChatMessage>, max_tokens: u32) -> Result
 #[tauri::command]
 async fn send_ai_message(messages: Vec<ChatMessage>) -> Result<AiReply, String> {
     request_deepseek(messages, 500).await
+}
+
+#[tauri::command]
+fn stop_ai_message(request_id: String, state: tauri::State<'_, StreamState>) {
+    state.cancel(request_id);
+}
+
+#[tauri::command]
+async fn stream_ai_message(
+    messages: Vec<ChatMessage>,
+    request_id: String,
+    on_event: Channel<StreamEvent>,
+    state: tauri::State<'_, StreamState>,
+) -> Result<(), String> {
+    state.reset(&request_id);
+    let api_key = get_deepseek_key()?;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(90))
+        .build()
+        .map_err(|_| "无法创建网络请求。".to_string())?;
+
+    let mut api_messages = vec![ChatMessage {
+        role: "system".into(),
+        content: "你是桌宠 Kardii，一只温暖、聪明、可爱的小狗伙伴。优先使用用户的语言回答，语气自然亲切。回答简洁实用，不要假装已经执行你无法执行的操作。".into(),
+    }];
+    api_messages.extend(messages.into_iter().take(16));
+
+    let response = client
+        .post(DEEPSEEK_URL)
+        .bearer_auth(api_key)
+        .json(&json!({
+            "model": "deepseek-v4-flash",
+            "messages": api_messages,
+            "thinking": { "type": "disabled" },
+            "max_tokens": 500,
+            "stream": true
+        }))
+        .send()
+        .await
+        .map_err(|error| {
+            if error.is_timeout() {
+                "连接 DeepSeek 超时，请检查网络后重试。".to_string()
+            } else {
+                "无法连接 DeepSeek，请检查网络连接。".to_string()
+            }
+        })?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let payload: serde_json::Value = response.json().await.unwrap_or_default();
+        return Err(friendly_api_error(status, &payload));
+    }
+
+    let mut stream = response.bytes_stream();
+    let mut buffer = Vec::new();
+
+    while let Some(chunk) = stream.next().await {
+        if state.is_cancelled(&request_id) {
+            let _ = on_event.send(StreamEvent { event: "stopped".into(), data: None });
+            state.reset(&request_id);
+            return Ok(());
+        }
+
+        let chunk = chunk.map_err(|_| "接收回复时网络中断，请重试。".to_string())?;
+        buffer.extend_from_slice(&chunk);
+
+        while let Some(event_bytes) = extract_sse_event(&mut buffer) {
+            let event_text = String::from_utf8(event_bytes)
+                .map_err(|_| "DeepSeek 返回了无法读取的文字。".to_string())?;
+            for line in event_text.lines() {
+                let Some(data) = line.trim().strip_prefix("data:") else { continue };
+                let data = data.trim();
+                if data == "[DONE]" {
+                    let _ = on_event.send(StreamEvent { event: "done".into(), data: None });
+                    state.reset(&request_id);
+                    return Ok(());
+                }
+                let Ok(payload) = serde_json::from_str::<serde_json::Value>(data) else { continue };
+                if let Some(delta) = payload["choices"][0]["delta"]["content"].as_str() {
+                    if !delta.is_empty() {
+                        let _ = on_event.send(StreamEvent {
+                            event: "delta".into(),
+                            data: Some(delta.to_string()),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    let _ = on_event.send(StreamEvent { event: "done".into(), data: None });
+    state.reset(&request_id);
+    Ok(())
 }
 
 #[tauri::command]
@@ -151,6 +314,7 @@ fn quit_app(app: tauri::AppHandle) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(StreamState::default())
         .setup(|app| {
             let show = MenuItem::with_id(app, "show", "显示 Kardii", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "退出 Kardii", true, None::<&str>)?;
@@ -180,6 +344,8 @@ pub fn run() {
             has_deepseek_key,
             delete_deepseek_key,
             send_ai_message,
+            stream_ai_message,
+            stop_ai_message,
             test_deepseek_connection
         ])
         .run(tauri::generate_context!())

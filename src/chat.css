@@ -135,7 +135,8 @@ textarea {
   user-select: text;
 }
 
-#sendButton {
+#sendButton,
+#stopButton {
   display: grid;
   width: 34px;
   height: 34px;
@@ -148,6 +149,12 @@ textarea {
   border: 0;
   border-radius: 12px;
 }
+
+#stopButton {
+  background: linear-gradient(145deg, #ed9a9a, #cf636f);
+}
+
+#stopButton:disabled { cursor: wait; opacity: 0.58; }
 
 .hint {
   margin: 6px 0 8px;

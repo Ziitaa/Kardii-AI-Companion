@@ -1,12 +1,14 @@
 const { getCurrentWindow } = window.__TAURI__.window;
 const { emitTo } = window.__TAURI__.event;
-const { invoke } = window.__TAURI__.core;
+const { invoke, Channel } = window.__TAURI__.core;
 
 const chatWindow = getCurrentWindow();
 const form = document.getElementById("chatForm");
 const input = document.getElementById("messageInput");
 const messagesElement = document.getElementById("messages");
 const closeButton = document.getElementById("closeButton");
+const sendButton = document.getElementById("sendButton");
+const stopButton = document.getElementById("stopButton");
 const settingsButton = document.getElementById("settingsButton");
 const settingsPanel = document.getElementById("settingsPanel");
 const settingsCloseButton = document.getElementById("settingsCloseButton");
@@ -23,6 +25,7 @@ let conversation = loadConversation();
 let sending = false;
 let hasApiKey = false;
 let clearConfirmationTimer;
+let activeRequestId = null;
 
 function loadConversation() {
   try {
@@ -52,6 +55,7 @@ function addMessage(text, sender) {
   bubble.textContent = text;
   messagesElement.appendChild(bubble);
   messagesElement.scrollTop = messagesElement.scrollHeight;
+  return bubble;
 }
 
 function renderConversation() {
@@ -105,6 +109,14 @@ async function closeChat() {
   await chatWindow.hide();
 }
 
+function setSending(nextSending) {
+  sending = nextSending;
+  input.disabled = nextSending;
+  sendButton.classList.toggle("hidden", nextSending);
+  stopButton.classList.toggle("hidden", !nextSending);
+  stopButton.disabled = false;
+}
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const text = input.value.trim();
@@ -115,8 +127,7 @@ form.addEventListener("submit", async (event) => {
     return;
   }
 
-  sending = true;
-  input.disabled = true;
+  setSending(true);
   addMessage(text, "user");
   conversation.push({ role: "user", content: text });
   saveConversation();
@@ -124,22 +135,55 @@ form.addEventListener("submit", async (event) => {
   resizeInput();
   await emitTo("main", "kardii-state", "loading");
 
+  const replyBubble = addMessage("", "kardii");
+  activeRequestId = crypto.randomUUID();
+  let replyText = "";
+  let receivedText = false;
+  let stopped = false;
+  const channel = new Channel();
+
+  channel.onmessage = async (event) => {
+    if (event.event === "delta" && event.data) {
+      replyText += event.data;
+      replyBubble.textContent = replyText;
+      messagesElement.scrollTop = messagesElement.scrollHeight;
+      if (!receivedText) {
+        receivedText = true;
+        await emitTo("main", "kardii-state", "idle");
+      }
+    }
+    if (event.event === "stopped") {
+      stopped = true;
+    }
+  };
+
   try {
-    const reply = await invoke("send_ai_message", {
+    await invoke("stream_ai_message", {
       messages: conversation.slice(-12),
+      requestId: activeRequestId,
+      onEvent: channel,
     });
-    addMessage(reply.text, "kardii");
-    conversation.push({ role: "assistant", content: reply.text });
-    saveConversation();
+    if (replyText.trim()) {
+      conversation.push({ role: "assistant", content: replyText.trim() });
+      saveConversation();
+    } else {
+      replyBubble.textContent = stopped ? "已停止回答。" : "这次没有收到回复，请重试。";
+    }
     await emitTo("main", "kardii-state", "idle");
   } catch (error) {
-    addMessage(`出错了：${String(error)}`, "kardii");
+    replyBubble.textContent = String(error);
     await emitTo("main", "kardii-state", "error");
   } finally {
-    sending = false;
-    input.disabled = false;
+    activeRequestId = null;
+    setSending(false);
     input.focus();
   }
+});
+
+stopButton.addEventListener("click", async () => {
+  if (!activeRequestId) return;
+  stopButton.disabled = true;
+  await invoke("stop_ai_message", { requestId: activeRequestId });
 });
 
 saveKeyButton.addEventListener("click", async () => {
