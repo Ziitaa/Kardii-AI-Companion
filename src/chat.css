@@ -219,3 +219,22 @@ textarea {
 .secondary-button { color: #8b6876; background: #fff; border: 1px solid #ead2dc; }
 .primary-button { color: #fff; background: #d96f99; border: 1px solid #d96f99; }
 .settings-actions button:disabled { cursor: wait; opacity: 0.55; }
+
+.clear-history-button {
+  width: 100%;
+  margin-top: 9px;
+  padding: 7px 10px;
+  color: #b34e64;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  background: #fff5f7;
+  border: 1px solid #f0cad3;
+  border-radius: 9px;
+}
+
+.clear-history-button.confirming {
+  color: #fff;
+  background: #c9576e;
+  border-color: #c9576e;
+}

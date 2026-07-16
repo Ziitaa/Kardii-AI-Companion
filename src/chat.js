@@ -15,10 +15,36 @@ const settingsStatus = document.getElementById("settingsStatus");
 const saveKeyButton = document.getElementById("saveKeyButton");
 const testKeyButton = document.getElementById("testKeyButton");
 const deleteKeyButton = document.getElementById("deleteKeyButton");
+const clearHistoryButton = document.getElementById("clearHistoryButton");
 
-const conversation = [];
+const HISTORY_KEY = "kardii-chat-history-v1";
+const MAX_SAVED_MESSAGES = 50;
+let conversation = loadConversation();
 let sending = false;
 let hasApiKey = false;
+let clearConfirmationTimer;
+
+function loadConversation() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+    if (!Array.isArray(saved)) return [];
+    return saved
+      .filter((message) =>
+        ["user", "assistant"].includes(message?.role)
+        && typeof message?.content === "string"
+        && message.content.trim(),
+      )
+      .slice(-MAX_SAVED_MESSAGES);
+  } catch {
+    localStorage.removeItem(HISTORY_KEY);
+    return [];
+  }
+}
+
+function saveConversation() {
+  conversation = conversation.slice(-MAX_SAVED_MESSAGES);
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(conversation));
+}
 
 function addMessage(text, sender) {
   const bubble = document.createElement("div");
@@ -26,6 +52,17 @@ function addMessage(text, sender) {
   bubble.textContent = text;
   messagesElement.appendChild(bubble);
   messagesElement.scrollTop = messagesElement.scrollHeight;
+}
+
+function renderConversation() {
+  messagesElement.replaceChildren();
+  if (conversation.length === 0) {
+    addMessage("嗨！今天需要我帮你做什么？", "kardii");
+    return;
+  }
+  conversation.forEach((message) => {
+    addMessage(message.content, message.role === "assistant" ? "kardii" : "user");
+  });
 }
 
 function resizeInput() {
@@ -82,6 +119,7 @@ form.addEventListener("submit", async (event) => {
   input.disabled = true;
   addMessage(text, "user");
   conversation.push({ role: "user", content: text });
+  saveConversation();
   input.value = "";
   resizeInput();
   await emitTo("main", "kardii-state", "loading");
@@ -92,6 +130,7 @@ form.addEventListener("submit", async (event) => {
     });
     addMessage(reply.text, "kardii");
     conversation.push({ role: "assistant", content: reply.text });
+    saveConversation();
     await emitTo("main", "kardii-state", "idle");
   } catch (error) {
     addMessage(`出错了：${String(error)}`, "kardii");
@@ -152,6 +191,27 @@ deleteKeyButton.addEventListener("click", async () => {
   }
 });
 
+clearHistoryButton.addEventListener("click", () => {
+  if (!clearHistoryButton.classList.contains("confirming")) {
+    clearHistoryButton.classList.add("confirming");
+    clearHistoryButton.textContent = "再点一次，确认清空";
+    clearTimeout(clearConfirmationTimer);
+    clearConfirmationTimer = setTimeout(() => {
+      clearHistoryButton.classList.remove("confirming");
+      clearHistoryButton.textContent = "清空聊天记录";
+    }, 4000);
+    return;
+  }
+
+  clearTimeout(clearConfirmationTimer);
+  conversation = [];
+  localStorage.removeItem(HISTORY_KEY);
+  renderConversation();
+  clearHistoryButton.classList.remove("confirming");
+  clearHistoryButton.textContent = "清空聊天记录";
+  setSettingsStatus("聊天记录已清空。", "success");
+});
+
 input.addEventListener("input", resizeInput);
 input.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) {
@@ -173,4 +233,5 @@ window.addEventListener("focus", () => {
   if (settingsPanel.classList.contains("hidden")) input.focus();
 });
 
+renderConversation();
 refreshKeyState();
