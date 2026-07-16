@@ -13,6 +13,7 @@
         <div>
           <strong>Kardii</strong>
         </div>
+        <button id="profileButton" class="icon-button profile-button" type="button" aria-label="个性与记忆">♡</button>
         <button id="settingsButton" class="icon-button settings-button" type="button" aria-label="AI 设置">⚙</button>
         <button id="closeButton" class="icon-button" type="button" aria-label="关闭">×</button>
       </header>
@@ -54,6 +55,41 @@
             <button id="saveKeyButton" class="primary-button" type="button">保存</button>
           </div>
           <button id="clearHistoryButton" class="clear-history-button" type="button">清空聊天记录</button>
+        </div>
+      </section>
+
+      <section id="profilePanel" class="settings-panel hidden" aria-label="个性与长期记忆">
+        <div class="settings-box profile-box">
+          <div class="settings-title">
+            <strong>个性与长期记忆</strong>
+            <button id="profileCloseButton" class="icon-button" type="button" aria-label="关闭">×</button>
+          </div>
+
+          <label for="userNameInput">Kardii 如何称呼你</label>
+          <input id="userNameInput" class="settings-input" maxlength="30" placeholder="例如：主人、姐姐、Zita">
+
+          <label for="personalitySelect">Kardii 的性格</label>
+          <select id="personalitySelect" class="settings-input">
+            <option value="warm">温柔可爱</option>
+            <option value="lively">活泼开朗</option>
+            <option value="calm">安静陪伴</option>
+            <option value="professional">简洁可靠</option>
+          </select>
+
+          <label for="customInstructionsInput">自定义相处方式</label>
+          <textarea id="customInstructionsInput" class="settings-input profile-textarea" maxlength="300" placeholder="例如：回答时语气轻松一些，不要太啰嗦"></textarea>
+          <button id="saveProfileButton" class="primary-button wide-button" type="button">保存个性设置</button>
+
+          <div class="memory-heading">
+            <strong>长期记忆</strong>
+            <span id="memoryCount">0/20</span>
+          </div>
+          <div class="memory-add-row">
+            <input id="memoryInput" class="settings-input" maxlength="160" placeholder="输入希望 Kardii 记住的事情">
+            <button id="addMemoryButton" class="primary-button" type="button">记住</button>
+          </div>
+          <div id="memoryList" class="memory-list"></div>
+          <p id="profileStatus" class="settings-status">记忆只保存在这台电脑中。</p>
         </div>
       </section>
     </main>

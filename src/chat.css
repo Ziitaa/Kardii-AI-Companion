@@ -74,6 +74,8 @@ header strong {
 }
 
 .icon-button:hover { background: rgba(205, 112, 148, 0.12); }
+.profile-button { margin-left: auto; font-size: 20px; }
+.profile-button + .settings-button { margin-left: 0; }
 .settings-button { margin-left: auto; font-size: 16px; }
 .settings-button + .icon-button { margin-left: 0; }
 
@@ -220,7 +222,8 @@ textarea {
 
 .model-name,
 #apiKeyInput,
-#responseLengthSelect {
+#responseLengthSelect,
+.settings-input {
   width: 100%;
   padding: 9px 10px;
   color: #5e4851;
@@ -270,3 +273,40 @@ textarea {
   background: #c9576e;
   border-color: #c9576e;
 }
+
+.profile-textarea {
+  min-height: 58px;
+  resize: vertical;
+  outline: none;
+  user-select: text;
+}
+
+.wide-button {
+  width: 100%;
+  margin-top: 9px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  border-radius: 9px;
+}
+
+.memory-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 15px;
+  color: #6f4d5a;
+  font-size: 12px;
+}
+
+.memory-heading span { color: #a98b96; font-size: 10px; }
+.memory-add-row { display: flex; gap: 6px; margin-top: 7px; }
+.memory-add-row .settings-input { min-width: 0; }
+.memory-add-row button { flex: 0 0 auto; padding: 7px 10px; font: inherit; font-size: 11px; border-radius: 9px; }
+
+.memory-list { display: grid; gap: 6px; margin-top: 8px; }
+.memory-empty { padding: 9px; color: #a98b96; font-size: 10px; text-align: center; background: #fff; border: 1px dashed #ead2dc; border-radius: 9px; }
+.memory-item { display: flex; align-items: flex-start; gap: 7px; padding: 7px 8px; color: #66515a; font-size: 11px; line-height: 1.35; background: #fff; border: 1px solid #ead7df; border-radius: 9px; }
+.memory-item span { flex: 1; user-select: text; }
+.memory-item button { flex: 0 0 auto; padding: 0 3px; color: #bf6478; cursor: pointer; background: transparent; border: 0; }

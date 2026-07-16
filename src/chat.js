@@ -22,15 +22,105 @@ const replyActions = document.getElementById("replyActions");
 const copyReplyButton = document.getElementById("copyReplyButton");
 const regenerateButton = document.getElementById("regenerateButton");
 const responseLengthSelect = document.getElementById("responseLengthSelect");
+const profileButton = document.getElementById("profileButton");
+const profilePanel = document.getElementById("profilePanel");
+const profileCloseButton = document.getElementById("profileCloseButton");
+const userNameInput = document.getElementById("userNameInput");
+const personalitySelect = document.getElementById("personalitySelect");
+const customInstructionsInput = document.getElementById("customInstructionsInput");
+const saveProfileButton = document.getElementById("saveProfileButton");
+const memoryInput = document.getElementById("memoryInput");
+const addMemoryButton = document.getElementById("addMemoryButton");
+const memoryList = document.getElementById("memoryList");
+const memoryCount = document.getElementById("memoryCount");
+const profileStatus = document.getElementById("profileStatus");
 
 const HISTORY_KEY = "kardii-chat-history-v1";
 const RESPONSE_LENGTH_KEY = "kardii-response-length";
+const PROFILE_KEY = "kardii-profile-v1";
+const MEMORIES_KEY = "kardii-memories-v1";
 const MAX_SAVED_MESSAGES = 50;
 let conversation = loadConversation();
 let sending = false;
 let hasApiKey = false;
 let clearConfirmationTimer;
 let activeRequestId = null;
+let profile = loadProfile();
+let memories = loadMemories();
+
+function loadProfile() {
+  try {
+    const value = JSON.parse(localStorage.getItem(PROFILE_KEY) || "{}");
+    return {
+      userName: typeof value.userName === "string" ? value.userName.slice(0, 30) : "",
+      personality: ["warm", "lively", "calm", "professional"].includes(value.personality) ? value.personality : "warm",
+      customInstructions: typeof value.customInstructions === "string" ? value.customInstructions.slice(0, 300) : "",
+    };
+  } catch {
+    return { userName: "", personality: "warm", customInstructions: "" };
+  }
+}
+
+function loadMemories() {
+  try {
+    const value = JSON.parse(localStorage.getItem(MEMORIES_KEY) || "[]");
+    if (!Array.isArray(value)) return [];
+    return value.filter((item) => typeof item === "string" && item.trim()).map((item) => item.trim().slice(0, 160)).slice(-20);
+  } catch {
+    return [];
+  }
+}
+
+function currentProfile() {
+  return { ...profile, memories };
+}
+
+function setProfileStatus(text, type = "") {
+  profileStatus.textContent = text;
+  profileStatus.className = `settings-status ${type}`.trim();
+}
+
+function renderMemories() {
+  memoryList.replaceChildren();
+  memoryCount.textContent = `${memories.length}/20`;
+  if (memories.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "memory-empty";
+    empty.textContent = "还没有长期记忆";
+    memoryList.appendChild(empty);
+    return;
+  }
+  memories.forEach((memory, index) => {
+    const item = document.createElement("div");
+    item.className = "memory-item";
+    const text = document.createElement("span");
+    text.textContent = memory;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "删除";
+    remove.addEventListener("click", () => {
+      memories.splice(index, 1);
+      localStorage.setItem(MEMORIES_KEY, JSON.stringify(memories));
+      renderMemories();
+      setProfileStatus("这条记忆已删除。", "success");
+    });
+    item.append(text, remove);
+    memoryList.appendChild(item);
+  });
+}
+
+function showProfile() {
+  userNameInput.value = profile.userName;
+  personalitySelect.value = profile.personality;
+  customInstructionsInput.value = profile.customInstructions;
+  renderMemories();
+  profilePanel.classList.remove("hidden");
+}
+
+function hideProfile() {
+  profilePanel.classList.add("hidden");
+  input.focus();
+}
 
 function loadConversation() {
   try {
@@ -162,6 +252,7 @@ async function requestReply() {
   try {
     await invoke("stream_ai_message", {
       messages: conversation.slice(-12),
+      profile: currentProfile(),
       requestId: activeRequestId,
       maxTokens: Number(responseLengthSelect.value),
       onEvent: channel,
@@ -232,6 +323,40 @@ regenerateButton.addEventListener("click", async () => {
   saveConversation();
   renderConversation();
   await requestReply();
+});
+
+saveProfileButton.addEventListener("click", () => {
+  profile = {
+    userName: userNameInput.value.trim().slice(0, 30),
+    personality: personalitySelect.value,
+    customInstructions: customInstructionsInput.value.trim().slice(0, 300),
+  };
+  localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+  setProfileStatus("个性设置已保存，下一次回答开始生效。", "success");
+});
+
+addMemoryButton.addEventListener("click", () => {
+  const memory = memoryInput.value.trim();
+  if (!memory) {
+    setProfileStatus("请先输入需要记住的事情。", "error");
+    return;
+  }
+  if (memories.length >= 20) {
+    setProfileStatus("最多保存 20 条，请先删除不需要的记忆。", "error");
+    return;
+  }
+  memories.push(memory.slice(0, 160));
+  localStorage.setItem(MEMORIES_KEY, JSON.stringify(memories));
+  memoryInput.value = "";
+  renderMemories();
+  setProfileStatus("Kardii 已经记住了。", "success");
+});
+
+memoryInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    addMemoryButton.click();
+  }
 });
 
 saveKeyButton.addEventListener("click", async () => {
@@ -320,10 +445,13 @@ input.addEventListener("keydown", (event) => {
 
 settingsButton.addEventListener("click", showSettings);
 settingsCloseButton.addEventListener("click", hideSettings);
+profileButton.addEventListener("click", showProfile);
+profileCloseButton.addEventListener("click", hideProfile);
 closeButton.addEventListener("click", closeChat);
 window.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
-  if (!settingsPanel.classList.contains("hidden")) hideSettings();
+  if (!profilePanel.classList.contains("hidden")) hideProfile();
+  else if (!settingsPanel.classList.contains("hidden")) hideSettings();
   else void closeChat();
 });
 

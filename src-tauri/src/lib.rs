@@ -23,6 +23,53 @@ struct ChatMessage {
     content: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PetProfile {
+    user_name: String,
+    personality: String,
+    custom_instructions: String,
+    memories: Vec<String>,
+}
+
+impl PetProfile {
+    fn system_prompt(&self) -> String {
+        let personality = match self.personality.as_str() {
+            "lively" => "活泼开朗、充满好奇心，语气轻快但不过度吵闹",
+            "calm" => "安静温和、善于陪伴和倾听，语气平静柔和",
+            "professional" => "简洁可靠、条理清楚，同时保留友善的小狗伙伴感觉",
+            _ => "温柔可爱、聪明亲切，像贴心的小狗伙伴",
+        };
+        let user_name: String = self.user_name.trim().chars().take(30).collect();
+        let custom: String = self.custom_instructions.trim().chars().take(300).collect();
+        let memories: Vec<String> = self.memories
+            .iter()
+            .filter_map(|memory| {
+                let clean: String = memory.trim().chars().take(160).collect();
+                (!clean.is_empty()).then_some(clean)
+            })
+            .take(20)
+            .collect();
+
+        let mut prompt = format!(
+            "你是桌宠 Kardii，一只温暖、聪明、可爱的小狗伙伴。你的性格是：{personality}。优先使用用户的语言回答，回答自然、实用，不要假装已经执行你无法执行的操作。"
+        );
+        if !user_name.is_empty() {
+            prompt.push_str(&format!(" 用户希望你称呼其为“{user_name}”。"));
+        }
+        if !custom.is_empty() {
+            prompt.push_str(&format!(" 用户对相处方式的补充要求：{custom}"));
+        }
+        if !memories.is_empty() {
+            prompt.push_str(" 以下是用户明确要求 Kardii 记住的信息。只在相关时自然使用，不要每次回答都复述：");
+            for (index, memory) in memories.iter().enumerate() {
+                prompt.push_str(&format!("\n{}. {}", index + 1, memory));
+            }
+        }
+        prompt
+    }
+}
+
 #[derive(Debug, Serialize)]
 struct AiReply {
     text: String,
@@ -211,6 +258,7 @@ fn stop_ai_message(request_id: String, state: tauri::State<'_, StreamState>) {
 #[tauri::command]
 async fn stream_ai_message(
     messages: Vec<ChatMessage>,
+    profile: PetProfile,
     request_id: String,
     max_tokens: u32,
     on_event: Channel<StreamEvent>,
@@ -225,7 +273,7 @@ async fn stream_ai_message(
 
     let mut api_messages = vec![ChatMessage {
         role: "system".into(),
-        content: "你是桌宠 Kardii，一只温暖、聪明、可爱的小狗伙伴。优先使用用户的语言回答，语气自然亲切。回答简洁实用，不要假装已经执行你无法执行的操作。".into(),
+        content: profile.system_prompt(),
     }];
     api_messages.extend(messages.into_iter().take(16));
 
