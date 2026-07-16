@@ -13,6 +13,7 @@
         <div>
           <strong>Kardii</strong>
         </div>
+        <button id="toolsButton" class="icon-button tools-button" type="button" aria-label="桌面工具">⌘</button>
         <button id="profileButton" class="icon-button profile-button" type="button" aria-label="个性与记忆">♡</button>
         <button id="settingsButton" class="icon-button settings-button" type="button" aria-label="AI 设置">⚙</button>
         <button id="closeButton" class="icon-button" type="button" aria-label="关闭">×</button>
@@ -109,7 +110,7 @@
             <button id="showImportCodeButton" class="secondary-button" type="button">粘贴迁移码</button>
           </div>
           <div id="migrationImportBox" class="migration-import hidden">
-            <textarea id="migrationCodeInput" class="settings-input" placeholder="粘贴以 KARDII-V04: 开头的迁移码"></textarea>
+            <textarea id="migrationCodeInput" class="settings-input" placeholder="粘贴 Kardii 迁移码（兼容 v0.4）"></textarea>
             <button id="importMigrationButton" class="primary-button" type="button">确认导入</button>
           </div>
           <div class="migration-actions full-backup-actions">
@@ -117,6 +118,66 @@
             <button id="importBackupButton" class="secondary-button" type="button">导入完整备份</button>
           </div>
           <p class="backup-note">迁移码只包含个性和长期记忆；完整备份还包含聊天记录。API Key 永远不会导出。</p>
+        </div>
+      </section>
+
+      <section id="toolsPanel" class="settings-panel hidden" aria-label="桌面工具">
+        <div class="settings-box tools-box">
+          <div class="settings-title">
+            <strong>桌面工具</strong>
+            <button id="toolsCloseButton" class="icon-button" type="button" aria-label="关闭">×</button>
+          </div>
+          <p class="tools-intro">所有工具都在本机执行，每次使用前都会显示具体操作并由你确认。</p>
+
+          <div class="tool-quick-actions">
+            <button id="readFileButton" class="tool-card" type="button">
+              <strong>读取文本文件</strong>
+              <span>你亲自选择一个不超过 256 KB 的文件</span>
+            </button>
+            <button id="readClipboardButton" class="tool-card" type="button">
+              <strong>读取剪贴板</strong>
+              <span>读取当前复制的文字</span>
+            </button>
+          </div>
+
+          <label for="clipboardTextInput">写入剪贴板</label>
+          <div class="tool-input-row">
+            <textarea id="clipboardTextInput" class="settings-input tool-textarea" maxlength="50000" placeholder="输入要复制的文字"></textarea>
+            <button id="writeClipboardButton" class="primary-button" type="button">复制</button>
+          </div>
+
+          <label for="urlInput">用默认浏览器打开网页</label>
+          <div class="tool-input-row single-line">
+            <input id="urlInput" class="settings-input" maxlength="2000" placeholder="https://example.com">
+            <button id="openUrlButton" class="primary-button" type="button">打开</button>
+          </div>
+
+          <label for="terminalCommandInput">运行终端命令</label>
+          <div class="tool-input-row single-line">
+            <input id="terminalCommandInput" class="settings-input command-input" maxlength="500" placeholder="例如：git status">
+            <button id="runCommandButton" class="terminal-button" type="button">运行</button>
+          </div>
+          <p class="terminal-warning">命令会显示原文并再次确认；危险、提权、多行或超过 20 秒的命令会被拒绝。</p>
+          <p id="toolStatus" class="settings-status">工具结果只有在你发送下一条消息时才会交给 DeepSeek。</p>
+
+          <div class="tool-log-heading">
+            <strong>本机执行记录</strong>
+            <button id="clearToolLogsButton" type="button">清空</button>
+          </div>
+          <div id="toolLogList" class="tool-log-list"></div>
+        </div>
+      </section>
+
+      <section id="permissionPanel" class="settings-panel permission-panel hidden" aria-label="操作确认">
+        <div class="permission-box">
+          <div id="permissionBadge" class="permission-badge">需要你的允许</div>
+          <strong id="permissionTitle">确认操作</strong>
+          <p id="permissionDescription"></p>
+          <pre id="permissionDetail"></pre>
+          <div class="permission-actions">
+            <button id="denyPermissionButton" class="secondary-button" type="button">取消</button>
+            <button id="allowPermissionButton" class="primary-button" type="button">允许这一次</button>
+          </div>
         </div>
       </section>
     </main>

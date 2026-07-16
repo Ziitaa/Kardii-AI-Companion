@@ -74,7 +74,9 @@ header strong {
 }
 
 .icon-button:hover { background: rgba(205, 112, 148, 0.12); }
-.profile-button { margin-left: auto; font-size: 20px; }
+.tools-button { margin-left: auto; font-size: 15px; font-weight: 700; }
+.tools-button + .profile-button { margin-left: 0; }
+.profile-button { margin-left: 0; font-size: 20px; }
 .profile-button + .settings-button { margin-left: 0; }
 .settings-button { margin-left: auto; font-size: 16px; }
 .settings-button + .icon-button { margin-left: 0; }
@@ -354,3 +356,111 @@ textarea {
 .migration-import button { padding: 7px; font: inherit; font-size: 10px; cursor: pointer; border-radius: 9px; }
 .full-backup-actions { margin-top: 9px; }
 .backup-note { margin: 7px 2px 0; color: #a88a95; font-size: 9px; line-height: 1.45; }
+
+.tools-intro {
+  margin: -3px 0 10px;
+  color: #8f737e;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.tool-quick-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+
+.tool-card {
+  display: grid;
+  gap: 3px;
+  padding: 9px;
+  color: #6f4d5a;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  background: linear-gradient(145deg, #fff, #fff4f8);
+  border: 1px solid #ead2dc;
+  border-radius: 11px;
+}
+
+.tool-card:hover { border-color: #dc91ac; transform: translateY(-1px); }
+.tool-card strong { font-size: 11px; }
+.tool-card span { color: #a1848f; font-size: 9px; line-height: 1.35; }
+
+.tool-input-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.tool-input-row .settings-input { min-width: 0; }
+.tool-textarea { min-height: 48px; resize: vertical; outline: none; user-select: text; }
+.tool-input-row button {
+  flex: 0 0 auto;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  border-radius: 9px;
+}
+.tool-input-row.single-line { align-items: center; }
+.command-input { font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; font-size: 10px; }
+.terminal-button { color: #fff; background: #735d68; border: 1px solid #735d68; }
+.terminal-warning { margin: 5px 2px 0; color: #b07171; font-size: 9px; line-height: 1.4; }
+
+.tool-log-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  color: #6f4d5a;
+  font-size: 11px;
+}
+
+.tool-log-heading button {
+  padding: 2px 4px;
+  color: #a47786;
+  font: inherit;
+  font-size: 9px;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+}
+
+.tool-log-list { display: grid; gap: 5px; margin-top: 7px; }
+.tool-log-empty { padding: 8px; color: #ad929c; font-size: 9px; text-align: center; border: 1px dashed #ead2dc; border-radius: 9px; }
+.tool-log-item { display: grid; gap: 2px; padding: 7px 8px; background: #fff; border: 1px solid #edd9e1; border-radius: 9px; }
+.tool-log-item strong { color: #6f5660; font-size: 10px; }
+.tool-log-item span { overflow: hidden; color: #9b7f89; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.tool-log-item time { color: #baa4ac; font-size: 8px; }
+.tool-log-item.error { border-color: #edc7ce; background: #fff7f8; }
+
+.permission-panel { z-index: 40; background: rgba(62, 42, 50, 0.42); }
+.permission-box {
+  width: 100%;
+  padding: 17px;
+  background: #fffafd;
+  border: 1px solid #ebc9d6;
+  border-radius: 17px;
+  box-shadow: 0 18px 40px rgba(57, 35, 44, 0.3);
+}
+.permission-badge { display: inline-block; margin-bottom: 8px; padding: 3px 7px; color: #9a536d; font-size: 9px; background: #ffe7f0; border-radius: 999px; }
+.permission-badge.danger { color: #a44351; background: #ffe2e5; }
+.permission-box > strong { display: block; color: #624852; font-size: 14px; }
+.permission-box > p { margin: 7px 0; color: #826b74; font-size: 10px; line-height: 1.45; }
+.permission-box pre {
+  max-height: 92px;
+  margin: 8px 0 11px;
+  padding: 9px;
+  overflow: auto;
+  color: #5d4a52;
+  font: 9px/1.4 ui-monospace, "SFMono-Regular", Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: #fff;
+  border: 1px solid #ead5dd;
+  border-radius: 9px;
+  user-select: text;
+}
+.permission-actions { display: flex; justify-content: flex-end; gap: 7px; }
+.permission-actions button { padding: 8px 11px; font: inherit; font-size: 10px; cursor: pointer; border-radius: 9px; }

@@ -46,11 +46,33 @@ const migrationCodeInput = document.getElementById("migrationCodeInput");
 const importMigrationButton = document.getElementById("importMigrationButton");
 const exportBackupButton = document.getElementById("exportBackupButton");
 const importBackupButton = document.getElementById("importBackupButton");
+const toolsButton = document.getElementById("toolsButton");
+const toolsPanel = document.getElementById("toolsPanel");
+const toolsCloseButton = document.getElementById("toolsCloseButton");
+const readFileButton = document.getElementById("readFileButton");
+const readClipboardButton = document.getElementById("readClipboardButton");
+const clipboardTextInput = document.getElementById("clipboardTextInput");
+const writeClipboardButton = document.getElementById("writeClipboardButton");
+const urlInput = document.getElementById("urlInput");
+const openUrlButton = document.getElementById("openUrlButton");
+const terminalCommandInput = document.getElementById("terminalCommandInput");
+const runCommandButton = document.getElementById("runCommandButton");
+const toolStatus = document.getElementById("toolStatus");
+const toolLogList = document.getElementById("toolLogList");
+const clearToolLogsButton = document.getElementById("clearToolLogsButton");
+const permissionPanel = document.getElementById("permissionPanel");
+const permissionBadge = document.getElementById("permissionBadge");
+const permissionTitle = document.getElementById("permissionTitle");
+const permissionDescription = document.getElementById("permissionDescription");
+const permissionDetail = document.getElementById("permissionDetail");
+const denyPermissionButton = document.getElementById("denyPermissionButton");
+const allowPermissionButton = document.getElementById("allowPermissionButton");
 
 const HISTORY_KEY = "kardii-chat-history-v1";
 const RESPONSE_LENGTH_KEY = "kardii-response-length";
 const PROFILE_KEY = "kardii-profile-v1";
 const MEMORIES_KEY = "kardii-memories-v1";
+const TOOL_LOGS_KEY = "kardii-tool-logs-v1";
 const MAX_SAVED_MESSAGES = 50;
 const PERSONALITIES = {
   healing: "耐心温暖，擅长安慰，也会温和地给出实用建议。",
@@ -68,6 +90,9 @@ let activeRequestId = null;
 let profile = loadProfile();
 let memories = loadMemories();
 let suggestedMemory = null;
+let toolLogs = loadToolLogs();
+let pendingToolContext = null;
+let permissionResolver = null;
 
 function loadProfile() {
   try {
@@ -99,6 +124,117 @@ function currentProfile() {
 function setProfileStatus(text, type = "") {
   profileStatus.textContent = text;
   profileStatus.className = `settings-status ${type}`.trim();
+}
+
+function loadToolLogs() {
+  try {
+    const value = JSON.parse(localStorage.getItem(TOOL_LOGS_KEY) || "[]");
+    if (!Array.isArray(value)) return [];
+    return value
+      .filter((item) => typeof item?.action === "string" && typeof item?.time === "string")
+      .slice(-30);
+  } catch {
+    return [];
+  }
+}
+
+function renderToolLogs() {
+  toolLogList.replaceChildren();
+  if (toolLogs.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "tool-log-empty";
+    empty.textContent = "还没有执行记录";
+    toolLogList.appendChild(empty);
+    return;
+  }
+  [...toolLogs].reverse().forEach((log) => {
+    const item = document.createElement("div");
+    item.className = `tool-log-item${log.success ? "" : " error"}`;
+    const title = document.createElement("strong");
+    title.textContent = `${log.success ? "✓" : "!"} ${log.action}`;
+    const detail = document.createElement("span");
+    detail.textContent = log.detail || "";
+    const time = document.createElement("time");
+    time.textContent = new Date(log.time).toLocaleString();
+    item.append(title, detail, time);
+    toolLogList.appendChild(item);
+  });
+}
+
+function recordToolLog(action, detail, success = true) {
+  toolLogs.push({
+    action: String(action).slice(0, 60),
+    detail: String(detail || "").replace(/\s+/g, " ").slice(0, 220),
+    success,
+    time: new Date().toISOString(),
+  });
+  toolLogs = toolLogs.slice(-30);
+  localStorage.setItem(TOOL_LOGS_KEY, JSON.stringify(toolLogs));
+  renderToolLogs();
+}
+
+function setToolStatus(text, type = "") {
+  toolStatus.textContent = text;
+  toolStatus.className = `settings-status ${type}`.trim();
+}
+
+function showTools() {
+  renderToolLogs();
+  toolsPanel.classList.remove("hidden");
+}
+
+function hideTools() {
+  toolsPanel.classList.add("hidden");
+  input.focus();
+}
+
+function finishPermission(allowed) {
+  if (!permissionResolver) return;
+  const resolve = permissionResolver;
+  permissionResolver = null;
+  permissionPanel.classList.add("hidden");
+  resolve(allowed);
+}
+
+function requestToolPermission({ title, description, detail, danger = false }) {
+  if (permissionResolver) finishPermission(false);
+  permissionTitle.textContent = title;
+  permissionDescription.textContent = description;
+  permissionDetail.textContent = detail;
+  permissionBadge.textContent = danger ? "高权限操作 · 请仔细检查" : "需要你的允许";
+  permissionBadge.classList.toggle("danger", danger);
+  allowPermissionButton.classList.toggle("terminal-button", danger);
+  permissionPanel.classList.remove("hidden");
+  return new Promise((resolve) => {
+    permissionResolver = resolve;
+  });
+}
+
+function setPendingToolContext(label, content) {
+  const clean = String(content || "");
+  const clipped = clean.length > 12_000
+    ? `${clean.slice(0, 12_000)}\n…（传给 AI 的内容已截断）`
+    : clean;
+  pendingToolContext = { label, content: clipped };
+  setToolStatus(`${label}已准备好。关闭工具面板后直接提问，内容才会发送给 DeepSeek。`, "success");
+}
+
+function addToolNotice(text) {
+  addMessage(text, "kardii");
+}
+
+function messagesWithToolContext() {
+  const recent = conversation.slice(-12).map((message) => ({ ...message }));
+  if (!pendingToolContext || recent.length === 0) return recent;
+  const lastIndex = recent.length - 1;
+  if (recent[lastIndex].role !== "user") return recent;
+  recent[lastIndex].content = [
+    `[用户明确授权的本地工具资料：${pendingToolContext.label}]`,
+    pendingToolContext.content,
+    "",
+    `[用户当前问题] ${recent[lastIndex].content}`,
+  ].join("\n");
+  return recent;
 }
 
 function renderMemories() {
@@ -151,13 +287,16 @@ function encodeMigrationCode(data) {
   const bytes = new TextEncoder().encode(JSON.stringify(data));
   let binary = "";
   bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
-  return `KARDII-V04:${btoa(binary)}`;
+  return `KARDII-V05:${btoa(binary)}`;
 }
 
 function decodeMigrationCode(code) {
   const clean = code.trim();
-  if (!clean.startsWith("KARDII-V04:")) throw new Error("这不是有效的 Kardii v0.4 迁移码。");
-  const binary = atob(clean.slice("KARDII-V04:".length));
+  const prefix = clean.startsWith("KARDII-V05:")
+    ? "KARDII-V05:"
+    : clean.startsWith("KARDII-V04:") ? "KARDII-V04:" : null;
+  if (!prefix) throw new Error("这不是有效的 Kardii 迁移码。");
+  const binary = atob(clean.slice(prefix.length));
   const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
   return JSON.parse(new TextDecoder().decode(bytes));
 }
@@ -191,7 +330,7 @@ function createFullBackup() {
   return {
     format: "kardii-backup",
     version: 1,
-    appVersion: "0.4.0",
+    appVersion: "0.5.0",
     createdAt: new Date().toISOString(),
     profile,
     memories,
@@ -425,6 +564,7 @@ function setSending(nextSending) {
 async function requestReply() {
   setSending(true);
   await emitTo("main", "kardii-state", "loading");
+  const usingToolContext = Boolean(pendingToolContext);
 
   const replyBubble = addMessage("", "kardii");
   activeRequestId = crypto.randomUUID();
@@ -450,7 +590,7 @@ async function requestReply() {
 
   try {
     await invoke("stream_ai_message", {
-      messages: conversation.slice(-12),
+      messages: messagesWithToolContext(),
       profile: currentProfile(),
       requestId: activeRequestId,
       maxTokens: Number(responseLengthSelect.value),
@@ -459,6 +599,10 @@ async function requestReply() {
     if (replyText.trim()) {
       conversation.push({ role: "assistant", content: replyText.trim() });
       saveConversation();
+      if (usingToolContext) {
+        pendingToolContext = null;
+        setToolStatus("工具资料已用于本次回答，不会在下一次提问中重复发送。", "success");
+      }
     } else {
       replyBubble.textContent = stopped ? "已停止回答。" : "这次没有收到回复，请重试。";
     }
@@ -501,6 +645,154 @@ stopButton.addEventListener("click", async () => {
   if (!activeRequestId) return;
   stopButton.disabled = true;
   await invoke("stop_ai_message", { requestId: activeRequestId });
+});
+
+denyPermissionButton.addEventListener("click", () => finishPermission(false));
+allowPermissionButton.addEventListener("click", () => finishPermission(true));
+
+readFileButton.addEventListener("click", async () => {
+  const allowed = await requestToolPermission({
+    title: "允许读取一个文本文件？",
+    description: "接下来会打开系统文件选择器，Kardii 只能读取你亲自选中的一个文件。内容仅在你下一次提问时发送给 DeepSeek。",
+    detail: "允许范围：一个 UTF-8 文本或代码文件\n大小上限：256 KB\n不会修改、移动或删除文件",
+  });
+  if (!allowed) return;
+  readFileButton.disabled = true;
+  try {
+    const result = await invoke("read_text_file");
+    if (!result) {
+      setToolStatus("你取消了文件选择。", "");
+      return;
+    }
+    setPendingToolContext(`文件 ${result.name}`, result.content);
+    addToolNotice(`已经读取“${result.name}”。现在直接问我“总结这个文件”或其他问题就可以。`);
+    recordToolLog("读取文本文件", result.path, true);
+  } catch (error) {
+    setToolStatus(String(error), "error");
+    recordToolLog("读取文本文件", String(error), false);
+  } finally {
+    readFileButton.disabled = false;
+  }
+});
+
+readClipboardButton.addEventListener("click", async () => {
+  const allowed = await requestToolPermission({
+    title: "允许读取剪贴板文字？",
+    description: "Kardii 会读取你当前复制的文字。内容仅在你下一次提问时发送给 DeepSeek。",
+    detail: "只读取文字，不读取图片或文件\n不会持续监控剪贴板\n每次读取都必须重新允许",
+  });
+  if (!allowed) return;
+  readClipboardButton.disabled = true;
+  try {
+    const text = await invoke("read_clipboard_text");
+    setPendingToolContext("剪贴板文字", text);
+    addToolNotice("已经读取剪贴板文字。现在可以问我总结、翻译或改写。 ");
+    recordToolLog("读取剪贴板", `${text.length} 个字符`, true);
+  } catch (error) {
+    setToolStatus(String(error), "error");
+    recordToolLog("读取剪贴板", String(error), false);
+  } finally {
+    readClipboardButton.disabled = false;
+  }
+});
+
+writeClipboardButton.addEventListener("click", async () => {
+  const text = clipboardTextInput.value.trim();
+  if (!text) {
+    setToolStatus("请先输入要复制的文字。", "error");
+    return;
+  }
+  const allowed = await requestToolPermission({
+    title: "允许改写系统剪贴板？",
+    description: "确认后，当前剪贴板内容会被下面的文字替换。这个操作不会把文字发送给 DeepSeek。",
+    detail: text.slice(0, 800),
+  });
+  if (!allowed) return;
+  writeClipboardButton.disabled = true;
+  try {
+    await invoke("write_clipboard_text", { text });
+    clipboardTextInput.value = "";
+    setToolStatus("文字已复制到剪贴板。", "success");
+    recordToolLog("写入剪贴板", `${text.length} 个字符`, true);
+  } catch (error) {
+    setToolStatus(String(error), "error");
+    recordToolLog("写入剪贴板", String(error), false);
+  } finally {
+    writeClipboardButton.disabled = false;
+  }
+});
+
+openUrlButton.addEventListener("click", async () => {
+  const value = urlInput.value.trim();
+  let url;
+  try {
+    url = new URL(value);
+    if (!["http:", "https:"].includes(url.protocol)) throw new Error();
+  } catch {
+    setToolStatus("请输入以 http:// 或 https:// 开头的完整网址。", "error");
+    return;
+  }
+  const allowed = await requestToolPermission({
+    title: "允许打开这个网页？",
+    description: "Kardii 会调用系统默认浏览器。网页不会在桌宠内部静默打开。",
+    detail: url.href,
+  });
+  if (!allowed) return;
+  openUrlButton.disabled = true;
+  try {
+    await invoke("open_external_url", { url: url.href });
+    setToolStatus("网页已交给默认浏览器打开。", "success");
+    recordToolLog("打开网页", url.href, true);
+  } catch (error) {
+    setToolStatus(String(error), "error");
+    recordToolLog("打开网页", String(error), false);
+  } finally {
+    openUrlButton.disabled = false;
+  }
+});
+
+runCommandButton.addEventListener("click", async () => {
+  const command = terminalCommandInput.value.trim();
+  if (!command) {
+    setToolStatus("请先输入要运行的命令。", "error");
+    return;
+  }
+  const allowed = await requestToolPermission({
+    title: "确认运行这条终端命令？",
+    description: "终端命令可能读取或修改电脑内容。请逐字检查，只允许你完全理解并信任的命令。Kardii 不会替 AI 自动点击允许。",
+    detail: command,
+    danger: true,
+  });
+  if (!allowed) return;
+  runCommandButton.disabled = true;
+  setToolStatus("命令正在运行，最长等待 20 秒……");
+  try {
+    const result = await invoke("run_terminal_command", { command });
+    const output = [
+      `命令：${result.command}`,
+      `退出码：${result.exitCode}`,
+      result.stdout ? `标准输出：\n${result.stdout}` : "",
+      result.stderr ? `错误输出：\n${result.stderr}` : "",
+    ].filter(Boolean).join("\n\n");
+    setPendingToolContext("终端运行结果", output || "命令已结束，没有输出。");
+    addToolNotice(result.success
+      ? "命令运行完成。你可以继续问我解释运行结果。"
+      : `命令已结束，退出码是 ${result.exitCode}。你可以让我分析报错。`);
+    setToolStatus(result.success ? "命令运行成功，结果已准备好。" : "命令运行结束，但返回了错误。", result.success ? "success" : "error");
+    recordToolLog("运行终端命令", command, result.success);
+  } catch (error) {
+    setToolStatus(String(error), "error");
+    recordToolLog("运行终端命令", `${command} · ${String(error)}`, false);
+  } finally {
+    runCommandButton.disabled = false;
+  }
+});
+
+clearToolLogsButton.addEventListener("click", () => {
+  toolLogs = [];
+  localStorage.removeItem(TOOL_LOGS_KEY);
+  renderToolLogs();
+  setToolStatus("本机工具记录已清空。", "success");
 });
 
 confirmMemoryButton.addEventListener("click", () => {
@@ -707,17 +999,27 @@ settingsButton.addEventListener("click", showSettings);
 settingsCloseButton.addEventListener("click", hideSettings);
 profileButton.addEventListener("click", showProfile);
 profileCloseButton.addEventListener("click", hideProfile);
+toolsButton.addEventListener("click", showTools);
+toolsCloseButton.addEventListener("click", hideTools);
 closeButton.addEventListener("click", closeChat);
 window.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
-  if (!profilePanel.classList.contains("hidden")) hideProfile();
+  if (!permissionPanel.classList.contains("hidden")) finishPermission(false);
+  else if (!toolsPanel.classList.contains("hidden")) hideTools();
+  else if (!profilePanel.classList.contains("hidden")) hideProfile();
   else if (!settingsPanel.classList.contains("hidden")) hideSettings();
   else void closeChat();
 });
 
 window.addEventListener("focus", () => {
-  if (settingsPanel.classList.contains("hidden")) input.focus();
+  if (
+    settingsPanel.classList.contains("hidden")
+    && profilePanel.classList.contains("hidden")
+    && toolsPanel.classList.contains("hidden")
+    && permissionPanel.classList.contains("hidden")
+  ) input.focus();
 });
 
 renderConversation();
+renderToolLogs();
 refreshKeyState();
