@@ -1,5 +1,6 @@
-const { getCurrentWindow, PhysicalPosition, LogicalSize } = window.__TAURI__.window;
+const { getCurrentWindow, getAllWindows, PhysicalPosition, LogicalSize } = window.__TAURI__.window;
 const { invoke } = window.__TAURI__.core;
+const { listen } = window.__TAURI__.event;
 
 const appWindow = getCurrentWindow();
 const pet = document.getElementById("pet");
@@ -11,6 +12,9 @@ const BASE_WINDOW = { width: 440, height: 360 };
 let currentState = "idle";
 let scale = Number(localStorage.getItem("kardii-scale") || "1");
 let lastInteraction = Date.now();
+let clickTimer;
+let dragStart = null;
+let didDrag = false;
 
 function touch() {
   lastInteraction = Date.now();
@@ -46,18 +50,69 @@ async function restorePosition() {
   }
 }
 
-pet.addEventListener("mousedown", async (event) => {
+pet.addEventListener("mousedown", (event) => {
   if (event.button !== 0) return;
-  // Let the second press reach the dblclick handler instead of starting a drag.
   if (event.detail > 1) return;
   touch();
-  await appWindow.startDragging();
+  dragStart = { x: event.screenX, y: event.screenY };
+  didDrag = false;
+});
+
+window.addEventListener("mousemove", (event) => {
+  if (!dragStart || (event.buttons & 1) === 0) return;
+  const distance = Math.hypot(
+    event.screenX - dragStart.x,
+    event.screenY - dragStart.y,
+  );
+  if (distance < 12) return;
+
+  dragStart = null;
+  didDrag = true;
+  clearTimeout(clickTimer);
+  void appWindow.startDragging();
+});
+
+window.addEventListener("mouseup", (event) => {
+  if (event.button !== 0 || !dragStart) return;
+  const distance = Math.hypot(
+    event.screenX - dragStart.x,
+    event.screenY - dragStart.y,
+  );
+  dragStart = null;
+
+  if (!didDrag && distance < 12) {
+    clearTimeout(clickTimer);
+    clickTimer = setTimeout(() => void toggleChat(), 240);
+  }
 });
 
 pet.addEventListener("dblclick", () => {
+  clearTimeout(clickTimer);
   const index = states.indexOf(currentState);
   setState(states[(index + 1) % states.length]);
 });
+
+async function toggleChat() {
+  const chatWindow = (await getAllWindows()).find((window) => window.label === "chat");
+  if (!chatWindow) return;
+
+  if (await chatWindow.isVisible()) {
+    await chatWindow.hide();
+    return;
+  }
+
+  const petPosition = await appWindow.outerPosition();
+  const petSize = await appWindow.outerSize();
+  const chatSize = await chatWindow.outerSize();
+  const gap = 12;
+  const leftX = petPosition.x - chatSize.width - gap;
+  const x = leftX >= 0 ? leftX : petPosition.x + petSize.width + gap;
+  const y = Math.max(16, petPosition.y + petSize.height - chatSize.height - 18);
+
+  await chatWindow.setPosition(new PhysicalPosition(x, y));
+  await chatWindow.show();
+  await chatWindow.setFocus();
+}
 
 document.addEventListener("contextmenu", (event) => {
   event.preventDefault();
@@ -88,6 +143,8 @@ window.addEventListener("wheel", (event) => {
 appWindow.onMoved(({ payload }) => {
   localStorage.setItem("kardii-position", JSON.stringify(payload));
 });
+
+listen("kardii-state", ({ payload }) => setState(payload));
 
 ["mousemove", "keydown", "touchstart"].forEach((name) => {
   window.addEventListener(name, touch, { passive: true });

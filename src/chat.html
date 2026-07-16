@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>和 Kardii 聊天</title>
+    <link rel="stylesheet" href="./chat.css">
+  </head>
+  <body>
+    <main class="chat-card" aria-label="Kardii 聊天窗口">
+      <header data-tauri-drag-region>
+        <div class="avatar">K</div>
+        <div>
+          <strong>Kardii</strong>
+        </div>
+        <button id="settingsButton" class="icon-button settings-button" type="button" aria-label="AI 设置">⚙</button>
+        <button id="closeButton" class="icon-button" type="button" aria-label="关闭">×</button>
+      </header>
+
+      <section id="messages" class="messages" aria-live="polite"></section>
+
+      <div id="replyActions" class="reply-actions hidden">
+        <button id="copyReplyButton" type="button">复制回答</button>
+        <button id="regenerateButton" type="button">重新回答</button>
+      </div>
+
+      <form id="chatForm">
+        <textarea id="messageInput" rows="1" maxlength="1000" placeholder="问问 Kardii……" aria-label="消息"></textarea>
+        <button id="stopButton" class="hidden" type="button" aria-label="停止回答">■</button>
+        <button id="sendButton" type="submit" aria-label="发送">➤</button>
+      </form>
+      <p class="hint">Enter 发送 · Shift + Enter 换行 · Esc 收起</p>
+
+      <section id="settingsPanel" class="settings-panel hidden" aria-label="DeepSeek 设置">
+        <div class="settings-box">
+          <div class="settings-title">
+            <strong>DeepSeek 设置</strong>
+            <button id="settingsCloseButton" class="icon-button" type="button" aria-label="关闭设置">×</button>
+          </div>
+          <label>模型</label>
+          <div class="model-name">deepseek-v4-flash · 非思考模式</div>
+          <label for="responseLengthSelect">回答长度</label>
+          <select id="responseLengthSelect">
+            <option value="250">简短 · 更省费用</option>
+            <option value="500">标准</option>
+            <option value="900">详细</option>
+          </select>
+          <label for="apiKeyInput">API Key</label>
+          <input id="apiKeyInput" type="password" autocomplete="off" placeholder="粘贴 DeepSeek API Key">
+          <p id="settingsStatus" class="settings-status">Key 只保存在系统安全凭据库中。</p>
+          <div class="settings-actions">
+            <button id="deleteKeyButton" class="secondary-button" type="button">删除 Key</button>
+            <button id="testKeyButton" class="secondary-button" type="button">测试连接</button>
+            <button id="saveKeyButton" class="primary-button" type="button">保存</button>
+          </div>
+          <button id="clearHistoryButton" class="clear-history-button" type="button">清空聊天记录</button>
+        </div>
+      </section>
+    </main>
+    <script src="./chat.js"></script>
+  </body>
+</html>
