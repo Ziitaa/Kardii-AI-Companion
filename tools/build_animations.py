@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Build Kardii's transparent, normalized desktop-pet animations."""
 
+import argparse
 from collections import deque
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageChops
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -78,11 +79,17 @@ def equal_frames(sheet: Image.Image, count: int, row: tuple[int, int], span: tup
         yield sheet.crop((x0, top, x1, bottom))
 
 
-def save_animation(name: str, frames: list[Image.Image], duration: int) -> None:
+def save_animation(
+    name: str,
+    frames: list[Image.Image],
+    duration: int | list[int],
+    save_frames: bool = True,
+) -> None:
     folder = OUTPUT / "frames" / name
     folder.mkdir(parents=True, exist_ok=True)
-    for index, frame in enumerate(frames):
-        frame.save(folder / f"{index:02}.png", optimize=True)
+    if save_frames:
+        for index, frame in enumerate(frames):
+            frame.save(folder / f"{index:02}.png", optimize=True)
     frames[0].save(
         OUTPUT / f"{name}.webp",
         save_all=True,
@@ -94,7 +101,33 @@ def save_animation(name: str, frames: list[Image.Image], duration: int) -> None:
     )
 
 
-def build() -> None:
+def normalize_sequence(
+    frames: list[Image.Image],
+    max_size: tuple[int, int] = (404, 324),
+) -> list[Image.Image]:
+    combined = Image.new("L", frames[0].size, 0)
+    for frame in frames:
+        combined = ImageChops.lighter(combined, frame.getchannel("A"))
+    bounds = combined.getbbox()
+    if not bounds:
+        raise ValueError("Animation contains no visible pixels")
+
+    width = bounds[2] - bounds[0]
+    height = bounds[3] - bounds[1]
+    scale = min(max_size[0] / width, max_size[1] / height)
+    target = (max(1, round(width * scale)), max(1, round(height * scale)))
+    normalized = []
+    for frame in frames:
+        subject = frame.crop(bounds).resize(target, Image.Resampling.LANCZOS)
+        canvas = Image.new("RGBA", FRAME_SIZE, (0, 0, 0, 0))
+        x = (FRAME_SIZE[0] - subject.width) // 2
+        y = FRAME_SIZE[1] - subject.height - 8
+        canvas.alpha_composite(subject, (x, y))
+        normalized.append(canvas)
+    return normalized
+
+
+def build_original_states() -> None:
     OUTPUT.mkdir(parents=True, exist_ok=True)
     original = Image.open(SOURCE_SHEET)
     idle = Image.open(IDLE_SHEET)
@@ -112,5 +145,34 @@ def build() -> None:
         print(f"built {name}: {len(frames)} frames")
 
 
+def build_saved_states() -> None:
+    specs = {
+        "thinking": [420, 420, 420, 420, 480, 420],
+        "talking": [280, 260, 260, 260, 320, 280],
+        "happy": [300, 220, 180, 360, 200, 340],
+    }
+    for name, durations in specs.items():
+        folder = OUTPUT / "frames" / name
+        paths = sorted(folder.glob("*.png"))
+        if len(paths) != len(durations):
+            raise ValueError(f"{name} needs {len(durations)} frames, found {len(paths)}")
+        frames = [Image.open(path).convert("RGBA") for path in paths]
+        save_animation(name, normalize_sequence(frames), durations, save_frames=False)
+        print(f"built {name}: {len(frames)} frames")
+
+
+def build(saved_only: bool = False) -> None:
+    if not saved_only:
+        build_original_states()
+    build_saved_states()
+
+
 if __name__ == "__main__":
-    build()
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--saved-only",
+        action="store_true",
+        help="rebuild thinking, talking, and happy from their saved PNG frames",
+    )
+    args = parser.parse_args()
+    build(saved_only=args.saved_only)

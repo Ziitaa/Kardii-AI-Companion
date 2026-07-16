@@ -563,7 +563,7 @@ function setSending(nextSending) {
 
 async function requestReply() {
   setSending(true);
-  await emitTo("main", "kardii-state", "loading");
+  await emitTo("main", "kardii-state", "thinking");
   const usingToolContext = Boolean(pendingToolContext);
 
   const replyBubble = addMessage("", "kardii");
@@ -580,7 +580,7 @@ async function requestReply() {
       messagesElement.scrollTop = messagesElement.scrollHeight;
       if (!receivedText) {
         receivedText = true;
-        await emitTo("main", "kardii-state", "idle");
+        await emitTo("main", "kardii-state", "talking");
       }
     }
     if (event.event === "stopped") {
@@ -606,7 +606,7 @@ async function requestReply() {
     } else {
       replyBubble.textContent = stopped ? "已停止回答。" : "这次没有收到回复，请重试。";
     }
-    await emitTo("main", "kardii-state", "idle");
+    await emitTo("main", "kardii-state", replyText.trim() && !stopped ? "happy" : "idle");
   } catch (error) {
     replyBubble.textContent = String(error);
     await emitTo("main", "kardii-state", "error");
