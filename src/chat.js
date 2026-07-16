@@ -129,6 +129,9 @@ function showProfile() {
 
 personalitySelect.addEventListener("change", () => {
   personalityDescription.textContent = PERSONALITIES[personalitySelect.value];
+  profile.personality = personalitySelect.value;
+  localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+  setProfileStatus("性格已自动保存，下一次回答立即生效。", "success");
 });
 
 function hideProfile() {
