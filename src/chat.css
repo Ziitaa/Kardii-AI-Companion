@@ -74,6 +74,8 @@ header strong {
 }
 
 .icon-button:hover { background: rgba(205, 112, 148, 0.12); }
+.settings-button { margin-left: auto; font-size: 16px; }
+.settings-button + .icon-button { margin-left: 0; }
 
 .messages {
   display: flex;
@@ -153,3 +155,67 @@ textarea {
   font-size: 10px;
   text-align: center;
 }
+
+.hidden { display: none !important; }
+
+.settings-panel {
+  position: absolute;
+  inset: 8px;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 14px;
+  background: rgba(83, 54, 66, 0.24);
+  border-radius: 22px;
+  backdrop-filter: blur(7px);
+}
+
+.settings-box {
+  width: 100%;
+  padding: 16px;
+  background: #fffafd;
+  border: 1px solid #edceda;
+  border-radius: 18px;
+  box-shadow: 0 14px 36px rgba(83, 54, 66, 0.2);
+}
+
+.settings-title {
+  display: flex;
+  align-items: center;
+  margin-bottom: 12px;
+  font-size: 15px;
+}
+
+.settings-title .icon-button { margin-left: auto; }
+.settings-box label { display: block; margin: 9px 0 5px; color: #846572; font-size: 11px; }
+
+.model-name,
+#apiKeyInput {
+  width: 100%;
+  padding: 9px 10px;
+  color: #5e4851;
+  font: inherit;
+  font-size: 12px;
+  background: #fff;
+  border: 1px solid #ead2dc;
+  border-radius: 10px;
+}
+
+#apiKeyInput { outline: none; user-select: text; }
+#apiKeyInput:focus { border-color: #dc7ca1; box-shadow: 0 0 0 3px rgba(220, 124, 161, 0.12); }
+
+.settings-status { min-height: 16px; margin: 8px 2px; color: #9b7d89; font-size: 10px; }
+.settings-status.success { color: #4c9365; }
+.settings-status.error { color: #c24f63; }
+
+.settings-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.settings-actions button {
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  border-radius: 9px;
+}
+.secondary-button { color: #8b6876; background: #fff; border: 1px solid #ead2dc; }
+.primary-button { color: #fff; background: #d96f99; border: 1px solid #d96f99; }
+.settings-actions button:disabled { cursor: wait; opacity: 0.55; }
