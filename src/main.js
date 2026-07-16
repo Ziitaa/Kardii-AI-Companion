@@ -13,6 +13,8 @@ let currentState = "idle";
 let scale = Number(localStorage.getItem("kardii-scale") || "1");
 let lastInteraction = Date.now();
 let clickTimer;
+let dragStart = null;
+let didDrag = false;
 
 function touch() {
   lastInteraction = Date.now();
@@ -48,12 +50,30 @@ async function restorePosition() {
   }
 }
 
-pet.addEventListener("mousedown", async (event) => {
+pet.addEventListener("mousedown", (event) => {
   if (event.button !== 0) return;
-  // Let the second press reach the dblclick handler instead of starting a drag.
   if (event.detail > 1) return;
   touch();
-  await appWindow.startDragging();
+  dragStart = { x: event.screenX, y: event.screenY };
+  didDrag = false;
+});
+
+window.addEventListener("mousemove", (event) => {
+  if (!dragStart || (event.buttons & 1) === 0) return;
+  const distance = Math.hypot(
+    event.screenX - dragStart.x,
+    event.screenY - dragStart.y,
+  );
+  if (distance < 6) return;
+
+  dragStart = null;
+  didDrag = true;
+  clearTimeout(clickTimer);
+  void appWindow.startDragging();
+});
+
+window.addEventListener("mouseup", () => {
+  dragStart = null;
 });
 
 pet.addEventListener("dblclick", () => {
@@ -63,6 +83,10 @@ pet.addEventListener("dblclick", () => {
 });
 
 pet.addEventListener("click", () => {
+  if (didDrag) {
+    didDrag = false;
+    return;
+  }
   clearTimeout(clickTimer);
   clickTimer = setTimeout(() => void toggleChat(), 240);
 });
