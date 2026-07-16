@@ -20,6 +20,7 @@ const deleteKeyButton = document.getElementById("deleteKeyButton");
 const clearHistoryButton = document.getElementById("clearHistoryButton");
 const replyActions = document.getElementById("replyActions");
 const copyReplyButton = document.getElementById("copyReplyButton");
+const readReplyButton = document.getElementById("readReplyButton");
 const regenerateButton = document.getElementById("regenerateButton");
 const responseLengthSelect = document.getElementById("responseLengthSelect");
 const profileButton = document.getElementById("profileButton");
@@ -67,12 +68,26 @@ const permissionDescription = document.getElementById("permissionDescription");
 const permissionDetail = document.getElementById("permissionDetail");
 const denyPermissionButton = document.getElementById("denyPermissionButton");
 const allowPermissionButton = document.getElementById("allowPermissionButton");
+const micButton = document.getElementById("micButton");
+const chatHint = document.getElementById("chatHint");
+const voiceModelLabel = document.getElementById("voiceModelLabel");
+const voiceModelDetail = document.getElementById("voiceModelDetail");
+const voiceProgressTrack = document.getElementById("voiceProgressTrack");
+const voiceProgressBar = document.getElementById("voiceProgressBar");
+const downloadVoiceModelButton = document.getElementById("downloadVoiceModelButton");
+const deleteVoiceModelButton = document.getElementById("deleteVoiceModelButton");
+const autoReadToggle = document.getElementById("autoReadToggle");
+const systemVoiceSelect = document.getElementById("systemVoiceSelect");
+const voiceRateRange = document.getElementById("voiceRateRange");
+const voiceRateValue = document.getElementById("voiceRateValue");
+const testVoiceButton = document.getElementById("testVoiceButton");
 
 const HISTORY_KEY = "kardii-chat-history-v1";
 const RESPONSE_LENGTH_KEY = "kardii-response-length";
 const PROFILE_KEY = "kardii-profile-v1";
 const MEMORIES_KEY = "kardii-memories-v1";
 const TOOL_LOGS_KEY = "kardii-tool-logs-v1";
+const VOICE_SETTINGS_KEY = "kardii-voice-settings-v1";
 const MAX_SAVED_MESSAGES = 50;
 const PERSONALITIES = {
   healing: "耐心温暖，擅长安慰，也会温和地给出实用建议。",
@@ -93,6 +108,29 @@ let suggestedMemory = null;
 let toolLogs = loadToolLogs();
 let pendingToolContext = null;
 let permissionResolver = null;
+let voiceModelState = "missing";
+let voiceRecordingPhase = "idle";
+let voicePollTimer = null;
+let activeUtterance = null;
+let systemVoices = [];
+let voiceSettings = loadVoiceSettings();
+
+function loadVoiceSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(VOICE_SETTINGS_KEY) || "{}");
+    return {
+      autoRead: saved.autoRead === true,
+      voiceUri: typeof saved.voiceUri === "string" ? saved.voiceUri : "",
+      rate: Number.isFinite(Number(saved.rate)) ? Math.min(1.3, Math.max(0.7, Number(saved.rate))) : 1,
+    };
+  } catch {
+    return { autoRead: false, voiceUri: "", rate: 1 };
+  }
+}
+
+function saveVoiceSettings() {
+  localStorage.setItem(VOICE_SETTINGS_KEY, JSON.stringify(voiceSettings));
+}
 
 function loadProfile() {
   try {
@@ -330,7 +368,7 @@ function createFullBackup() {
   return {
     format: "kardii-backup",
     version: 1,
-    appVersion: "0.5.0",
+    appVersion: "0.6.0",
     createdAt: new Date().toISOString(),
     profile,
     memories,
@@ -524,6 +562,7 @@ function setSettingsStatus(text, type = "") {
 
 function showSettings() {
   settingsPanel.classList.remove("hidden");
+  void refreshVoiceModelStatus();
   setTimeout(() => apiKeyInput.focus(), 0);
 }
 
@@ -538,6 +577,230 @@ function setSettingsBusy(busy) {
   });
 }
 
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "";
+  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(bytes >= 100 * 1024 ** 2 ? 0 : 1)} MB`;
+  return `${(bytes / 1024).toFixed(0)} KB`;
+}
+
+function setVoiceModelUi(status) {
+  voiceModelState = status.state;
+  const downloaded = Number(status.downloadedBytes || 0);
+  const total = Number(status.totalBytes || 0);
+  const percent = total > 0 ? Math.min(100, (downloaded / total) * 100) : 0;
+  downloadVoiceModelButton.disabled = status.state === "downloading" || status.state === "loading";
+  deleteVoiceModelButton.disabled = status.state === "downloading" || status.state === "loading";
+  deleteVoiceModelButton.classList.toggle("hidden", !status.installed);
+  voiceProgressTrack.classList.toggle("hidden", status.state !== "downloading");
+  voiceProgressBar.style.width = `${percent}%`;
+
+  if (status.state === "ready") {
+    voiceModelLabel.textContent = "离线语音已准备好";
+    voiceModelDetail.textContent = "支持普通话、粤语、英语、日语和韩语 · 录音不上传";
+    downloadVoiceModelButton.classList.add("hidden");
+  } else if (status.state === "downloading") {
+    voiceModelLabel.textContent = `正在下载 ${percent ? `${percent.toFixed(0)}%` : ""}`.trim();
+    voiceModelDetail.textContent = total
+      ? `${formatBytes(downloaded)} / ${formatBytes(total)} · 请不要退出 Kardii`
+      : `${formatBytes(downloaded)} · 请不要退出 Kardii`;
+    downloadVoiceModelButton.classList.remove("hidden");
+    downloadVoiceModelButton.textContent = "正在下载……";
+  } else if (status.state === "loading") {
+    voiceModelLabel.textContent = "正在加载离线语音";
+    voiceModelDetail.textContent = "通常只需要几秒钟";
+    downloadVoiceModelButton.classList.add("hidden");
+  } else if (status.state === "error") {
+    voiceModelLabel.textContent = "语音模型没有准备好";
+    voiceModelDetail.textContent = status.error || "请重新下载模型";
+    downloadVoiceModelButton.classList.remove("hidden");
+    downloadVoiceModelButton.textContent = "重新下载";
+  } else {
+    voiceModelLabel.textContent = "尚未下载离线语音模型";
+    voiceModelDetail.textContent = "下载一次后，语音转文字可以完全离线使用";
+    downloadVoiceModelButton.classList.remove("hidden");
+    downloadVoiceModelButton.textContent = "下载离线模型";
+  }
+}
+
+async function refreshVoiceModelStatus() {
+  try {
+    const status = await invoke("get_voice_model_status");
+    setVoiceModelUi(status);
+    if (["loading", "downloading"].includes(status.state)) {
+      setTimeout(refreshVoiceModelStatus, 700);
+    }
+  } catch (error) {
+    setVoiceModelUi({ state: "error", error: String(error), installed: false });
+  }
+}
+
+function setMicPhase(phase, elapsed = 0) {
+  voiceRecordingPhase = phase;
+  micButton.classList.toggle("recording", phase === "recording");
+  micButton.classList.toggle("transcribing", phase === "transcribing");
+  micButton.disabled = sending || phase === "transcribing";
+  if (phase === "recording") {
+    micButton.textContent = "■";
+    micButton.setAttribute("aria-label", "停止录音");
+    chatHint.textContent = `正在录音 ${Math.floor(elapsed)} 秒 · 再点一次停止 · 最长 60 秒`;
+  } else if (phase === "transcribing") {
+    micButton.textContent = "…";
+    micButton.setAttribute("aria-label", "正在离线识别");
+    chatHint.textContent = "正在本机识别，不会上传录音……";
+  } else {
+    micButton.textContent = "🎙";
+    micButton.setAttribute("aria-label", "开始语音输入");
+    chatHint.textContent = "Enter 发送 · Shift + Enter 换行 · Esc 收起";
+  }
+}
+
+function stopVoicePolling() {
+  clearInterval(voicePollTimer);
+  voicePollTimer = null;
+}
+
+function cleanTranscript(text) {
+  return String(text || "")
+    .replace(/<\|[^|]+\|>/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function pollVoiceRecording() {
+  try {
+    const state = await invoke("get_voice_recording_state");
+    if (state.phase === "recording") {
+      setMicPhase("recording", state.elapsedSecs);
+      return;
+    }
+    if (state.phase === "transcribing") {
+      setMicPhase("transcribing");
+      return;
+    }
+    stopVoicePolling();
+    setMicPhase("idle");
+    if (state.phase === "done") {
+      const text = cleanTranscript(state.text);
+      if (text) {
+        input.value = input.value.trim() ? `${input.value.trim()} ${text}` : text;
+        resizeInput();
+        chatHint.textContent = "识别完成，请检查文字后再发送";
+        setTimeout(() => {
+          if (voiceRecordingPhase === "idle") chatHint.textContent = "Enter 发送 · Shift + Enter 换行 · Esc 收起";
+        }, 2800);
+      }
+      await invoke("clear_voice_recording_result");
+      input.focus();
+    } else if (state.phase === "error") {
+      chatHint.textContent = state.error || "语音识别失败，请重试";
+      await emitTo("main", "kardii-state", "error");
+      await invoke("clear_voice_recording_result");
+    }
+  } catch (error) {
+    stopVoicePolling();
+    setMicPhase("idle");
+    chatHint.textContent = String(error);
+  }
+}
+
+async function toggleVoiceRecording() {
+  if (voiceRecordingPhase === "recording") {
+    try {
+      await invoke("stop_voice_recording");
+      setMicPhase("transcribing");
+    } catch (error) {
+      chatHint.textContent = String(error);
+    }
+    return;
+  }
+  if (voiceRecordingPhase === "transcribing" || sending) return;
+  if (voiceModelState !== "ready") {
+    showSettings();
+    await refreshVoiceModelStatus();
+    voiceModelDetail.textContent = "请先点击“下载离线模型”，下载完成后再使用麦克风。";
+    return;
+  }
+  stopSpeaking();
+  try {
+    await invoke("start_voice_recording");
+    setMicPhase("recording", 0);
+    stopVoicePolling();
+    voicePollTimer = setInterval(pollVoiceRecording, 220);
+  } catch (error) {
+    setMicPhase("idle");
+    chatHint.textContent = String(error);
+  }
+}
+
+function loadSystemVoices() {
+  if (!("speechSynthesis" in window)) {
+    systemVoiceSelect.disabled = true;
+    autoReadToggle.disabled = true;
+    testVoiceButton.disabled = true;
+    testVoiceButton.textContent = "当前系统不支持朗读";
+    return;
+  }
+  systemVoices = window.speechSynthesis.getVoices();
+  const previous = voiceSettings.voiceUri;
+  systemVoiceSelect.replaceChildren(new Option("系统默认声音", ""));
+  [...systemVoices]
+    .sort((a, b) => {
+      const aChinese = /^zh/i.test(a.lang) ? 0 : 1;
+      const bChinese = /^zh/i.test(b.lang) ? 0 : 1;
+      return aChinese - bChinese || a.name.localeCompare(b.name);
+    })
+    .forEach((voice) => {
+      systemVoiceSelect.add(new Option(`${voice.name} · ${voice.lang}`, voice.voiceURI));
+    });
+  systemVoiceSelect.value = systemVoices.some((voice) => voice.voiceURI === previous) ? previous : "";
+}
+
+function speechText(text) {
+  return String(text || "")
+    .replace(/```[\s\S]*?```/g, "代码内容")
+    .replace(/[*_#>`~\[\]()]/g, "")
+    .replace(/https?:\/\/\S+/g, "链接")
+    .trim();
+}
+
+function stopSpeaking() {
+  if (!("speechSynthesis" in window)) return;
+  window.speechSynthesis.cancel();
+  activeUtterance = null;
+  readReplyButton.textContent = "朗读回答";
+}
+
+function speakText(text, force = false) {
+  if (!("speechSynthesis" in window) || (!force && !voiceSettings.autoRead)) return false;
+  const clean = speechText(text);
+  if (!clean) return false;
+  stopSpeaking();
+  const utterance = new SpeechSynthesisUtterance(clean);
+  const voice = systemVoices.find((item) => item.voiceURI === voiceSettings.voiceUri);
+  if (voice) utterance.voice = voice;
+  utterance.rate = voiceSettings.rate;
+  utterance.onstart = async () => {
+    activeUtterance = utterance;
+    readReplyButton.textContent = "停止朗读";
+    await emitTo("main", "kardii-state", "talking");
+  };
+  utterance.onend = async () => {
+    if (activeUtterance !== utterance) return;
+    activeUtterance = null;
+    readReplyButton.textContent = "朗读回答";
+    await emitTo("main", "kardii-state", "happy");
+  };
+  utterance.onerror = async () => {
+    if (activeUtterance !== utterance) return;
+    activeUtterance = null;
+    readReplyButton.textContent = "朗读回答";
+    await emitTo("main", "kardii-state", "idle");
+  };
+  activeUtterance = utterance;
+  window.speechSynthesis.speak(utterance);
+  return true;
+}
+
 async function refreshKeyState() {
   hasApiKey = await invoke("has_deepseek_key");
   if (hasApiKey) {
@@ -549,6 +812,9 @@ async function refreshKeyState() {
 }
 
 async function closeChat() {
+  if (voiceRecordingPhase === "recording") {
+    await invoke("stop_voice_recording").catch(() => {});
+  }
   await chatWindow.hide();
 }
 
@@ -558,10 +824,12 @@ function setSending(nextSending) {
   sendButton.classList.toggle("hidden", nextSending);
   stopButton.classList.toggle("hidden", !nextSending);
   stopButton.disabled = false;
+  micButton.disabled = nextSending || voiceRecordingPhase === "transcribing";
   updateReplyActions();
 }
 
 async function requestReply() {
+  stopSpeaking();
   setSending(true);
   await emitTo("main", "kardii-state", "thinking");
   const usingToolContext = Boolean(pendingToolContext);
@@ -606,7 +874,10 @@ async function requestReply() {
     } else {
       replyBubble.textContent = stopped ? "已停止回答。" : "这次没有收到回复，请重试。";
     }
-    await emitTo("main", "kardii-state", replyText.trim() && !stopped ? "happy" : "idle");
+    const shouldCelebrate = replyText.trim() && !stopped;
+    if (!shouldCelebrate || !speakText(replyText)) {
+      await emitTo("main", "kardii-state", shouldCelebrate ? "happy" : "idle");
+    }
   } catch (error) {
     replyBubble.textContent = String(error);
     await emitTo("main", "kardii-state", "error");
@@ -867,6 +1138,16 @@ copyReplyButton.addEventListener("click", async () => {
   setTimeout(() => { copyReplyButton.textContent = "复制回答"; }, 1200);
 });
 
+readReplyButton.addEventListener("click", () => {
+  if (activeUtterance) {
+    stopSpeaking();
+    void emitTo("main", "kardii-state", "idle");
+    return;
+  }
+  const reply = latestAssistantMessage();
+  if (reply) speakText(reply.content, true);
+});
+
 regenerateButton.addEventListener("click", async () => {
   if (sending || !hasApiKey) return;
   const lastIndex = conversation.length - 1;
@@ -960,6 +1241,82 @@ deleteKeyButton.addEventListener("click", async () => {
   }
 });
 
+downloadVoiceModelButton.addEventListener("click", async () => {
+  downloadVoiceModelButton.disabled = true;
+  deleteVoiceModelButton.disabled = true;
+  voiceProgressTrack.classList.remove("hidden");
+  voiceProgressBar.style.width = "0%";
+  const channel = new Channel();
+  channel.onmessage = (event) => {
+    if (["starting", "progress", "extracting"].includes(event.event)) {
+      setVoiceModelUi({
+        state: event.event === "extracting" ? "loading" : "downloading",
+        downloadedBytes: event.downloadedBytes,
+        totalBytes: event.totalBytes,
+        installed: event.event === "extracting",
+      });
+      if (event.event === "extracting") {
+        voiceModelLabel.textContent = "正在安装离线语音";
+        voiceModelDetail.textContent = event.message;
+      }
+    }
+  };
+  try {
+    await invoke("download_voice_model", { onEvent: channel });
+    await refreshVoiceModelStatus();
+  } catch (error) {
+    setVoiceModelUi({ state: "error", error: String(error), installed: false });
+  } finally {
+    downloadVoiceModelButton.disabled = false;
+    deleteVoiceModelButton.disabled = false;
+  }
+});
+
+deleteVoiceModelButton.addEventListener("click", async () => {
+  if (!window.confirm("删除后语音转文字将不可用，需要重新下载约 230 MB。确定删除吗？")) return;
+  deleteVoiceModelButton.disabled = true;
+  try {
+    await invoke("delete_voice_model");
+    await refreshVoiceModelStatus();
+  } catch (error) {
+    voiceModelDetail.textContent = String(error);
+  } finally {
+    deleteVoiceModelButton.disabled = false;
+  }
+});
+
+autoReadToggle.checked = voiceSettings.autoRead;
+systemVoiceSelect.value = voiceSettings.voiceUri;
+voiceRateRange.value = String(voiceSettings.rate);
+voiceRateValue.textContent = `${voiceSettings.rate.toFixed(1)}×`;
+
+autoReadToggle.addEventListener("change", () => {
+  voiceSettings.autoRead = autoReadToggle.checked;
+  saveVoiceSettings();
+  if (!voiceSettings.autoRead) stopSpeaking();
+});
+
+systemVoiceSelect.addEventListener("change", () => {
+  voiceSettings.voiceUri = systemVoiceSelect.value;
+  saveVoiceSettings();
+});
+
+voiceRateRange.addEventListener("input", () => {
+  voiceSettings.rate = Number(voiceRateRange.value);
+  voiceRateValue.textContent = `${voiceSettings.rate.toFixed(1)}×`;
+  saveVoiceSettings();
+});
+
+testVoiceButton.addEventListener("click", () => {
+  if (activeUtterance) {
+    stopSpeaking();
+    return;
+  }
+  speakText("你好，我是 Kardii。以后也可以直接对我说话啦！", true);
+});
+
+micButton.addEventListener("click", toggleVoiceRecording);
+
 clearHistoryButton.addEventListener("click", () => {
   if (!clearHistoryButton.classList.contains("confirming")) {
     clearHistoryButton.classList.add("confirming");
@@ -1023,3 +1380,9 @@ window.addEventListener("focus", () => {
 renderConversation();
 renderToolLogs();
 refreshKeyState();
+loadSystemVoices();
+if ("speechSynthesis" in window) {
+  window.speechSynthesis.addEventListener("voiceschanged", loadSystemVoices);
+}
+refreshVoiceModelStatus();
+setMicPhase("idle");

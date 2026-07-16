@@ -1,7 +1,14 @@
+mod voice;
+
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
     Manager,
+};
+use voice::{
+    clear_voice_recording_result, delete_voice_model, download_voice_model,
+    get_voice_model_status, get_voice_recording_state, start_voice_recording,
+    stop_voice_recording, VoiceState,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -589,6 +596,14 @@ pub fn run() {
     tauri::Builder::default()
         .manage(StreamState::default())
         .setup(|app| {
+            let app_data_dir = app
+                .path()
+                .app_data_dir()
+                .map_err(|error| format!("无法打开 Kardii 数据文件夹：{error}"))?;
+            let voice_state = VoiceState::new(app_data_dir);
+            voice_state.initialize_if_installed();
+            app.manage(voice_state);
+
             let show = MenuItem::with_id(app, "show", "显示 Kardii", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "退出 Kardii", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &quit])?;
@@ -626,7 +641,14 @@ pub fn run() {
             read_clipboard_text,
             write_clipboard_text,
             open_external_url,
-            run_terminal_command
+            run_terminal_command,
+            get_voice_model_status,
+            download_voice_model,
+            delete_voice_model,
+            start_voice_recording,
+            stop_voice_recording,
+            get_voice_recording_state,
+            clear_voice_recording_result
         ])
         .run(tauri::generate_context!())
         .expect("error while running Kardii AI Companion");
