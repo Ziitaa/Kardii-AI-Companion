@@ -1273,7 +1273,7 @@ downloadVoiceModelButton.addEventListener("click", async () => {
 });
 
 deleteVoiceModelButton.addEventListener("click", async () => {
-  if (!window.confirm("删除后语音转文字将不可用，需要重新下载约 230 MB。确定删除吗？")) return;
+  if (!window.confirm("删除后语音转文字将不可用，需要重新下载约 160 MB。确定删除吗？")) return;
   deleteVoiceModelButton.disabled = true;
   try {
     await invoke("delete_voice_model");
