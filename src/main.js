@@ -1,5 +1,6 @@
-const { getCurrentWindow, PhysicalPosition, LogicalSize } = window.__TAURI__.window;
+const { getCurrentWindow, getAllWindows, PhysicalPosition, LogicalSize } = window.__TAURI__.window;
 const { invoke } = window.__TAURI__.core;
+const { listen } = window.__TAURI__.event;
 
 const appWindow = getCurrentWindow();
 const pet = document.getElementById("pet");
@@ -11,6 +12,7 @@ const BASE_WINDOW = { width: 440, height: 360 };
 let currentState = "idle";
 let scale = Number(localStorage.getItem("kardii-scale") || "1");
 let lastInteraction = Date.now();
+let clickTimer;
 
 function touch() {
   lastInteraction = Date.now();
@@ -55,9 +57,37 @@ pet.addEventListener("mousedown", async (event) => {
 });
 
 pet.addEventListener("dblclick", () => {
+  clearTimeout(clickTimer);
   const index = states.indexOf(currentState);
   setState(states[(index + 1) % states.length]);
 });
+
+pet.addEventListener("click", () => {
+  clearTimeout(clickTimer);
+  clickTimer = setTimeout(() => void toggleChat(), 240);
+});
+
+async function toggleChat() {
+  const chatWindow = (await getAllWindows()).find((window) => window.label === "chat");
+  if (!chatWindow) return;
+
+  if (await chatWindow.isVisible()) {
+    await chatWindow.hide();
+    return;
+  }
+
+  const petPosition = await appWindow.outerPosition();
+  const petSize = await appWindow.outerSize();
+  const chatSize = await chatWindow.outerSize();
+  const gap = 12;
+  const leftX = petPosition.x - chatSize.width - gap;
+  const x = leftX >= 0 ? leftX : petPosition.x + petSize.width + gap;
+  const y = Math.max(16, petPosition.y + petSize.height - chatSize.height - 18);
+
+  await chatWindow.setPosition(new PhysicalPosition(x, y));
+  await chatWindow.show();
+  await chatWindow.setFocus();
+}
 
 document.addEventListener("contextmenu", (event) => {
   event.preventDefault();
@@ -88,6 +118,8 @@ window.addEventListener("wheel", (event) => {
 appWindow.onMoved(({ payload }) => {
   localStorage.setItem("kardii-position", JSON.stringify(payload));
 });
+
+listen("kardii-state", ({ payload }) => setState(payload));
 
 ["mousemove", "keydown", "touchstart"].forEach((name) => {
   window.addEventListener(name, touch, { passive: true });

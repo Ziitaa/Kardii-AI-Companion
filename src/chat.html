@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>和 Kardii 聊天</title>
+    <link rel="stylesheet" href="./chat.css">
+  </head>
+  <body>
+    <main class="chat-card" aria-label="Kardii 聊天窗口">
+      <header data-tauri-drag-region>
+        <div class="avatar">K</div>
+        <div>
+          <strong>Kardii</strong>
+          <span>你的 AI 小伙伴</span>
+        </div>
+        <button id="closeButton" class="icon-button" type="button" aria-label="关闭">×</button>
+      </header>
+
+      <section id="messages" class="messages" aria-live="polite">
+        <div class="message kardii">嗨！今天需要我帮你做什么？</div>
+      </section>
+
+      <form id="chatForm">
+        <textarea id="messageInput" rows="1" maxlength="1000" placeholder="问问 Kardii……" aria-label="消息"></textarea>
+        <button id="sendButton" type="submit" aria-label="发送">➤</button>
+      </form>
+      <p class="hint">Enter 发送 · Shift + Enter 换行 · Esc 收起</p>
+    </main>
+    <script src="./chat.js"></script>
+  </body>
+</html>
