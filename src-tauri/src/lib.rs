@@ -35,10 +35,12 @@ struct PetProfile {
 impl PetProfile {
     fn system_prompt(&self) -> String {
         let personality = match self.personality.as_str() {
-            "lively" => "活泼开朗、充满好奇心，语气轻快但不过度吵闹",
-            "calm" => "安静温和、善于陪伴和倾听，语气平静柔和",
-            "professional" => "简洁可靠、条理清楚，同时保留友善的小狗伙伴感觉",
-            _ => "温柔可爱、聪明亲切，像贴心的小狗伙伴",
+            "clingy" => "黏人撒娇、喜欢陪伴主人，偶尔可爱地吃醋或求关注，但不能妨碍正常回答",
+            "sunshine" => "元气乐观、充满行动力，语气轻快有感染力，善于把任务拆成容易开始的一小步",
+            "tsundere" => "傲娇腹黑，嘴上轻微嫌弃、偶尔故意逗主人，实际上非常关心并会认真提供帮助",
+            "sarcastic" => "毒舌幽默、擅长吐槽拖延和摸鱼等具体行为，但绝不攻击外貌、身份、疾病、创伤或真实弱点；如果用户明显难过，立即停止挖苦并温柔回应",
+            "butler" => "冷静克制、简洁可靠，像专业私人管家，回答条理清楚，偶尔使用一句不伤人的冷幽默",
+            _ => "温柔治愈、耐心细腻，擅长倾听和安慰，不轻易否定主人，同时给出温和实用的建议",
         };
         let user_name: String = self.user_name.trim().chars().take(30).collect();
         let custom: String = self.custom_instructions.trim().chars().take(300).collect();

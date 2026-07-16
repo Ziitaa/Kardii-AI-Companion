@@ -34,12 +34,21 @@ const addMemoryButton = document.getElementById("addMemoryButton");
 const memoryList = document.getElementById("memoryList");
 const memoryCount = document.getElementById("memoryCount");
 const profileStatus = document.getElementById("profileStatus");
+const personalityDescription = document.getElementById("personalityDescription");
 
 const HISTORY_KEY = "kardii-chat-history-v1";
 const RESPONSE_LENGTH_KEY = "kardii-response-length";
 const PROFILE_KEY = "kardii-profile-v1";
 const MEMORIES_KEY = "kardii-memories-v1";
 const MAX_SAVED_MESSAGES = 50;
+const PERSONALITIES = {
+  healing: "耐心温暖，擅长安慰，也会温和地给出实用建议。",
+  clingy: "喜欢陪着你，会撒娇和轻微吃醋，但不会影响正常回答。",
+  sunshine: "充满活力，喜欢鼓励你立刻迈出简单的第一步。",
+  tsundere: "嘴上轻微嫌弃、偶尔逗你，实际上非常关心你。",
+  sarcastic: "会吐槽摸鱼和拖延，但不攻击外貌、身份或真实弱点。",
+  butler: "冷静克制、简洁可靠，偶尔带一点不伤人的冷幽默。",
+};
 let conversation = loadConversation();
 let sending = false;
 let hasApiKey = false;
@@ -53,11 +62,11 @@ function loadProfile() {
     const value = JSON.parse(localStorage.getItem(PROFILE_KEY) || "{}");
     return {
       userName: typeof value.userName === "string" ? value.userName.slice(0, 30) : "",
-      personality: ["warm", "lively", "calm", "professional"].includes(value.personality) ? value.personality : "warm",
+      personality: Object.hasOwn(PERSONALITIES, value.personality) ? value.personality : "healing",
       customInstructions: typeof value.customInstructions === "string" ? value.customInstructions.slice(0, 300) : "",
     };
   } catch {
-    return { userName: "", personality: "warm", customInstructions: "" };
+    return { userName: "", personality: "healing", customInstructions: "" };
   }
 }
 
@@ -113,9 +122,14 @@ function showProfile() {
   userNameInput.value = profile.userName;
   personalitySelect.value = profile.personality;
   customInstructionsInput.value = profile.customInstructions;
+  personalityDescription.textContent = PERSONALITIES[personalitySelect.value];
   renderMemories();
   profilePanel.classList.remove("hidden");
 }
+
+personalitySelect.addEventListener("change", () => {
+  personalityDescription.textContent = PERSONALITIES[personalitySelect.value];
+});
 
 function hideProfile() {
   profilePanel.classList.add("hidden");
