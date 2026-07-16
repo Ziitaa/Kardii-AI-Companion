@@ -25,6 +25,14 @@
         <button id="regenerateButton" type="button">重新回答</button>
       </div>
 
+      <div id="memorySuggestion" class="memory-suggestion hidden">
+        <span id="memorySuggestionText"></span>
+        <div>
+          <button id="dismissMemoryButton" type="button">不用</button>
+          <button id="confirmMemoryButton" type="button">记住</button>
+        </div>
+      </div>
+
       <form id="chatForm">
         <textarea id="messageInput" rows="1" maxlength="1000" placeholder="问问 Kardii……" aria-label="消息"></textarea>
         <button id="stopButton" class="hidden" type="button" aria-label="停止回答">■</button>

@@ -132,6 +132,34 @@ header strong {
 
 .reply-actions button:hover { color: #c35f87; border-color: #dda5ba; }
 
+.memory-suggestion {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 12px 7px;
+  padding: 7px 9px;
+  color: #735866;
+  font-size: 10px;
+  line-height: 1.35;
+  background: #fff3f7;
+  border: 1px solid #efcbd8;
+  border-radius: 11px;
+}
+
+.memory-suggestion > span { flex: 1; min-width: 0; }
+.memory-suggestion > div { display: flex; flex: 0 0 auto; gap: 4px; }
+.memory-suggestion button {
+  padding: 4px 7px;
+  color: #8e6676;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  background: #fff;
+  border: 1px solid #e7c4d1;
+  border-radius: 7px;
+}
+.memory-suggestion #confirmMemoryButton { color: #fff; background: #d86e98; border-color: #d86e98; }
+
 form {
   display: flex;
   align-items: flex-end;

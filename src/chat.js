@@ -35,6 +35,10 @@ const memoryList = document.getElementById("memoryList");
 const memoryCount = document.getElementById("memoryCount");
 const profileStatus = document.getElementById("profileStatus");
 const personalityDescription = document.getElementById("personalityDescription");
+const memorySuggestion = document.getElementById("memorySuggestion");
+const memorySuggestionText = document.getElementById("memorySuggestionText");
+const confirmMemoryButton = document.getElementById("confirmMemoryButton");
+const dismissMemoryButton = document.getElementById("dismissMemoryButton");
 
 const HISTORY_KEY = "kardii-chat-history-v1";
 const RESPONSE_LENGTH_KEY = "kardii-response-length";
@@ -56,6 +60,7 @@ let clearConfirmationTimer;
 let activeRequestId = null;
 let profile = loadProfile();
 let memories = loadMemories();
+let suggestedMemory = null;
 
 function loadProfile() {
   try {
@@ -181,6 +186,27 @@ function handleMemoryCommand(text) {
   }
 
   return false;
+}
+
+function hideMemorySuggestion() {
+  suggestedMemory = null;
+  memorySuggestion.classList.add("hidden");
+}
+
+function maybeSuggestMemory(text) {
+  const clean = text.trim().replace(/\s+/g, " ");
+  if (clean.length < 4 || clean.length > 160 || memories.includes(clean)) {
+    hideMemorySuggestion();
+    return;
+  }
+  const looksMemorable = /(?:我(?:很|最|特别)?(?:喜欢|不喜欢|讨厌|爱吃|不吃|习惯|希望|叫|是|来自|住在|生日|过敏|不能)|以后(?:叫我|提醒我)|请叫我)/.test(clean);
+  if (!looksMemorable) {
+    hideMemorySuggestion();
+    return;
+  }
+  suggestedMemory = clean;
+  memorySuggestionText.textContent = `要让 Kardii 记住“${clean}”吗？`;
+  memorySuggestion.classList.remove("hidden");
 }
 
 function showProfile() {
@@ -374,6 +400,7 @@ form.addEventListener("submit", async (event) => {
   addMessage(text, "user");
   conversation.push({ role: "user", content: text });
   saveConversation();
+  maybeSuggestMemory(text);
   input.value = "";
   resizeInput();
   await requestReply();
@@ -384,6 +411,23 @@ stopButton.addEventListener("click", async () => {
   stopButton.disabled = true;
   await invoke("stop_ai_message", { requestId: activeRequestId });
 });
+
+confirmMemoryButton.addEventListener("click", () => {
+  if (!suggestedMemory) return;
+  if (memories.length >= 20) {
+    memorySuggestionText.textContent = "长期记忆已满，请先在爱心设置中删除一条。";
+    return;
+  }
+  if (!memories.includes(suggestedMemory)) {
+    memories.push(suggestedMemory);
+    saveMemories();
+  }
+  memorySuggestionText.textContent = "记住啦！";
+  suggestedMemory = null;
+  setTimeout(() => memorySuggestion.classList.add("hidden"), 900);
+});
+
+dismissMemoryButton.addEventListener("click", hideMemorySuggestion);
 
 copyReplyButton.addEventListener("click", async () => {
   const reply = latestAssistantMessage();
