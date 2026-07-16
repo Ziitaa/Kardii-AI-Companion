@@ -318,3 +318,4 @@ textarea {
 .memory-item { display: flex; align-items: flex-start; gap: 7px; padding: 7px 8px; color: #66515a; font-size: 11px; line-height: 1.35; background: #fff; border: 1px solid #ead7df; border-radius: 9px; }
 .memory-item span { flex: 1; user-select: text; }
 .memory-item button { flex: 0 0 auto; padding: 0 3px; color: #bf6478; cursor: pointer; background: transparent; border: 0; }
+.memory-command-hint { margin: 7px 2px 0; color: #a88a95; font-size: 9px; line-height: 1.4; }

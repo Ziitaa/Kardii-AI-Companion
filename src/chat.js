@@ -109,13 +109,78 @@ function renderMemories() {
     remove.textContent = "删除";
     remove.addEventListener("click", () => {
       memories.splice(index, 1);
-      localStorage.setItem(MEMORIES_KEY, JSON.stringify(memories));
+      saveMemories();
       renderMemories();
       setProfileStatus("这条记忆已删除。", "success");
     });
     item.append(text, remove);
     memoryList.appendChild(item);
   });
+}
+
+function saveMemories() {
+  localStorage.setItem(MEMORIES_KEY, JSON.stringify(memories));
+}
+
+function addLocalExchange(userText, replyText) {
+  addMessage(userText, "user");
+  addMessage(replyText, "kardii");
+  conversation.push({ role: "user", content: userText });
+  conversation.push({ role: "assistant", content: replyText });
+  saveConversation();
+  updateReplyActions();
+}
+
+function handleMemoryCommand(text) {
+  const rememberMatch = text.match(/^记住\s*[：:]\s*(.+)$/s);
+  if (rememberMatch) {
+    const memory = rememberMatch[1].trim().slice(0, 160);
+    if (!memory) return false;
+    if (memories.includes(memory)) {
+      addLocalExchange(text, `这件事我已经记住啦：${memory}`);
+      return true;
+    }
+    if (memories.length >= 20) {
+      addLocalExchange(text, "长期记忆已经有 20 条啦。请点击爱心打开记忆列表，删除一条不需要的记忆后再试。");
+      return true;
+    }
+    memories.push(memory);
+    saveMemories();
+    addLocalExchange(text, `好，我记住了：${memory}`);
+    return true;
+  }
+
+  if (/^查看(?:长期)?记忆[。！!？?\s]*$/.test(text)) {
+    const reply = memories.length
+      ? `我目前记得这些：\n${memories.map((memory, index) => `${index + 1}. ${memory}`).join("\n")}`
+      : "我还没有保存长期记忆。你可以输入“记住：……”告诉我。";
+    addLocalExchange(text, reply);
+    return true;
+  }
+
+  const forgetMatch = text.match(/^忘记\s*[：:]\s*(.+)$/s);
+  if (forgetMatch) {
+    const rawKeyword = forgetMatch[1].trim();
+    if (!rawKeyword) return false;
+    const keyword = rawKeyword.toLowerCase();
+    const matches = memories
+      .map((memory, index) => ({ memory, index }))
+      .filter(({ memory }) => memory.toLowerCase().includes(keyword));
+
+    if (matches.length === 1) {
+      const [match] = matches;
+      memories.splice(match.index, 1);
+      saveMemories();
+      addLocalExchange(text, `好，我已经忘记了：${match.memory}`);
+    } else if (matches.length > 1) {
+      addLocalExchange(text, `找到了 ${matches.length} 条相关记忆。为了避免删错，请点击爱心，在记忆列表里选择要删除的那一条。`);
+    } else {
+      addLocalExchange(text, `没有找到包含“${rawKeyword}”的记忆。`);
+    }
+    return true;
+  }
+
+  return false;
 }
 
 function showProfile() {
@@ -295,6 +360,11 @@ form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const text = input.value.trim();
   if (!text || sending) return;
+  if (handleMemoryCommand(text)) {
+    input.value = "";
+    resizeInput();
+    return;
+  }
   if (!hasApiKey) {
     showSettings();
     setSettingsStatus("请先设置 DeepSeek API Key。", "error");
@@ -363,7 +433,7 @@ addMemoryButton.addEventListener("click", () => {
     return;
   }
   memories.push(memory.slice(0, 160));
-  localStorage.setItem(MEMORIES_KEY, JSON.stringify(memories));
+  saveMemories();
   memoryInput.value = "";
   renderMemories();
   setProfileStatus("Kardii 已经记住了。", "success");
