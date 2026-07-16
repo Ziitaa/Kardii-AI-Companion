@@ -110,6 +110,26 @@ header strong {
   border-bottom-right-radius: 5px;
 }
 
+.reply-actions {
+  display: flex;
+  justify-content: flex-start;
+  gap: 6px;
+  margin: -8px 14px 7px;
+}
+
+.reply-actions button {
+  padding: 4px 8px;
+  color: #9a7483;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid #edd5df;
+  border-radius: 8px;
+}
+
+.reply-actions button:hover { color: #c35f87; border-color: #dda5ba; }
+
 form {
   display: flex;
   align-items: flex-end;
@@ -179,7 +199,9 @@ textarea {
 
 .settings-box {
   width: 100%;
+  max-height: 100%;
   padding: 16px;
+  overflow-y: auto;
   background: #fffafd;
   border: 1px solid #edceda;
   border-radius: 18px;
@@ -197,7 +219,8 @@ textarea {
 .settings-box label { display: block; margin: 9px 0 5px; color: #846572; font-size: 11px; }
 
 .model-name,
-#apiKeyInput {
+#apiKeyInput,
+#responseLengthSelect {
   width: 100%;
   padding: 9px 10px;
   color: #5e4851;
@@ -207,6 +230,8 @@ textarea {
   border: 1px solid #ead2dc;
   border-radius: 10px;
 }
+
+#responseLengthSelect { outline: none; }
 
 #apiKeyInput { outline: none; user-select: text; }
 #apiKeyInput:focus { border-color: #dc7ca1; box-shadow: 0 0 0 3px rgba(220, 124, 161, 0.12); }

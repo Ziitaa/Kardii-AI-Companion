@@ -212,6 +212,7 @@ fn stop_ai_message(request_id: String, state: tauri::State<'_, StreamState>) {
 async fn stream_ai_message(
     messages: Vec<ChatMessage>,
     request_id: String,
+    max_tokens: u32,
     on_event: Channel<StreamEvent>,
     state: tauri::State<'_, StreamState>,
 ) -> Result<(), String> {
@@ -235,7 +236,7 @@ async fn stream_ai_message(
             "model": "deepseek-v4-flash",
             "messages": api_messages,
             "thinking": { "type": "disabled" },
-            "max_tokens": 500,
+            "max_tokens": max_tokens.clamp(100, 1000),
             "stream": true
         }))
         .send()
