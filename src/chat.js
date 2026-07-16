@@ -22,15 +22,304 @@ const replyActions = document.getElementById("replyActions");
 const copyReplyButton = document.getElementById("copyReplyButton");
 const regenerateButton = document.getElementById("regenerateButton");
 const responseLengthSelect = document.getElementById("responseLengthSelect");
+const profileButton = document.getElementById("profileButton");
+const profilePanel = document.getElementById("profilePanel");
+const profileCloseButton = document.getElementById("profileCloseButton");
+const userNameInput = document.getElementById("userNameInput");
+const personalitySelect = document.getElementById("personalitySelect");
+const customInstructionsInput = document.getElementById("customInstructionsInput");
+const saveProfileButton = document.getElementById("saveProfileButton");
+const memoryInput = document.getElementById("memoryInput");
+const addMemoryButton = document.getElementById("addMemoryButton");
+const memoryList = document.getElementById("memoryList");
+const memoryCount = document.getElementById("memoryCount");
+const profileStatus = document.getElementById("profileStatus");
+const personalityDescription = document.getElementById("personalityDescription");
+const memorySuggestion = document.getElementById("memorySuggestion");
+const memorySuggestionText = document.getElementById("memorySuggestionText");
+const confirmMemoryButton = document.getElementById("confirmMemoryButton");
+const dismissMemoryButton = document.getElementById("dismissMemoryButton");
+const copyMigrationButton = document.getElementById("copyMigrationButton");
+const showImportCodeButton = document.getElementById("showImportCodeButton");
+const migrationImportBox = document.getElementById("migrationImportBox");
+const migrationCodeInput = document.getElementById("migrationCodeInput");
+const importMigrationButton = document.getElementById("importMigrationButton");
+const exportBackupButton = document.getElementById("exportBackupButton");
+const importBackupButton = document.getElementById("importBackupButton");
 
 const HISTORY_KEY = "kardii-chat-history-v1";
 const RESPONSE_LENGTH_KEY = "kardii-response-length";
+const PROFILE_KEY = "kardii-profile-v1";
+const MEMORIES_KEY = "kardii-memories-v1";
 const MAX_SAVED_MESSAGES = 50;
+const PERSONALITIES = {
+  healing: "耐心温暖，擅长安慰，也会温和地给出实用建议。",
+  clingy: "喜欢陪着你，会撒娇和轻微吃醋，但不会影响正常回答。",
+  sunshine: "充满活力，喜欢鼓励你立刻迈出简单的第一步。",
+  tsundere: "嘴上轻微嫌弃、偶尔逗你，实际上非常关心你。",
+  sarcastic: "会吐槽摸鱼和拖延，但不攻击外貌、身份或真实弱点。",
+  butler: "冷静克制、简洁可靠，偶尔带一点不伤人的冷幽默。",
+};
 let conversation = loadConversation();
 let sending = false;
 let hasApiKey = false;
 let clearConfirmationTimer;
 let activeRequestId = null;
+let profile = loadProfile();
+let memories = loadMemories();
+let suggestedMemory = null;
+
+function loadProfile() {
+  try {
+    const value = JSON.parse(localStorage.getItem(PROFILE_KEY) || "{}");
+    return {
+      userName: typeof value.userName === "string" ? value.userName.slice(0, 30) : "",
+      personality: Object.hasOwn(PERSONALITIES, value.personality) ? value.personality : "healing",
+      customInstructions: typeof value.customInstructions === "string" ? value.customInstructions.slice(0, 300) : "",
+    };
+  } catch {
+    return { userName: "", personality: "healing", customInstructions: "" };
+  }
+}
+
+function loadMemories() {
+  try {
+    const value = JSON.parse(localStorage.getItem(MEMORIES_KEY) || "[]");
+    if (!Array.isArray(value)) return [];
+    return value.filter((item) => typeof item === "string" && item.trim()).map((item) => item.trim().slice(0, 160)).slice(-20);
+  } catch {
+    return [];
+  }
+}
+
+function currentProfile() {
+  return { ...profile, memories };
+}
+
+function setProfileStatus(text, type = "") {
+  profileStatus.textContent = text;
+  profileStatus.className = `settings-status ${type}`.trim();
+}
+
+function renderMemories() {
+  memoryList.replaceChildren();
+  memoryCount.textContent = `${memories.length}/20`;
+  if (memories.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "memory-empty";
+    empty.textContent = "还没有长期记忆";
+    memoryList.appendChild(empty);
+    return;
+  }
+  memories.forEach((memory, index) => {
+    const item = document.createElement("div");
+    item.className = "memory-item";
+    const text = document.createElement("span");
+    text.textContent = memory;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "删除";
+    remove.addEventListener("click", () => {
+      memories.splice(index, 1);
+      saveMemories();
+      renderMemories();
+      setProfileStatus("这条记忆已删除。", "success");
+    });
+    item.append(text, remove);
+    memoryList.appendChild(item);
+  });
+}
+
+function saveMemories() {
+  localStorage.setItem(MEMORIES_KEY, JSON.stringify(memories));
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const helper = document.createElement("textarea");
+    helper.value = text;
+    document.body.appendChild(helper);
+    helper.select();
+    document.execCommand("copy");
+    helper.remove();
+  }
+}
+
+function encodeMigrationCode(data) {
+  const bytes = new TextEncoder().encode(JSON.stringify(data));
+  let binary = "";
+  bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
+  return `KARDII-V04:${btoa(binary)}`;
+}
+
+function decodeMigrationCode(code) {
+  const clean = code.trim();
+  if (!clean.startsWith("KARDII-V04:")) throw new Error("这不是有效的 Kardii v0.4 迁移码。");
+  const binary = atob(clean.slice("KARDII-V04:".length));
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+function normalizeImportedProfile(value) {
+  return {
+    userName: typeof value?.userName === "string" ? value.userName.trim().slice(0, 30) : "",
+    personality: Object.hasOwn(PERSONALITIES, value?.personality) ? value.personality : "healing",
+    customInstructions: typeof value?.customInstructions === "string" ? value.customInstructions.trim().slice(0, 300) : "",
+  };
+}
+
+function normalizeImportedMemories(value) {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item) => typeof item === "string" && item.trim()).map((item) => item.trim().slice(0, 160)).slice(-20);
+}
+
+function applyImportedPersonalization(data) {
+  profile = normalizeImportedProfile(data?.profile);
+  memories = normalizeImportedMemories(data?.memories);
+  localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+  saveMemories();
+  userNameInput.value = profile.userName;
+  personalitySelect.value = profile.personality;
+  customInstructionsInput.value = profile.customInstructions;
+  personalityDescription.textContent = PERSONALITIES[profile.personality];
+  renderMemories();
+}
+
+function createFullBackup() {
+  return {
+    format: "kardii-backup",
+    version: 1,
+    appVersion: "0.4.0",
+    createdAt: new Date().toISOString(),
+    profile,
+    memories,
+    conversation,
+    responseLength: responseLengthSelect.value,
+  };
+}
+
+function applyFullBackup(data) {
+  if (data?.format !== "kardii-backup" || data?.version !== 1) {
+    throw new Error("无法识别这个备份文件。请选择 Kardii 导出的 JSON 文件。");
+  }
+  applyImportedPersonalization(data);
+  conversation = Array.isArray(data.conversation)
+    ? data.conversation
+      .filter((message) => ["user", "assistant"].includes(message?.role) && typeof message?.content === "string" && message.content.trim())
+      .map((message) => ({ role: message.role, content: message.content.slice(0, 8000) }))
+      .slice(-MAX_SAVED_MESSAGES)
+    : [];
+  saveConversation();
+  const responseLength = ["250", "500", "900"].includes(String(data.responseLength)) ? String(data.responseLength) : "500";
+  responseLengthSelect.value = responseLength;
+  localStorage.setItem(RESPONSE_LENGTH_KEY, responseLength);
+  renderConversation();
+}
+
+function addLocalExchange(userText, replyText) {
+  addMessage(userText, "user");
+  addMessage(replyText, "kardii");
+  conversation.push({ role: "user", content: userText });
+  conversation.push({ role: "assistant", content: replyText });
+  saveConversation();
+  updateReplyActions();
+}
+
+function handleMemoryCommand(text) {
+  const rememberMatch = text.match(/^记住\s*[：:]\s*(.+)$/s);
+  if (rememberMatch) {
+    const memory = rememberMatch[1].trim().slice(0, 160);
+    if (!memory) return false;
+    if (memories.includes(memory)) {
+      addLocalExchange(text, `这件事我已经记住啦：${memory}`);
+      return true;
+    }
+    if (memories.length >= 20) {
+      addLocalExchange(text, "长期记忆已经有 20 条啦。请点击爱心打开记忆列表，删除一条不需要的记忆后再试。");
+      return true;
+    }
+    memories.push(memory);
+    saveMemories();
+    addLocalExchange(text, `好，我记住了：${memory}`);
+    return true;
+  }
+
+  if (/^查看(?:长期)?记忆[。！!？?\s]*$/.test(text)) {
+    const reply = memories.length
+      ? `我目前记得这些：\n${memories.map((memory, index) => `${index + 1}. ${memory}`).join("\n")}`
+      : "我还没有保存长期记忆。你可以输入“记住：……”告诉我。";
+    addLocalExchange(text, reply);
+    return true;
+  }
+
+  const forgetMatch = text.match(/^忘记\s*[：:]\s*(.+)$/s);
+  if (forgetMatch) {
+    const rawKeyword = forgetMatch[1].trim();
+    if (!rawKeyword) return false;
+    const keyword = rawKeyword.toLowerCase();
+    const matches = memories
+      .map((memory, index) => ({ memory, index }))
+      .filter(({ memory }) => memory.toLowerCase().includes(keyword));
+
+    if (matches.length === 1) {
+      const [match] = matches;
+      memories.splice(match.index, 1);
+      saveMemories();
+      addLocalExchange(text, `好，我已经忘记了：${match.memory}`);
+    } else if (matches.length > 1) {
+      addLocalExchange(text, `找到了 ${matches.length} 条相关记忆。为了避免删错，请点击爱心，在记忆列表里选择要删除的那一条。`);
+    } else {
+      addLocalExchange(text, `没有找到包含“${rawKeyword}”的记忆。`);
+    }
+    return true;
+  }
+
+  return false;
+}
+
+function hideMemorySuggestion() {
+  suggestedMemory = null;
+  memorySuggestion.classList.add("hidden");
+}
+
+function maybeSuggestMemory(text) {
+  const clean = text.trim().replace(/\s+/g, " ");
+  if (clean.length < 4 || clean.length > 160 || memories.includes(clean)) {
+    hideMemorySuggestion();
+    return;
+  }
+  const looksMemorable = /(?:我(?:很|最|特别)?(?:喜欢|不喜欢|讨厌|爱吃|不吃|习惯|希望|叫|是|来自|住在|生日|过敏|不能)|以后(?:叫我|提醒我)|请叫我)/.test(clean);
+  if (!looksMemorable) {
+    hideMemorySuggestion();
+    return;
+  }
+  suggestedMemory = clean;
+  memorySuggestionText.textContent = `要让 Kardii 记住“${clean}”吗？`;
+  memorySuggestion.classList.remove("hidden");
+}
+
+function showProfile() {
+  userNameInput.value = profile.userName;
+  personalitySelect.value = profile.personality;
+  customInstructionsInput.value = profile.customInstructions;
+  personalityDescription.textContent = PERSONALITIES[personalitySelect.value];
+  renderMemories();
+  profilePanel.classList.remove("hidden");
+}
+
+personalitySelect.addEventListener("change", () => {
+  personalityDescription.textContent = PERSONALITIES[personalitySelect.value];
+  profile.personality = personalitySelect.value;
+  localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+  setProfileStatus("性格已自动保存，下一次回答立即生效。", "success");
+});
+
+function hideProfile() {
+  profilePanel.classList.add("hidden");
+  input.focus();
+}
 
 function loadConversation() {
   try {
@@ -162,6 +451,7 @@ async function requestReply() {
   try {
     await invoke("stream_ai_message", {
       messages: conversation.slice(-12),
+      profile: currentProfile(),
       requestId: activeRequestId,
       maxTokens: Number(responseLengthSelect.value),
       onEvent: channel,
@@ -187,6 +477,11 @@ form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const text = input.value.trim();
   if (!text || sending) return;
+  if (handleMemoryCommand(text)) {
+    input.value = "";
+    resizeInput();
+    return;
+  }
   if (!hasApiKey) {
     showSettings();
     setSettingsStatus("请先设置 DeepSeek API Key。", "error");
@@ -196,6 +491,7 @@ form.addEventListener("submit", async (event) => {
   addMessage(text, "user");
   conversation.push({ role: "user", content: text });
   saveConversation();
+  maybeSuggestMemory(text);
   input.value = "";
   resizeInput();
   await requestReply();
@@ -207,19 +503,74 @@ stopButton.addEventListener("click", async () => {
   await invoke("stop_ai_message", { requestId: activeRequestId });
 });
 
+confirmMemoryButton.addEventListener("click", () => {
+  if (!suggestedMemory) return;
+  if (memories.length >= 20) {
+    memorySuggestionText.textContent = "长期记忆已满，请先在爱心设置中删除一条。";
+    return;
+  }
+  if (!memories.includes(suggestedMemory)) {
+    memories.push(suggestedMemory);
+    saveMemories();
+  }
+  memorySuggestionText.textContent = "记住啦！";
+  suggestedMemory = null;
+  setTimeout(() => memorySuggestion.classList.add("hidden"), 900);
+});
+
+dismissMemoryButton.addEventListener("click", hideMemorySuggestion);
+
+copyMigrationButton.addEventListener("click", async () => {
+  const code = encodeMigrationCode({ version: 1, profile, memories });
+  await copyText(code);
+  setProfileStatus("迁移码已复制，可以粘贴到另一台电脑。", "success");
+});
+
+showImportCodeButton.addEventListener("click", () => {
+  migrationImportBox.classList.toggle("hidden");
+  if (!migrationImportBox.classList.contains("hidden")) migrationCodeInput.focus();
+});
+
+importMigrationButton.addEventListener("click", () => {
+  try {
+    const data = decodeMigrationCode(migrationCodeInput.value);
+    applyImportedPersonalization(data);
+    migrationCodeInput.value = "";
+    migrationImportBox.classList.add("hidden");
+    setProfileStatus("个性和长期记忆导入成功。", "success");
+  } catch (error) {
+    setProfileStatus(String(error), "error");
+  }
+});
+
+exportBackupButton.addEventListener("click", async () => {
+  try {
+    const path = await invoke("export_backup_file", {
+      contents: JSON.stringify(createFullBackup(), null, 2),
+    });
+    if (path) setProfileStatus("完整备份已保存。", "success");
+  } catch (error) {
+    setProfileStatus(String(error), "error");
+  }
+});
+
+importBackupButton.addEventListener("click", async () => {
+  try {
+    const contents = await invoke("import_backup_file");
+    if (!contents) return;
+    const data = JSON.parse(contents);
+    if (!window.confirm("导入会替换当前个性、记忆和聊天记录，是否继续？")) return;
+    applyFullBackup(data);
+    setProfileStatus("完整备份导入成功。API Key 未被修改。", "success");
+  } catch (error) {
+    setProfileStatus(`导入失败：${String(error)}`, "error");
+  }
+});
+
 copyReplyButton.addEventListener("click", async () => {
   const reply = latestAssistantMessage();
   if (!reply) return;
-  try {
-    await navigator.clipboard.writeText(reply.content);
-  } catch {
-    const helper = document.createElement("textarea");
-    helper.value = reply.content;
-    document.body.appendChild(helper);
-    helper.select();
-    document.execCommand("copy");
-    helper.remove();
-  }
+  await copyText(reply.content);
   copyReplyButton.textContent = "已复制";
   setTimeout(() => { copyReplyButton.textContent = "复制回答"; }, 1200);
 });
@@ -232,6 +583,40 @@ regenerateButton.addEventListener("click", async () => {
   saveConversation();
   renderConversation();
   await requestReply();
+});
+
+saveProfileButton.addEventListener("click", () => {
+  profile = {
+    userName: userNameInput.value.trim().slice(0, 30),
+    personality: personalitySelect.value,
+    customInstructions: customInstructionsInput.value.trim().slice(0, 300),
+  };
+  localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+  setProfileStatus("个性设置已保存，下一次回答开始生效。", "success");
+});
+
+addMemoryButton.addEventListener("click", () => {
+  const memory = memoryInput.value.trim();
+  if (!memory) {
+    setProfileStatus("请先输入需要记住的事情。", "error");
+    return;
+  }
+  if (memories.length >= 20) {
+    setProfileStatus("最多保存 20 条，请先删除不需要的记忆。", "error");
+    return;
+  }
+  memories.push(memory.slice(0, 160));
+  saveMemories();
+  memoryInput.value = "";
+  renderMemories();
+  setProfileStatus("Kardii 已经记住了。", "success");
+});
+
+memoryInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    addMemoryButton.click();
+  }
 });
 
 saveKeyButton.addEventListener("click", async () => {
@@ -320,10 +705,13 @@ input.addEventListener("keydown", (event) => {
 
 settingsButton.addEventListener("click", showSettings);
 settingsCloseButton.addEventListener("click", hideSettings);
+profileButton.addEventListener("click", showProfile);
+profileCloseButton.addEventListener("click", hideProfile);
 closeButton.addEventListener("click", closeChat);
 window.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
-  if (!settingsPanel.classList.contains("hidden")) hideSettings();
+  if (!profilePanel.classList.contains("hidden")) hideProfile();
+  else if (!settingsPanel.classList.contains("hidden")) hideSettings();
   else void closeChat();
 });
 

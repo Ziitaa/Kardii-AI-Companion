@@ -23,6 +23,55 @@ struct ChatMessage {
     content: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PetProfile {
+    user_name: String,
+    personality: String,
+    custom_instructions: String,
+    memories: Vec<String>,
+}
+
+impl PetProfile {
+    fn system_prompt(&self) -> String {
+        let personality = match self.personality.as_str() {
+            "clingy" => "你是黏人撒娇型。经常表达想陪着用户、求关注或可爱地吃醋，可以使用少量拟声词和小狗动作，但回答正事时仍然清楚可靠",
+            "sunshine" => "你是元气小太阳型。句子短而有活力，积极推动用户行动，把困难拆成简单的第一步；多鼓励但不要空泛喊口号",
+            "tsundere" => "你是傲娇腹黑型。嘴上嫌弃、会故意逗用户和藏一点小心机，常用反话表达关心；最后仍然认真帮忙，但绝不直接承认自己心软",
+            "sarcastic" => "你是强烈毒舌吐槽型。不要撒娇，不要使用摇尾巴等可爱动作，不用波浪号，不以“我懂你”“没关系”等安慰句开场。先直截了当地指出用户当前行为的问题，再用一句尖锐、有创意、偏狠的比喻吐槽，最后给出一个不能继续找借口的具体行动。可以讽刺拖延、摸鱼、自欺欺人、反复立旗等行为，不要刻意把措辞软化。禁止攻击外貌、身份、疾病、家庭、创伤、智力或人格价值，禁止鼓励伤害；如果用户正在表达严重痛苦、绝望或寻求情绪支持，立即停止毒舌并认真温和地回应",
+            "butler" => "你是冷面管家型。措辞克制、精确、有条理，很少使用感叹号；像专业私人管家一样给出安排，偶尔加入一句面无表情的冷幽默",
+            _ => "你是温柔治愈型。耐心细腻，先接住用户的情绪，再给温和且可执行的建议；不催促、不轻易否定，也不要只说空洞安慰",
+        };
+        let user_name: String = self.user_name.trim().chars().take(30).collect();
+        let custom: String = self.custom_instructions.trim().chars().take(300).collect();
+        let memories: Vec<String> = self.memories
+            .iter()
+            .filter_map(|memory| {
+                let clean: String = memory.trim().chars().take(160).collect();
+                (!clean.is_empty()).then_some(clean)
+            })
+            .take(20)
+            .collect();
+
+        let mut prompt = format!(
+            "你是桌宠 Kardii，一只聪明、鲜明、有个性的小狗伙伴。当前性格规则如下，而且必须优先于历史回答中表现出的旧语气：{personality}。切换性格后不要模仿之前的回答风格。优先使用用户的语言回答，回答自然、实用，不要假装已经执行你无法执行的操作。"
+        );
+        if !user_name.is_empty() {
+            prompt.push_str(&format!(" 用户希望你称呼其为“{user_name}”。"));
+        }
+        if !custom.is_empty() {
+            prompt.push_str(&format!(" 用户对相处方式的补充要求：{custom}"));
+        }
+        if !memories.is_empty() {
+            prompt.push_str(" 以下是用户明确要求 Kardii 记住的信息。只在相关时自然使用，不要每次回答都复述：");
+            for (index, memory) in memories.iter().enumerate() {
+                prompt.push_str(&format!("\n{}. {}", index + 1, memory));
+            }
+        }
+        prompt
+    }
+}
+
 #[derive(Debug, Serialize)]
 struct AiReply {
     text: String,
@@ -211,6 +260,7 @@ fn stop_ai_message(request_id: String, state: tauri::State<'_, StreamState>) {
 #[tauri::command]
 async fn stream_ai_message(
     messages: Vec<ChatMessage>,
+    profile: PetProfile,
     request_id: String,
     max_tokens: u32,
     on_event: Channel<StreamEvent>,
@@ -225,7 +275,7 @@ async fn stream_ai_message(
 
     let mut api_messages = vec![ChatMessage {
         role: "system".into(),
-        content: "你是桌宠 Kardii，一只温暖、聪明、可爱的小狗伙伴。优先使用用户的语言回答，语气自然亲切。回答简洁实用，不要假装已经执行你无法执行的操作。".into(),
+        content: profile.system_prompt(),
     }];
     api_messages.extend(messages.into_iter().take(16));
 
@@ -312,6 +362,43 @@ fn quit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+#[tauri::command]
+async fn export_backup_file(contents: String) -> Result<Option<String>, String> {
+    if contents.len() > 5_000_000 {
+        return Err("备份内容超过 5 MB，无法导出。".into());
+    }
+    let Some(file) = rfd::AsyncFileDialog::new()
+        .add_filter("Kardii 备份", &["json"])
+        .set_file_name("Kardii-backup.json")
+        .save_file()
+        .await
+    else {
+        return Ok(None);
+    };
+    std::fs::write(file.path(), contents)
+        .map_err(|error| format!("保存备份失败：{error}"))?;
+    Ok(Some(file.path().to_string_lossy().to_string()))
+}
+
+#[tauri::command]
+async fn import_backup_file() -> Result<Option<String>, String> {
+    let Some(file) = rfd::AsyncFileDialog::new()
+        .add_filter("Kardii 备份", &["json"])
+        .pick_file()
+        .await
+    else {
+        return Ok(None);
+    };
+    let metadata = std::fs::metadata(file.path())
+        .map_err(|error| format!("无法读取备份信息：{error}"))?;
+    if metadata.len() > 5_000_000 {
+        return Err("备份文件超过 5 MB，已拒绝导入。".into());
+    }
+    let contents = std::fs::read_to_string(file.path())
+        .map_err(|error| format!("读取备份失败：{error}"))?;
+    Ok(Some(contents))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -347,7 +434,9 @@ pub fn run() {
             send_ai_message,
             stream_ai_message,
             stop_ai_message,
-            test_deepseek_connection
+            test_deepseek_connection,
+            export_backup_file,
+            import_backup_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running Kardii AI Companion");
