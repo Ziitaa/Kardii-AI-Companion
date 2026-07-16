@@ -1,51 +1,52 @@
-# Kardii AI Companion macOS v1.2
+# Kardii AI Companion
 
-这是 macOS 版悬浮桌宠项目。
+Kardii 是一个使用 Tauri 2 制作的跨平台透明悬浮桌宠。
 
-## 功能
+## v0.2 功能
 
 - 透明无边框悬浮窗口
-- 始终置顶
-- 左键拖动
-- 双击切换 Loading / Sleep / Error
-- 右键菜单
-- 滚轮缩放
-- 3 分钟无操作自动睡觉
+- 逐帧动画 WebP，而不是整张图片摇晃
+- 待机、加载、睡觉、报错四种动作
+- 左键拖动，自动保存窗口位置
+- 双击依次切换动作
+- 右键打开动作和大小菜单
+- 滚轮缩放至0.6–2.4倍，窗口同步扩展并保存大小
+- 三分钟无操作后自动睡觉
+- 系统托盘显示与退出
+- Intel Mac、Apple Silicon Mac 和 Windows 10/11 构建
 
-## 用 GitHub Actions 生成 Mac 应用
+## 支持平台
 
-仓库根目录必须直接包含：
+| 平台 | 构建目标 | 产物 |
+| --- | --- | --- |
+| Intel Mac | `x86_64-apple-darwin` | macOS Universal 应用 |
+| M1–M5 Mac | `aarch64-apple-darwin` | macOS Universal 应用 |
+| Windows 10/11 x64 | `x86_64-pc-windows-msvc` | `.exe` / `.msi` |
+
+macOS 使用 `universal-apple-darwin` 将 Intel 与 Apple Silicon 合并为同一个安装包。
+
+## 动画资源
 
 ```text
-.github
-src
-src-tauri
-package.json
-README.md
+src/assets/pet/
+├── idle.webp
+├── loading.webp
+├── sleep.webp
+└── error.webp
 ```
 
-`.github/workflows/` 中应有：
-
-```text
-build-macos.yml
-```
-
-上传后：
-
-1. 打开 GitHub 仓库的 Actions。
-2. 选择 `Build Kardii macOS App`。
-3. 点击 `Run workflow`。
-4. 等待构建完成。
-5. 在 Artifacts 下载 `Kardii-AI-Companion-macOS`。
-6. 解压后获得 `.dmg` 或 `.app`。
-
-## 在 Mac 本地开发
-
-需要安装 Node.js、Rust 和 Xcode Command Line Tools。
+单帧源文件保存在 `src/assets/pet/frames/`。如需从设计稿重新生成动画：
 
 ```bash
-xcode-select --install
-npm install
+python tools/build_animations.py
+```
+
+## 本地开发
+
+需要 Node.js 20+、Rust stable，以及对应平台的 Tauri 系统依赖。
+
+```bash
+npm ci
 npm run dev
 ```
 
@@ -55,21 +56,11 @@ npm run dev
 npm run build
 ```
 
-生成位置：
+## GitHub Actions
 
-```text
-src-tauri/target/release/bundle/dmg/
-src-tauri/target/release/bundle/macos/
-```
+- `Build Kardii macOS Universal App` 构建 Intel + Apple Silicon 通用包。
+- `Build Kardii Windows App` 构建 Windows x64 安装包。
 
-## 首次打开提示“无法验证开发者”
+可在 GitHub 仓库的 **Actions** 页面手动运行，也会在相关分支和 Pull Request 上自动检查。
 
-由于当前应用没有 Apple 开发者签名，第一次打开时：
-
-1. Finder 中右键应用。
-2. 选择“打开”。
-3. 再点一次“打开”。
-
-或者进入：
-
-系统设置 → 隐私与安全性 → 仍要打开
+当前构建未进行 Apple 或 Windows 代码签名。首次打开时，系统可能显示开发者验证或安全提醒；正式发布前需要加入签名与 macOS 公证。
