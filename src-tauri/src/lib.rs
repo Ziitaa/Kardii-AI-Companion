@@ -362,6 +362,43 @@ fn quit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+#[tauri::command]
+async fn export_backup_file(contents: String) -> Result<Option<String>, String> {
+    if contents.len() > 5_000_000 {
+        return Err("备份内容超过 5 MB，无法导出。".into());
+    }
+    let Some(file) = rfd::AsyncFileDialog::new()
+        .add_filter("Kardii 备份", &["json"])
+        .set_file_name("Kardii-backup.json")
+        .save_file()
+        .await
+    else {
+        return Ok(None);
+    };
+    std::fs::write(file.path(), contents)
+        .map_err(|error| format!("保存备份失败：{error}"))?;
+    Ok(Some(file.path().to_string_lossy().to_string()))
+}
+
+#[tauri::command]
+async fn import_backup_file() -> Result<Option<String>, String> {
+    let Some(file) = rfd::AsyncFileDialog::new()
+        .add_filter("Kardii 备份", &["json"])
+        .pick_file()
+        .await
+    else {
+        return Ok(None);
+    };
+    let metadata = std::fs::metadata(file.path())
+        .map_err(|error| format!("无法读取备份信息：{error}"))?;
+    if metadata.len() > 5_000_000 {
+        return Err("备份文件超过 5 MB，已拒绝导入。".into());
+    }
+    let contents = std::fs::read_to_string(file.path())
+        .map_err(|error| format!("读取备份失败：{error}"))?;
+    Ok(Some(contents))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -397,7 +434,9 @@ pub fn run() {
             send_ai_message,
             stream_ai_message,
             stop_ai_message,
-            test_deepseek_connection
+            test_deepseek_connection,
+            export_backup_file,
+            import_backup_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running Kardii AI Companion");

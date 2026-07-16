@@ -347,3 +347,10 @@ textarea {
 .memory-item span { flex: 1; user-select: text; }
 .memory-item button { flex: 0 0 auto; padding: 0 3px; color: #bf6478; cursor: pointer; background: transparent; border: 0; }
 .memory-command-hint { margin: 7px 2px 0; color: #a88a95; font-size: 9px; line-height: 1.4; }
+.migration-actions { display: flex; gap: 6px; margin-top: 7px; }
+.migration-actions button { flex: 1; padding: 7px 8px; font: inherit; font-size: 10px; cursor: pointer; border-radius: 9px; }
+.migration-import { display: grid; gap: 6px; margin-top: 7px; }
+.migration-import textarea { min-height: 64px; resize: vertical; user-select: text; }
+.migration-import button { padding: 7px; font: inherit; font-size: 10px; cursor: pointer; border-radius: 9px; }
+.full-backup-actions { margin-top: 9px; }
+.backup-note { margin: 7px 2px 0; color: #a88a95; font-size: 9px; line-height: 1.45; }

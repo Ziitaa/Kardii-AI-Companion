@@ -102,6 +102,21 @@
           <div id="memoryList" class="memory-list"></div>
           <p class="memory-command-hint">聊天中可输入：记住：…　查看记忆　忘记：…</p>
           <p id="profileStatus" class="settings-status">记忆只保存在这台电脑中。</p>
+
+          <div class="memory-heading"><strong>备份与迁移</strong></div>
+          <div class="migration-actions">
+            <button id="copyMigrationButton" class="secondary-button" type="button">复制迁移码</button>
+            <button id="showImportCodeButton" class="secondary-button" type="button">粘贴迁移码</button>
+          </div>
+          <div id="migrationImportBox" class="migration-import hidden">
+            <textarea id="migrationCodeInput" class="settings-input" placeholder="粘贴以 KARDII-V04: 开头的迁移码"></textarea>
+            <button id="importMigrationButton" class="primary-button" type="button">确认导入</button>
+          </div>
+          <div class="migration-actions full-backup-actions">
+            <button id="exportBackupButton" class="secondary-button" type="button">导出完整备份</button>
+            <button id="importBackupButton" class="secondary-button" type="button">导入完整备份</button>
+          </div>
+          <p class="backup-note">迁移码只包含个性和长期记忆；完整备份还包含聊天记录。API Key 永远不会导出。</p>
         </div>
       </section>
     </main>

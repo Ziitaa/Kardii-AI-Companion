@@ -39,6 +39,13 @@ const memorySuggestion = document.getElementById("memorySuggestion");
 const memorySuggestionText = document.getElementById("memorySuggestionText");
 const confirmMemoryButton = document.getElementById("confirmMemoryButton");
 const dismissMemoryButton = document.getElementById("dismissMemoryButton");
+const copyMigrationButton = document.getElementById("copyMigrationButton");
+const showImportCodeButton = document.getElementById("showImportCodeButton");
+const migrationImportBox = document.getElementById("migrationImportBox");
+const migrationCodeInput = document.getElementById("migrationCodeInput");
+const importMigrationButton = document.getElementById("importMigrationButton");
+const exportBackupButton = document.getElementById("exportBackupButton");
+const importBackupButton = document.getElementById("importBackupButton");
 
 const HISTORY_KEY = "kardii-chat-history-v1";
 const RESPONSE_LENGTH_KEY = "kardii-response-length";
@@ -125,6 +132,90 @@ function renderMemories() {
 
 function saveMemories() {
   localStorage.setItem(MEMORIES_KEY, JSON.stringify(memories));
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const helper = document.createElement("textarea");
+    helper.value = text;
+    document.body.appendChild(helper);
+    helper.select();
+    document.execCommand("copy");
+    helper.remove();
+  }
+}
+
+function encodeMigrationCode(data) {
+  const bytes = new TextEncoder().encode(JSON.stringify(data));
+  let binary = "";
+  bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
+  return `KARDII-V04:${btoa(binary)}`;
+}
+
+function decodeMigrationCode(code) {
+  const clean = code.trim();
+  if (!clean.startsWith("KARDII-V04:")) throw new Error("这不是有效的 Kardii v0.4 迁移码。");
+  const binary = atob(clean.slice("KARDII-V04:".length));
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+function normalizeImportedProfile(value) {
+  return {
+    userName: typeof value?.userName === "string" ? value.userName.trim().slice(0, 30) : "",
+    personality: Object.hasOwn(PERSONALITIES, value?.personality) ? value.personality : "healing",
+    customInstructions: typeof value?.customInstructions === "string" ? value.customInstructions.trim().slice(0, 300) : "",
+  };
+}
+
+function normalizeImportedMemories(value) {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item) => typeof item === "string" && item.trim()).map((item) => item.trim().slice(0, 160)).slice(-20);
+}
+
+function applyImportedPersonalization(data) {
+  profile = normalizeImportedProfile(data?.profile);
+  memories = normalizeImportedMemories(data?.memories);
+  localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+  saveMemories();
+  userNameInput.value = profile.userName;
+  personalitySelect.value = profile.personality;
+  customInstructionsInput.value = profile.customInstructions;
+  personalityDescription.textContent = PERSONALITIES[profile.personality];
+  renderMemories();
+}
+
+function createFullBackup() {
+  return {
+    format: "kardii-backup",
+    version: 1,
+    appVersion: "0.4.0",
+    createdAt: new Date().toISOString(),
+    profile,
+    memories,
+    conversation,
+    responseLength: responseLengthSelect.value,
+  };
+}
+
+function applyFullBackup(data) {
+  if (data?.format !== "kardii-backup" || data?.version !== 1) {
+    throw new Error("无法识别这个备份文件。请选择 Kardii 导出的 JSON 文件。");
+  }
+  applyImportedPersonalization(data);
+  conversation = Array.isArray(data.conversation)
+    ? data.conversation
+      .filter((message) => ["user", "assistant"].includes(message?.role) && typeof message?.content === "string" && message.content.trim())
+      .map((message) => ({ role: message.role, content: message.content.slice(0, 8000) }))
+      .slice(-MAX_SAVED_MESSAGES)
+    : [];
+  saveConversation();
+  const responseLength = ["250", "500", "900"].includes(String(data.responseLength)) ? String(data.responseLength) : "500";
+  responseLengthSelect.value = responseLength;
+  localStorage.setItem(RESPONSE_LENGTH_KEY, responseLength);
+  renderConversation();
 }
 
 function addLocalExchange(userText, replyText) {
@@ -429,19 +520,57 @@ confirmMemoryButton.addEventListener("click", () => {
 
 dismissMemoryButton.addEventListener("click", hideMemorySuggestion);
 
+copyMigrationButton.addEventListener("click", async () => {
+  const code = encodeMigrationCode({ version: 1, profile, memories });
+  await copyText(code);
+  setProfileStatus("迁移码已复制，可以粘贴到另一台电脑。", "success");
+});
+
+showImportCodeButton.addEventListener("click", () => {
+  migrationImportBox.classList.toggle("hidden");
+  if (!migrationImportBox.classList.contains("hidden")) migrationCodeInput.focus();
+});
+
+importMigrationButton.addEventListener("click", () => {
+  try {
+    const data = decodeMigrationCode(migrationCodeInput.value);
+    applyImportedPersonalization(data);
+    migrationCodeInput.value = "";
+    migrationImportBox.classList.add("hidden");
+    setProfileStatus("个性和长期记忆导入成功。", "success");
+  } catch (error) {
+    setProfileStatus(String(error), "error");
+  }
+});
+
+exportBackupButton.addEventListener("click", async () => {
+  try {
+    const path = await invoke("export_backup_file", {
+      contents: JSON.stringify(createFullBackup(), null, 2),
+    });
+    if (path) setProfileStatus("完整备份已保存。", "success");
+  } catch (error) {
+    setProfileStatus(String(error), "error");
+  }
+});
+
+importBackupButton.addEventListener("click", async () => {
+  try {
+    const contents = await invoke("import_backup_file");
+    if (!contents) return;
+    const data = JSON.parse(contents);
+    if (!window.confirm("导入会替换当前个性、记忆和聊天记录，是否继续？")) return;
+    applyFullBackup(data);
+    setProfileStatus("完整备份导入成功。API Key 未被修改。", "success");
+  } catch (error) {
+    setProfileStatus(`导入失败：${String(error)}`, "error");
+  }
+});
+
 copyReplyButton.addEventListener("click", async () => {
   const reply = latestAssistantMessage();
   if (!reply) return;
-  try {
-    await navigator.clipboard.writeText(reply.content);
-  } catch {
-    const helper = document.createElement("textarea");
-    helper.value = reply.content;
-    document.body.appendChild(helper);
-    helper.select();
-    document.execCommand("copy");
-    helper.remove();
-  }
+  await copyText(reply.content);
   copyReplyButton.textContent = "已复制";
   setTimeout(() => { copyReplyButton.textContent = "复制回答"; }, 1200);
 });
