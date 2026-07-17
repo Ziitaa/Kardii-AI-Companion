@@ -1,6 +1,6 @@
 [package]
 name = "kardii-ai-companion"
-version = "0.7.1"
+version = "0.7.2"
 description = "Kardii cross-platform floating desktop pet"
 authors = ["Zt S"]
 edition = "2021"

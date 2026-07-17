@@ -498,7 +498,7 @@ async fn test_ai_connection(
             role: "user".into(),
             content: "只回复 OK".into(),
         }],
-        8,
+        512,
         false,
     )
     .await?;
