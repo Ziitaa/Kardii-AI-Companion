@@ -61,6 +61,17 @@ header strong {
   letter-spacing: 0.3px;
 }
 
+.active-model-badge {
+  display: block;
+  max-width: 115px;
+  overflow: hidden;
+  color: #aa8291;
+  font-size: 8px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .icon-button {
   width: 30px;
   height: 30px;
@@ -353,6 +364,62 @@ textarea {
   background: #da759c;
   border-radius: 999px;
 }
+
+.settings-section-title.ai-section-title {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.provider-description {
+  min-height: 28px;
+  margin: 6px 2px 2px;
+  color: #947984;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.ollama-settings {
+  margin-top: 8px;
+  padding: 9px;
+  background: #fff;
+  border: 1px solid #edd8e0;
+  border-radius: 11px;
+}
+
+.ollama-settings > label { margin-top: 0; }
+
+.ollama-address-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+}
+
+.ollama-address-row button,
+.ollama-status-row button {
+  padding: 7px 9px;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  border-radius: 9px;
+}
+
+.ollama-note {
+  margin: 6px 1px 0;
+  color: #9b818b;
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.ollama-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ollama-status-row .settings-status { flex: 1; margin: 0; }
 
 .voice-privacy {
   margin: 6px 0 9px;

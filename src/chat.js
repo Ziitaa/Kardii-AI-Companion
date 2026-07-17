@@ -12,6 +12,11 @@ const stopButton = document.getElementById("stopButton");
 const settingsButton = document.getElementById("settingsButton");
 const settingsPanel = document.getElementById("settingsPanel");
 const settingsCloseButton = document.getElementById("settingsCloseButton");
+const providerSelect = document.getElementById("providerSelect");
+const providerDescription = document.getElementById("providerDescription");
+const aiModelSelect = document.getElementById("aiModelSelect");
+const apiKeySection = document.getElementById("apiKeySection");
+const apiKeyLabel = document.getElementById("apiKeyLabel");
 const apiKeyInput = document.getElementById("apiKeyInput");
 const settingsStatus = document.getElementById("settingsStatus");
 const saveKeyButton = document.getElementById("saveKeyButton");
@@ -81,6 +86,13 @@ const systemVoiceSelect = document.getElementById("systemVoiceSelect");
 const voiceRateRange = document.getElementById("voiceRateRange");
 const voiceRateValue = document.getElementById("voiceRateValue");
 const testVoiceButton = document.getElementById("testVoiceButton");
+const ollamaSettings = document.getElementById("ollamaSettings");
+const ollamaBaseUrlInput = document.getElementById("ollamaBaseUrlInput");
+const refreshOllamaButton = document.getElementById("refreshOllamaButton");
+const ollamaStatusRow = document.getElementById("ollamaStatusRow");
+const ollamaStatus = document.getElementById("ollamaStatus");
+const testOllamaButton = document.getElementById("testOllamaButton");
+const activeModelBadge = document.getElementById("activeModelBadge");
 
 const HISTORY_KEY = "kardii-chat-history-v1";
 const RESPONSE_LENGTH_KEY = "kardii-response-length";
@@ -88,6 +100,7 @@ const PROFILE_KEY = "kardii-profile-v1";
 const MEMORIES_KEY = "kardii-memories-v1";
 const TOOL_LOGS_KEY = "kardii-tool-logs-v1";
 const VOICE_SETTINGS_KEY = "kardii-voice-settings-v1";
+const AI_SETTINGS_KEY = "kardii-ai-settings-v1";
 const MAX_SAVED_MESSAGES = 50;
 const PERSONALITIES = {
   healing: "耐心温暖，擅长安慰，也会温和地给出实用建议。",
@@ -97,9 +110,29 @@ const PERSONALITIES = {
   sarcastic: "会吐槽摸鱼和拖延，但不攻击外貌、身份或真实弱点。",
   butler: "冷静克制、简洁可靠，偶尔带一点不伤人的冷幽默。",
 };
+const AI_PROVIDERS = {
+  deepseek: {
+    name: "DeepSeek",
+    description: "继续使用现有的 DeepSeek V4 Flash，速度快、价格较低，关闭思考模式。",
+    models: [{ value: "deepseek-v4-flash", label: "DeepSeek V4 Flash · 非思考模式" }],
+  },
+  gemini: {
+    name: "Gemini",
+    description: "Google 云端模型。Flash-Lite 价格更低；Flash 更强，复杂问题表现更好。",
+    models: [
+      { value: "gemini-3.1-flash-lite", label: "Gemini 3.1 Flash-Lite · 低成本" },
+      { value: "gemini-3.5-flash", label: "Gemini 3.5 Flash · 更强" },
+    ],
+  },
+  ollama: {
+    name: "Ollama",
+    description: "模型在这台电脑上运行，不按次数收费；速度取决于电脑配置和本机模型大小。",
+    models: [],
+  },
+};
 let conversation = loadConversation();
 let sending = false;
-let hasApiKey = false;
+let providerReady = false;
 let clearConfirmationTimer;
 let activeRequestId = null;
 let profile = loadProfile();
@@ -114,6 +147,49 @@ let voicePollTimer = null;
 let activeUtterance = null;
 let systemVoices = [];
 let voiceSettings = loadVoiceSettings();
+let aiSettings = loadAiSettings();
+let ollamaModels = [];
+
+function loadAiSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(AI_SETTINGS_KEY) || "{}");
+    return {
+      provider: Object.hasOwn(AI_PROVIDERS, saved.provider) ? saved.provider : "deepseek",
+      geminiModel: AI_PROVIDERS.gemini.models.some((item) => item.value === saved.geminiModel)
+        ? saved.geminiModel
+        : "gemini-3.1-flash-lite",
+      ollamaBaseUrl: typeof saved.ollamaBaseUrl === "string" && saved.ollamaBaseUrl.trim()
+        ? saved.ollamaBaseUrl.trim().slice(0, 200)
+        : "http://127.0.0.1:11434",
+      ollamaModel: typeof saved.ollamaModel === "string" ? saved.ollamaModel.slice(0, 120) : "",
+    };
+  } catch {
+    return {
+      provider: "deepseek",
+      geminiModel: "gemini-3.1-flash-lite",
+      ollamaBaseUrl: "http://127.0.0.1:11434",
+      ollamaModel: "",
+    };
+  }
+}
+
+function saveAiSettings() {
+  localStorage.setItem(AI_SETTINGS_KEY, JSON.stringify(aiSettings));
+}
+
+function currentAiConfig() {
+  const provider = aiSettings.provider;
+  const model = provider === "deepseek"
+    ? "deepseek-v4-flash"
+    : provider === "gemini"
+      ? aiSettings.geminiModel
+      : aiSettings.ollamaModel;
+  return {
+    provider,
+    model,
+    ollamaBaseUrl: aiSettings.ollamaBaseUrl,
+  };
+}
 
 function loadVoiceSettings() {
   try {
@@ -254,7 +330,7 @@ function setPendingToolContext(label, content) {
     ? `${clean.slice(0, 12_000)}\n…（传给 AI 的内容已截断）`
     : clean;
   pendingToolContext = { label, content: clipped };
-  setToolStatus(`${label}已准备好。关闭工具面板后直接提问，内容才会发送给 DeepSeek。`, "success");
+  setToolStatus(`${label}已准备好。关闭工具面板后直接提问，内容才会发送给当前选择的 AI。`, "success");
 }
 
 function addToolNotice(text) {
@@ -368,12 +444,13 @@ function createFullBackup() {
   return {
     format: "kardii-backup",
     version: 1,
-    appVersion: "0.6.0",
+    appVersion: "0.7.2",
     createdAt: new Date().toISOString(),
     profile,
     memories,
     conversation,
     responseLength: responseLengthSelect.value,
+    aiSettings,
   };
 }
 
@@ -392,6 +469,22 @@ function applyFullBackup(data) {
   const responseLength = ["250", "500", "900"].includes(String(data.responseLength)) ? String(data.responseLength) : "500";
   responseLengthSelect.value = responseLength;
   localStorage.setItem(RESPONSE_LENGTH_KEY, responseLength);
+  if (data.aiSettings && Object.hasOwn(AI_PROVIDERS, data.aiSettings.provider)) {
+    const imported = data.aiSettings;
+    aiSettings.provider = imported.provider;
+    if (AI_PROVIDERS.gemini.models.some((item) => item.value === imported.geminiModel)) {
+      aiSettings.geminiModel = imported.geminiModel;
+    }
+    if (typeof imported.ollamaBaseUrl === "string" && imported.ollamaBaseUrl.trim()) {
+      aiSettings.ollamaBaseUrl = imported.ollamaBaseUrl.trim().slice(0, 200);
+    }
+    if (typeof imported.ollamaModel === "string") {
+      aiSettings.ollamaModel = imported.ollamaModel.slice(0, 120);
+    }
+    saveAiSettings();
+    renderProviderSettings();
+    void refreshProviderState();
+  }
   renderConversation();
 }
 
@@ -563,7 +656,10 @@ function setSettingsStatus(text, type = "") {
 function showSettings() {
   settingsPanel.classList.remove("hidden");
   void refreshVoiceModelStatus();
-  setTimeout(() => apiKeyInput.focus(), 0);
+  setTimeout(() => {
+    if (aiSettings.provider === "ollama") ollamaBaseUrlInput.focus();
+    else apiKeyInput.focus();
+  }, 0);
 }
 
 function hideSettings() {
@@ -572,9 +668,111 @@ function hideSettings() {
 }
 
 function setSettingsBusy(busy) {
-  [saveKeyButton, testKeyButton, deleteKeyButton].forEach((button) => {
+  [saveKeyButton, testKeyButton, deleteKeyButton, refreshOllamaButton, testOllamaButton].forEach((button) => {
     button.disabled = busy;
   });
+}
+
+function setOllamaStatus(text, type = "") {
+  ollamaStatus.textContent = text;
+  ollamaStatus.className = `settings-status ${type}`.trim();
+}
+
+function updateActiveModelBadge() {
+  const { provider, model } = currentAiConfig();
+  if (provider === "deepseek") activeModelBadge.textContent = "DeepSeek · V4 Flash";
+  else if (provider === "gemini") activeModelBadge.textContent = model.includes("lite") ? "Gemini · Flash-Lite" : "Gemini · Flash";
+  else activeModelBadge.textContent = model ? `Ollama · ${model}` : "Ollama · 未选模型";
+  activeModelBadge.title = `${AI_PROVIDERS[provider].name} · ${model || "未选择模型"}`;
+}
+
+function populateAiModels() {
+  const provider = aiSettings.provider;
+  const models = provider === "ollama"
+    ? ollamaModels.map((name) => ({ value: name, label: name }))
+    : AI_PROVIDERS[provider].models;
+  aiModelSelect.replaceChildren();
+  if (models.length === 0) {
+    aiModelSelect.add(new Option("没有发现本机模型，请点击刷新", ""));
+    aiModelSelect.disabled = true;
+  } else {
+    models.forEach((item) => aiModelSelect.add(new Option(item.label, item.value)));
+    aiModelSelect.disabled = false;
+  }
+
+  const preferred = provider === "deepseek"
+    ? "deepseek-v4-flash"
+    : provider === "gemini"
+      ? aiSettings.geminiModel
+      : aiSettings.ollamaModel;
+  aiModelSelect.value = models.some((item) => item.value === preferred)
+    ? preferred
+    : models[0]?.value || "";
+  if (provider === "ollama" && aiModelSelect.value !== aiSettings.ollamaModel) {
+    aiSettings.ollamaModel = aiModelSelect.value;
+    saveAiSettings();
+  }
+  updateActiveModelBadge();
+}
+
+function renderProviderSettings() {
+  const provider = aiSettings.provider;
+  providerSelect.value = provider;
+  providerDescription.textContent = AI_PROVIDERS[provider].description;
+  ollamaSettings.classList.toggle("hidden", provider !== "ollama");
+  ollamaStatusRow.classList.toggle("hidden", provider !== "ollama");
+  apiKeySection.classList.toggle("hidden", provider === "ollama");
+  ollamaBaseUrlInput.value = aiSettings.ollamaBaseUrl;
+  if (provider !== "ollama") {
+    const label = AI_PROVIDERS[provider].name;
+    apiKeyLabel.textContent = `${label} API Key`;
+    apiKeyInput.placeholder = `粘贴 ${label} API Key`;
+    apiKeyInput.value = "";
+  }
+  populateAiModels();
+}
+
+async function refreshOllamaModels(showSuccess = true) {
+  setSettingsBusy(true);
+  setOllamaStatus("正在连接本机 Ollama……");
+  try {
+    const models = await invoke("list_ollama_models", {
+      ollamaBaseUrl: aiSettings.ollamaBaseUrl,
+    });
+    ollamaModels = Array.isArray(models) ? models : [];
+    populateAiModels();
+    providerReady = ollamaModels.length > 0;
+    if (providerReady) {
+      setOllamaStatus(`已连接，找到 ${ollamaModels.length} 个本机模型。`, "success");
+    } else {
+      setOllamaStatus("Ollama 已连接，但还没有下载任何模型。", "error");
+    }
+    if (showSuccess) updateActiveModelBadge();
+  } catch (error) {
+    ollamaModels = [];
+    providerReady = false;
+    populateAiModels();
+    setOllamaStatus(String(error), "error");
+  } finally {
+    setSettingsBusy(false);
+  }
+}
+
+async function refreshProviderState(showPanelIfMissing = false) {
+  const provider = aiSettings.provider;
+  if (provider === "ollama") {
+    await refreshOllamaModels(false);
+    if (!providerReady && showPanelIfMissing) showSettings();
+    return;
+  }
+  providerReady = await invoke("has_provider_key", { provider });
+  const label = AI_PROVIDERS[provider].name;
+  if (providerReady) {
+    setSettingsStatus(`${label} API Key 已安全保存。`, "success");
+  } else {
+    setSettingsStatus(`请粘贴并保存 ${label} API Key。`, "error");
+    if (showPanelIfMissing) showSettings();
+  }
 }
 
 function formatBytes(bytes) {
@@ -801,16 +999,6 @@ function speakText(text, force = false) {
   return true;
 }
 
-async function refreshKeyState() {
-  hasApiKey = await invoke("has_deepseek_key");
-  if (hasApiKey) {
-    setSettingsStatus("API Key 已安全保存。", "success");
-  } else {
-    setSettingsStatus("请先粘贴并保存 DeepSeek API Key。", "error");
-    showSettings();
-  }
-}
-
 async function closeChat() {
   if (voiceRecordingPhase === "recording") {
     await invoke("stop_voice_recording").catch(() => {});
@@ -857,9 +1045,13 @@ async function requestReply() {
   };
 
   try {
+    const ai = currentAiConfig();
     await invoke("stream_ai_message", {
       messages: messagesWithToolContext(),
       profile: currentProfile(),
+      provider: ai.provider,
+      model: ai.model,
+      ollamaBaseUrl: ai.ollamaBaseUrl,
       requestId: activeRequestId,
       maxTokens: Number(responseLengthSelect.value),
       onEvent: channel,
@@ -897,9 +1089,13 @@ form.addEventListener("submit", async (event) => {
     resizeInput();
     return;
   }
-  if (!hasApiKey) {
+  if (!providerReady) {
     showSettings();
-    setSettingsStatus("请先设置 DeepSeek API Key。", "error");
+    if (aiSettings.provider === "ollama") {
+      setOllamaStatus("请先启动 Ollama、下载模型并刷新列表。", "error");
+    } else {
+      setSettingsStatus(`请先设置 ${AI_PROVIDERS[aiSettings.provider].name} API Key。`, "error");
+    }
     return;
   }
 
@@ -924,7 +1120,7 @@ allowPermissionButton.addEventListener("click", () => finishPermission(true));
 readFileButton.addEventListener("click", async () => {
   const allowed = await requestToolPermission({
     title: "允许读取一个文本文件？",
-    description: "接下来会打开系统文件选择器，Kardii 只能读取你亲自选中的一个文件。内容仅在你下一次提问时发送给 DeepSeek。",
+    description: "接下来会打开系统文件选择器，Kardii 只能读取你亲自选中的一个文件。内容仅在你下一次提问时发送给当前选择的 AI。",
     detail: "允许范围：一个 UTF-8 文本或代码文件\n大小上限：256 KB\n不会修改、移动或删除文件",
   });
   if (!allowed) return;
@@ -949,7 +1145,7 @@ readFileButton.addEventListener("click", async () => {
 readClipboardButton.addEventListener("click", async () => {
   const allowed = await requestToolPermission({
     title: "允许读取剪贴板文字？",
-    description: "Kardii 会读取你当前复制的文字。内容仅在你下一次提问时发送给 DeepSeek。",
+    description: "Kardii 会读取你当前复制的文字。内容仅在你下一次提问时发送给当前选择的 AI。",
     detail: "只读取文字，不读取图片或文件\n不会持续监控剪贴板\n每次读取都必须重新允许",
   });
   if (!allowed) return;
@@ -975,7 +1171,7 @@ writeClipboardButton.addEventListener("click", async () => {
   }
   const allowed = await requestToolPermission({
     title: "允许改写系统剪贴板？",
-    description: "确认后，当前剪贴板内容会被下面的文字替换。这个操作不会把文字发送给 DeepSeek。",
+    description: "确认后，当前剪贴板内容会被下面的文字替换。这个操作不会把文字发送给任何 AI。",
     detail: text.slice(0, 800),
   });
   if (!allowed) return;
@@ -1149,7 +1345,7 @@ readReplyButton.addEventListener("click", () => {
 });
 
 regenerateButton.addEventListener("click", async () => {
-  if (sending || !hasApiKey) return;
+  if (sending || !providerReady) return;
   const lastIndex = conversation.length - 1;
   if (lastIndex < 1 || conversation[lastIndex].role !== "assistant") return;
   conversation.splice(lastIndex, 1);
@@ -1200,10 +1396,10 @@ saveKeyButton.addEventListener("click", async () => {
   }
   setSettingsBusy(true);
   try {
-    await invoke("save_deepseek_key", { apiKey });
+    await invoke("save_provider_key", { provider: aiSettings.provider, apiKey });
     apiKeyInput.value = "";
-    hasApiKey = true;
-    setSettingsStatus("保存成功，可以点击“测试连接”。", "success");
+    providerReady = true;
+    setSettingsStatus(`${AI_PROVIDERS[aiSettings.provider].name} Key 已保存，可以点击“测试连接”。`, "success");
   } catch (error) {
     setSettingsStatus(String(error), "error");
   } finally {
@@ -1212,15 +1408,20 @@ saveKeyButton.addEventListener("click", async () => {
 });
 
 testKeyButton.addEventListener("click", async () => {
-  if (!hasApiKey) {
+  if (!providerReady) {
     setSettingsStatus("请先保存 API Key。", "error");
     return;
   }
   setSettingsBusy(true);
-  setSettingsStatus("正在连接 DeepSeek……");
+  const ai = currentAiConfig();
+  setSettingsStatus(`正在连接 ${AI_PROVIDERS[ai.provider].name}……`);
   try {
-    await invoke("test_deepseek_connection");
-    setSettingsStatus("连接成功！Kardii 已经可以聊天了。", "success");
+    await invoke("test_ai_connection", {
+      provider: ai.provider,
+      model: ai.model,
+      ollamaBaseUrl: ai.ollamaBaseUrl,
+    });
+    setSettingsStatus(`${AI_PROVIDERS[ai.provider].name} 连接成功！`, "success");
   } catch (error) {
     setSettingsStatus(String(error), "error");
   } finally {
@@ -1231,11 +1432,72 @@ testKeyButton.addEventListener("click", async () => {
 deleteKeyButton.addEventListener("click", async () => {
   setSettingsBusy(true);
   try {
-    await invoke("delete_deepseek_key");
-    hasApiKey = false;
-    setSettingsStatus("API Key 已从电脑中删除。", "success");
+    await invoke("delete_provider_key", { provider: aiSettings.provider });
+    providerReady = false;
+    setSettingsStatus(`${AI_PROVIDERS[aiSettings.provider].name} API Key 已从电脑中删除。`, "success");
   } catch (error) {
     setSettingsStatus(String(error), "error");
+  } finally {
+    setSettingsBusy(false);
+  }
+});
+
+providerSelect.addEventListener("change", async () => {
+  if (sending) {
+    providerSelect.value = aiSettings.provider;
+    setSettingsStatus("请等当前回答结束后再切换 AI。", "error");
+    return;
+  }
+  stopSpeaking();
+  aiSettings.provider = providerSelect.value;
+  saveAiSettings();
+  providerReady = false;
+  renderProviderSettings();
+  await refreshProviderState();
+});
+
+aiModelSelect.addEventListener("change", () => {
+  if (aiSettings.provider === "gemini") aiSettings.geminiModel = aiModelSelect.value;
+  if (aiSettings.provider === "ollama") {
+    aiSettings.ollamaModel = aiModelSelect.value;
+    providerReady = Boolean(aiModelSelect.value);
+  }
+  saveAiSettings();
+  updateActiveModelBadge();
+});
+
+ollamaBaseUrlInput.addEventListener("change", async () => {
+  aiSettings.ollamaBaseUrl = ollamaBaseUrlInput.value.trim().slice(0, 200);
+  saveAiSettings();
+  providerReady = false;
+  await refreshOllamaModels(false);
+});
+
+refreshOllamaButton.addEventListener("click", async () => {
+  aiSettings.ollamaBaseUrl = ollamaBaseUrlInput.value.trim().slice(0, 200);
+  saveAiSettings();
+  await refreshOllamaModels();
+});
+
+testOllamaButton.addEventListener("click", async () => {
+  const ai = currentAiConfig();
+  if (!ai.model) {
+    setOllamaStatus("请先刷新并选择一个本机模型。", "error");
+    return;
+  }
+  setSettingsBusy(true);
+  setOllamaStatus("正在测试本机 Ollama……");
+  try {
+    await invoke("test_ai_connection", {
+      provider: ai.provider,
+      model: ai.model,
+      ollamaBaseUrl: ai.ollamaBaseUrl,
+    });
+    providerReady = true;
+    setOllamaStatus("Ollama 与模型都已准备好。", "success");
+  } catch (error) {
+    providerReady = false;
+    setOllamaStatus(String(error), "error");
   } finally {
     setSettingsBusy(false);
   }
@@ -1379,7 +1641,8 @@ window.addEventListener("focus", () => {
 
 renderConversation();
 renderToolLogs();
-refreshKeyState();
+renderProviderSettings();
+void refreshProviderState(true);
 loadSystemVoices();
 if ("speechSynthesis" in window) {
   window.speechSynthesis.addEventListener("voiceschanged", loadSystemVoices);

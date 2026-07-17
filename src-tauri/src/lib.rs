@@ -22,8 +22,8 @@ use futures_util::StreamExt;
 use tauri::ipc::Channel;
 
 const KEYRING_SERVICE: &str = "Kardii AI Companion";
-const KEYRING_ACCOUNT: &str = "deepseek-api-key";
 const DEEPSEEK_URL: &str = "https://api.deepseek.com/chat/completions";
+const GEMINI_URL: &str = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct ChatMessage {
@@ -80,12 +80,6 @@ impl PetProfile {
     }
 }
 
-#[derive(Debug, Serialize)]
-struct AiReply {
-    text: String,
-    model: String,
-}
-
 #[derive(Debug, Clone, Serialize)]
 struct StreamEvent {
     event: String,
@@ -136,16 +130,31 @@ impl StreamState {
     }
 }
 
-fn friendly_api_error(status: reqwest::StatusCode, payload: &serde_json::Value) -> String {
+fn provider_label(provider: &str) -> &'static str {
+    match provider {
+        "gemini" => "Gemini",
+        "ollama" => "Ollama",
+        _ => "DeepSeek",
+    }
+}
+
+fn friendly_api_error(
+    provider: &str,
+    status: reqwest::StatusCode,
+    payload: &serde_json::Value,
+) -> String {
+    let label = provider_label(provider);
     match status.as_u16() {
-        401 | 403 => "DeepSeek API Key 无效或没有权限，请在设置中重新填写。".into(),
-        402 => "DeepSeek 账户余额不足，请充值后再试。".into(),
-        429 => "DeepSeek 当前请求较多，请稍等一会儿再试。".into(),
-        500..=599 => "DeepSeek 服务暂时不可用，请稍后重试。".into(),
+        401 | 403 => format!("{label} API Key 无效或没有权限，请在设置中重新填写。"),
+        402 => format!("{label} 账户余额不足，请充值后再试。"),
+        404 if provider == "ollama" => "Ollama 没有找到这个模型，请刷新本机模型列表。".into(),
+        429 => format!("{label} 当前请求较多或已达到限额，请稍后重试。"),
+        500..=599 => format!("{label} 服务暂时不可用，请稍后重试。"),
         _ => payload["error"]["message"]
             .as_str()
-            .map(|message| format!("DeepSeek 请求失败：{message}"))
-            .unwrap_or_else(|| format!("DeepSeek 请求失败（{status}）")),
+            .or_else(|| payload["message"].as_str())
+            .map(|message| format!("{label} 请求失败：{message}"))
+            .unwrap_or_else(|| format!("{label} 请求失败（{status}）")),
     }
 }
 
@@ -166,25 +175,33 @@ fn extract_sse_event(buffer: &mut Vec<u8>) -> Option<Vec<u8>> {
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
-fn credential_entry() -> Result<keyring::Entry, String> {
-    keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT)
+fn credential_entry(provider: &str) -> Result<keyring::Entry, String> {
+    let account = match provider {
+        "deepseek" => "deepseek-api-key",
+        "gemini" => "gemini-api-key",
+        _ => return Err("这个 AI 服务不需要或不支持保存 API Key。".into()),
+    };
+    keyring::Entry::new(KEYRING_SERVICE, account)
         .map_err(|error| format!("无法打开系统安全凭据库：{error}"))
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-fn get_deepseek_key() -> Result<String, String> {
+fn get_provider_key(_provider: &str) -> Result<String, String> {
     Err("当前测试版仅支持在 Windows 和 macOS 保存 API Key".into())
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
-fn get_deepseek_key() -> Result<String, String> {
-    credential_entry()?
+fn get_provider_key(provider: &str) -> Result<String, String> {
+    credential_entry(provider)?
         .get_password()
-        .map_err(|_| "尚未设置 DeepSeek API Key".into())
+        .map_err(|_| format!("尚未设置 {} API Key", provider_label(provider)))
 }
 
 #[tauri::command]
-fn save_deepseek_key(api_key: String) -> Result<(), String> {
+fn save_provider_key(provider: String, api_key: String) -> Result<(), String> {
+    if !matches!(provider.as_str(), "deepseek" | "gemini") {
+        return Err("这个 AI 服务不需要 API Key。".into());
+    }
     let key = api_key.trim();
     if key.len() < 12 {
         return Err("API Key 看起来不完整，请重新复制".into());
@@ -192,7 +209,7 @@ fn save_deepseek_key(api_key: String) -> Result<(), String> {
 
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     {
-        return credential_entry()?
+        return credential_entry(&provider)?
             .set_password(key)
             .map_err(|error| format!("保存 API Key 失败：{error}"));
     }
@@ -202,15 +219,20 @@ fn save_deepseek_key(api_key: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn has_deepseek_key() -> bool {
-    get_deepseek_key().map(|key| !key.is_empty()).unwrap_or(false)
+fn has_provider_key(provider: String) -> bool {
+    get_provider_key(&provider)
+        .map(|key| !key.is_empty())
+        .unwrap_or(false)
 }
 
 #[tauri::command]
-fn delete_deepseek_key() -> Result<(), String> {
+fn delete_provider_key(provider: String) -> Result<(), String> {
+    if !matches!(provider.as_str(), "deepseek" | "gemini") {
+        return Err("这个 AI 服务没有保存 API Key。".into());
+    }
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     {
-        return credential_entry()?
+        return credential_entry(&provider)?
             .delete_credential()
             .map_err(|error| format!("删除 API Key 失败：{error}"));
     }
@@ -219,63 +241,155 @@ fn delete_deepseek_key() -> Result<(), String> {
     Err("当前测试版仅支持 Windows 和 macOS".into())
 }
 
-async fn request_deepseek(messages: Vec<ChatMessage>, max_tokens: u32) -> Result<AiReply, String> {
-    let api_key = get_deepseek_key()?;
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(60))
-        .build()
-        .map_err(|error| format!("无法创建网络请求：{error}"))?;
-
-    let mut api_messages = vec![ChatMessage {
-        role: "system".into(),
-        content: "你是桌宠 Kardii，一只温暖、聪明、可爱的小狗伙伴。优先使用用户的语言回答，语气自然亲切。回答简洁实用，不要假装已经执行你无法执行的操作。".into(),
-    }];
-    api_messages.extend(messages.into_iter().take(16));
-
-    let response = client
-        .post(DEEPSEEK_URL)
-        .bearer_auth(api_key)
-        .json(&json!({
-            "model": "deepseek-v4-flash",
-            "messages": api_messages,
-            "thinking": { "type": "disabled" },
-            "max_tokens": max_tokens,
-            "stream": false
-        }))
-        .send()
-        .await
-        .map_err(|error| {
-            if error.is_timeout() {
-                "连接 DeepSeek 超时，请检查网络后重试。".to_string()
-            } else {
-                "无法连接 DeepSeek，请检查网络连接。".to_string()
-            }
-        })?;
-
-    let status = response.status();
-    let payload: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|error| format!("DeepSeek 返回了无法读取的数据：{error}"))?;
-
-    if !status.is_success() {
-        return Err(friendly_api_error(status, &payload));
+fn normalize_ollama_base_url(value: &str) -> Result<String, String> {
+    let raw = if value.trim().is_empty() {
+        "http://127.0.0.1:11434"
+    } else {
+        value.trim()
+    };
+    let mut url = reqwest::Url::parse(raw)
+        .map_err(|_| "Ollama 地址格式不正确。".to_string())?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err("Ollama 地址只能使用 http 或 https。".into());
     }
+    if !matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "::1")) {
+        return Err("为了安全，v0.7 只允许连接这台电脑上的 Ollama。".into());
+    }
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err("Ollama 地址不能包含用户名或密码。".into());
+    }
+    if !matches!(url.path(), "" | "/") || url.query().is_some() || url.fragment().is_some() {
+        return Err("Ollama 地址只需要填写到端口，例如 http://127.0.0.1:11434。".into());
+    }
+    if url.port().is_none() {
+        url.set_port(Some(11434))
+            .map_err(|_| "无法设置 Ollama 端口。".to_string())?;
+    }
+    url.set_path("");
+    Ok(url.as_str().trim_end_matches('/').to_string())
+}
 
-    let text = payload["choices"][0]["message"]["content"]
-        .as_str()
-        .filter(|text| !text.trim().is_empty())
-        .ok_or_else(|| "DeepSeek 没有返回文字".to_string())?;
+fn validated_model(provider: &str, model: &str) -> Result<String, String> {
+    match provider {
+        "deepseek" => Ok("deepseek-v4-flash".into()),
+        "gemini" => match model {
+            "gemini-3.1-flash-lite" | "gemini-3.5-flash" => Ok(model.into()),
+            _ => Err("请选择 Kardii 支持的 Gemini 模型。".into()),
+        },
+        "ollama" => {
+            let model = model.trim();
+            if model.is_empty() || model.chars().count() > 120 || model.chars().any(char::is_control) {
+                Err("请选择一个有效的本机 Ollama 模型。".into())
+            } else {
+                Ok(model.into())
+            }
+        }
+        _ => Err("不支持这个 AI 服务。".into()),
+    }
+}
 
-    Ok(AiReply {
-        text: text.trim().to_string(),
-        model: "deepseek-v4-flash".into(),
+fn provider_endpoint(
+    provider: &str,
+    ollama_base_url: &str,
+) -> Result<String, String> {
+    match provider {
+        "deepseek" => Ok(DEEPSEEK_URL.into()),
+        "gemini" => Ok(GEMINI_URL.into()),
+        "ollama" => Ok(format!(
+            "{}/v1/chat/completions",
+            normalize_ollama_base_url(ollama_base_url)?
+        )),
+        _ => Err("不支持这个 AI 服务。".into()),
+    }
+}
+
+fn provider_payload(
+    provider: &str,
+    model: &str,
+    messages: Vec<ChatMessage>,
+    max_tokens: u32,
+    stream: bool,
+) -> serde_json::Value {
+    let mut payload = json!({
+        "model": model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "stream": stream
+    });
+    if provider == "deepseek" {
+        payload["thinking"] = json!({ "type": "disabled" });
+    } else if provider == "gemini" {
+        payload["reasoning_effort"] = json!("low");
+    }
+    payload
+}
+
+async fn send_provider_request(
+    provider: &str,
+    model: &str,
+    ollama_base_url: &str,
+    messages: Vec<ChatMessage>,
+    max_tokens: u32,
+    stream: bool,
+) -> Result<reqwest::Response, String> {
+    let label = provider_label(provider);
+    let endpoint = provider_endpoint(provider, ollama_base_url)?;
+    let model = validated_model(provider, model)?;
+    let mut client_builder = reqwest::Client::builder()
+        .timeout(Duration::from_secs(if provider == "ollama" { 180 } else { 90 }));
+    if provider == "ollama" {
+        client_builder = client_builder.no_proxy();
+    }
+    let client = client_builder
+        .build()
+        .map_err(|_| "无法创建 AI 网络请求。".to_string())?;
+    let mut request = client
+        .post(endpoint)
+        .json(&provider_payload(provider, &model, messages, max_tokens, stream));
+    if provider != "ollama" {
+        request = request.bearer_auth(get_provider_key(provider)?);
+    }
+    request.send().await.map_err(|error| {
+        if provider == "ollama" {
+            "无法连接本机 Ollama。请确认 Ollama 已安装并正在运行。".to_string()
+        } else if provider == "gemini" && error.is_timeout() {
+            "连接 Gemini 超时。Kardii 已尝试使用系统代理；请确认代理软件开启了“系统代理”或“TUN 模式”。".to_string()
+        } else if error.is_timeout() {
+            format!("连接 {label} 超时，请检查网络后重试。")
+        } else {
+            format!("无法连接 {label}，请检查网络连接。")
+        }
     })
 }
 
 #[tauri::command]
-async fn send_ai_message(messages: Vec<ChatMessage>) -> Result<AiReply, String> {
-    request_deepseek(messages, 500).await
+async fn list_ollama_models(ollama_base_url: String) -> Result<Vec<String>, String> {
+    let base = normalize_ollama_base_url(&ollama_base_url)?;
+    let response = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(8))
+        .build()
+        .map_err(|_| "无法创建 Ollama 检查请求。".to_string())?
+        .get(format!("{base}/api/tags"))
+        .send()
+        .await
+        .map_err(|_| "无法连接本机 Ollama。请确认 Ollama 已安装并正在运行。".to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("Ollama 返回错误（{}）。", response.status()));
+    }
+    let payload: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|_| "Ollama 返回了无法读取的模型列表。".to_string())?;
+    let mut models: Vec<String> = payload["models"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|item| item["name"].as_str().map(str::to_string))
+        .collect();
+    models.sort();
+    models.dedup();
+    Ok(models)
 }
 
 #[tauri::command]
@@ -287,48 +401,35 @@ fn stop_ai_message(request_id: String, state: tauri::State<'_, StreamState>) {
 async fn stream_ai_message(
     messages: Vec<ChatMessage>,
     profile: PetProfile,
+    provider: String,
+    model: String,
+    ollama_base_url: String,
     request_id: String,
     max_tokens: u32,
     on_event: Channel<StreamEvent>,
     state: tauri::State<'_, StreamState>,
 ) -> Result<(), String> {
     state.reset(&request_id);
-    let api_key = get_deepseek_key()?;
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(90))
-        .build()
-        .map_err(|_| "无法创建网络请求。".to_string())?;
-
     let mut api_messages = vec![ChatMessage {
         role: "system".into(),
         content: profile.system_prompt(),
     }];
     api_messages.extend(messages.into_iter().take(16));
 
-    let response = client
-        .post(DEEPSEEK_URL)
-        .bearer_auth(api_key)
-        .json(&json!({
-            "model": "deepseek-v4-flash",
-            "messages": api_messages,
-            "thinking": { "type": "disabled" },
-            "max_tokens": max_tokens.clamp(100, 1000),
-            "stream": true
-        }))
-        .send()
-        .await
-        .map_err(|error| {
-            if error.is_timeout() {
-                "连接 DeepSeek 超时，请检查网络后重试。".to_string()
-            } else {
-                "无法连接 DeepSeek，请检查网络连接。".to_string()
-            }
-        })?;
+    let response = send_provider_request(
+        &provider,
+        &model,
+        &ollama_base_url,
+        api_messages,
+        max_tokens.clamp(100, 1000),
+        true,
+    )
+    .await?;
 
     let status = response.status();
     if !status.is_success() {
         let payload: serde_json::Value = response.json().await.unwrap_or_default();
-        return Err(friendly_api_error(status, &payload));
+        return Err(friendly_api_error(&provider, status, &payload));
     }
 
     let mut stream = response.bytes_stream();
@@ -346,7 +447,7 @@ async fn stream_ai_message(
 
         while let Some(event_bytes) = extract_sse_event(&mut buffer) {
             let event_text = String::from_utf8(event_bytes)
-                .map_err(|_| "DeepSeek 返回了无法读取的文字。".to_string())?;
+                .map_err(|_| format!("{} 返回了无法读取的文字。", provider_label(&provider)))?;
             for line in event_text.lines() {
                 let Some(data) = line.trim().strip_prefix("data:") else { continue };
                 let data = data.trim();
@@ -374,13 +475,45 @@ async fn stream_ai_message(
 }
 
 #[tauri::command]
-async fn test_deepseek_connection() -> Result<(), String> {
-    request_deepseek(
-        vec![ChatMessage { role: "user".into(), content: "只回复 OK".into() }],
-        8,
+async fn test_ai_connection(
+    provider: String,
+    model: String,
+    ollama_base_url: String,
+) -> Result<(), String> {
+    if provider == "ollama" {
+        let models = list_ollama_models(ollama_base_url.clone()).await?;
+        if models.is_empty() {
+            return Err("Ollama 已连接，但还没有安装任何本机模型。".into());
+        }
+        if !models.iter().any(|item| item == model.trim()) {
+            return Err("Ollama 已连接，但当前选择的模型不存在，请刷新列表。".into());
+        }
+    }
+
+    let response = send_provider_request(
+        &provider,
+        &model,
+        &ollama_base_url,
+        vec![ChatMessage {
+            role: "user".into(),
+            content: "只回复 OK".into(),
+        }],
+        512,
+        false,
     )
-    .await
-    .map(|_| ())
+    .await?;
+    let status = response.status();
+    let payload: serde_json::Value = response.json().await.unwrap_or_default();
+    if !status.is_success() {
+        return Err(friendly_api_error(&provider, status, &payload));
+    }
+    if payload["choices"][0]["message"]["content"]
+        .as_str()
+        .is_none()
+    {
+        return Err(format!("{} 没有返回可读取的文字。", provider_label(&provider)));
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -628,13 +761,13 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             quit_app,
-            save_deepseek_key,
-            has_deepseek_key,
-            delete_deepseek_key,
-            send_ai_message,
+            save_provider_key,
+            has_provider_key,
+            delete_provider_key,
             stream_ai_message,
             stop_ai_message,
-            test_deepseek_connection,
+            test_ai_connection,
+            list_ollama_models,
             export_backup_file,
             import_backup_file,
             read_text_file,

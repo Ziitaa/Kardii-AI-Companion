@@ -12,6 +12,7 @@
         <div class="avatar">K</div>
         <div>
           <strong>Kardii</strong>
+          <span id="activeModelBadge" class="active-model-badge">DeepSeek</span>
         </div>
         <button id="toolsButton" class="icon-button tools-button" type="button" aria-label="桌面工具">⌘</button>
         <button id="profileButton" class="icon-button profile-button" type="button" aria-label="个性与记忆">♡</button>
@@ -43,27 +44,56 @@
       </form>
       <p id="chatHint" class="hint">Enter 发送 · Shift + Enter 换行 · Esc 收起</p>
 
-      <section id="settingsPanel" class="settings-panel hidden" aria-label="DeepSeek 设置">
+      <section id="settingsPanel" class="settings-panel hidden" aria-label="AI 与语音设置">
         <div class="settings-box">
           <div class="settings-title">
-            <strong>DeepSeek 设置</strong>
+            <strong>AI 与语音设置</strong>
             <button id="settingsCloseButton" class="icon-button" type="button" aria-label="关闭设置">×</button>
           </div>
-          <label>模型</label>
-          <div class="model-name">deepseek-v4-flash · 非思考模式</div>
+          <div class="settings-section-title ai-section-title">
+            <strong>聊天模型</strong>
+            <span>v0.7</span>
+          </div>
+          <label for="providerSelect">AI 服务</label>
+          <select id="providerSelect" class="settings-input">
+            <option value="deepseek">DeepSeek · 当前默认</option>
+            <option value="gemini">Google Gemini · 低成本云端</option>
+            <option value="ollama">Ollama · 完全本机</option>
+          </select>
+          <p id="providerDescription" class="provider-description"></p>
+
+          <label for="aiModelSelect">模型</label>
+          <select id="aiModelSelect" class="settings-input"></select>
+
+          <div id="ollamaSettings" class="ollama-settings hidden">
+            <label for="ollamaBaseUrlInput">Ollama 本机地址</label>
+            <div class="ollama-address-row">
+              <input id="ollamaBaseUrlInput" class="settings-input" value="http://127.0.0.1:11434" autocomplete="off">
+              <button id="refreshOllamaButton" class="secondary-button" type="button">刷新模型</button>
+            </div>
+            <p class="ollama-note">需要先安装并运行 Ollama，再在 Ollama 中下载至少一个模型。v0.7 只连接这台电脑。</p>
+          </div>
+
           <label for="responseLengthSelect">回答长度</label>
           <select id="responseLengthSelect">
             <option value="250">简短 · 更省费用</option>
             <option value="500">标准</option>
             <option value="900">详细</option>
           </select>
-          <label for="apiKeyInput">API Key</label>
-          <input id="apiKeyInput" type="password" autocomplete="off" placeholder="粘贴 DeepSeek API Key">
-          <p id="settingsStatus" class="settings-status">Key 只保存在系统安全凭据库中。</p>
-          <div class="settings-actions">
-            <button id="deleteKeyButton" class="secondary-button" type="button">删除 Key</button>
-            <button id="testKeyButton" class="secondary-button" type="button">测试连接</button>
-            <button id="saveKeyButton" class="primary-button" type="button">保存</button>
+
+          <div id="apiKeySection">
+            <label id="apiKeyLabel" for="apiKeyInput">API Key</label>
+            <input id="apiKeyInput" type="password" autocomplete="off" placeholder="粘贴 API Key">
+            <p id="settingsStatus" class="settings-status">Key 只保存在系统安全凭据库中。</p>
+            <div class="settings-actions">
+              <button id="deleteKeyButton" class="secondary-button" type="button">删除 Key</button>
+              <button id="testKeyButton" class="secondary-button" type="button">测试连接</button>
+              <button id="saveKeyButton" class="primary-button" type="button">保存 Key</button>
+            </div>
+          </div>
+          <div id="ollamaStatusRow" class="ollama-status-row hidden">
+            <p id="ollamaStatus" class="settings-status">Ollama 不需要 API Key。</p>
+            <button id="testOllamaButton" class="primary-button" type="button">测试本机连接</button>
           </div>
           <button id="clearHistoryButton" class="clear-history-button" type="button">清空聊天记录</button>
 
@@ -196,7 +226,7 @@
             <button id="runCommandButton" class="terminal-button" type="button">运行</button>
           </div>
           <p class="terminal-warning">命令会显示原文并再次确认；危险、提权、多行或超过 20 秒的命令会被拒绝。</p>
-          <p id="toolStatus" class="settings-status">工具结果只有在你发送下一条消息时才会交给 DeepSeek。</p>
+          <p id="toolStatus" class="settings-status">工具结果只有在你发送下一条消息时才会交给当前选择的 AI。</p>
 
           <div class="tool-log-heading">
             <strong>本机执行记录</strong>
