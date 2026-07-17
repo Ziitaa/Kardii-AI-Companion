@@ -4,6 +4,8 @@ Kardii 是一个使用 Tauri 2 制作的跨平台透明悬浮桌宠与 AI 聊天
 
 ## v0.7 功能
 
+> v0.7.1 修复桌面程序未启用 Windows/macOS 系统代理而导致 Gemini 连接超时的问题；Ollama 本机请求始终绕过代理。
+
 ### 多 AI 切换
 
 - 在设置中随时切换 DeepSeek、Google Gemini 和本机 Ollama

@@ -335,8 +335,12 @@ async fn send_provider_request(
     let label = provider_label(provider);
     let endpoint = provider_endpoint(provider, ollama_base_url)?;
     let model = validated_model(provider, model)?;
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(if provider == "ollama" { 180 } else { 90 }))
+    let mut client_builder = reqwest::Client::builder()
+        .timeout(Duration::from_secs(if provider == "ollama" { 180 } else { 90 }));
+    if provider == "ollama" {
+        client_builder = client_builder.no_proxy();
+    }
+    let client = client_builder
         .build()
         .map_err(|_| "无法创建 AI 网络请求。".to_string())?;
     let mut request = client
@@ -348,6 +352,8 @@ async fn send_provider_request(
     request.send().await.map_err(|error| {
         if provider == "ollama" {
             "无法连接本机 Ollama。请确认 Ollama 已安装并正在运行。".to_string()
+        } else if provider == "gemini" && error.is_timeout() {
+            "连接 Gemini 超时。Kardii 已尝试使用系统代理；请确认代理软件开启了“系统代理”或“TUN 模式”。".to_string()
         } else if error.is_timeout() {
             format!("连接 {label} 超时，请检查网络后重试。")
         } else {
@@ -360,6 +366,7 @@ async fn send_provider_request(
 async fn list_ollama_models(ollama_base_url: String) -> Result<Vec<String>, String> {
     let base = normalize_ollama_base_url(&ollama_base_url)?;
     let response = reqwest::Client::builder()
+        .no_proxy()
         .timeout(Duration::from_secs(8))
         .build()
         .map_err(|_| "无法创建 Ollama 检查请求。".to_string())?
