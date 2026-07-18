@@ -28,6 +28,12 @@ const DEEPSEEK_URL: &str = "https://api.deepseek.com/chat/completions";
 const GEMINI_URL: &str = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[cfg(target_os = "macos")]
+#[link(name = "CoreGraphics", kind = "framework")]
+unsafe extern "C" {
+    fn CGPreflightScreenCaptureAccess() -> bool;
+    fn CGRequestScreenCaptureAccess() -> bool;
+}
 struct ChatMessage {
     role: String,
     content: serde_json::Value,
@@ -584,6 +590,24 @@ async fn test_ai_connection(
     Ok(())
 }
 #[tauri::command]
+fn request_screen_capture_permission() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        unsafe {
+            if CGPreflightScreenCaptureAccess() {
+                true
+            } else {
+                CGRequestScreenCaptureAccess()
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        true
+    }
+}
+#[tauri::command]
 fn capture_desktop_window(window_id: u32) -> Result<DesktopCaptureResult, String> {
     let windows = xcap::Window::all()
         .map_err(|error| format!("无法读取桌面窗口：{error}"))?;
@@ -926,6 +950,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            request_screen_capture_permission,
             list_desktop_windows,
             capture_desktop_window,
             quit_app,
