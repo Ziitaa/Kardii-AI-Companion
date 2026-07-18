@@ -23,6 +23,11 @@ const saveKeyButton = document.getElementById("saveKeyButton");
 const testKeyButton = document.getElementById("testKeyButton");
 const deleteKeyButton = document.getElementById("deleteKeyButton");
 const clearHistoryButton = document.getElementById("clearHistoryButton");
+const appVersionLabel = document.getElementById("appVersionLabel");
+const updateStatus = document.getElementById("updateStatus");
+const updateNotes = document.getElementById("updateNotes");
+const checkUpdateButton = document.getElementById("checkUpdateButton");
+const installUpdateButton = document.getElementById("installUpdateButton");
 const replyActions = document.getElementById("replyActions");
 const copyReplyButton = document.getElementById("copyReplyButton");
 const readReplyButton = document.getElementById("readReplyButton");
@@ -861,6 +866,74 @@ function resizeInput() {
 function setSettingsStatus(text, type = "") {
   settingsStatus.textContent = text;
   settingsStatus.className = `settings-status ${type}`.trim();
+}
+function setUpdateStatus(text, type = "") {
+  updateStatus.textContent = text;
+  updateStatus.className = `update-status ${type}`.trim();
+}
+
+async function loadAppVersion() {
+  try {
+    const version = await invoke("get_app_version");
+    appVersionLabel.textContent = `当前版本：${version}`;
+  } catch (error) {
+    appVersionLabel.textContent = "当前版本：读取失败";
+    setUpdateStatus(String(error), "error");
+  }
+}
+
+async function checkForAppUpdate() {
+  checkUpdateButton.disabled = true;
+  installUpdateButton.classList.add("hidden");
+  updateNotes.classList.add("hidden");
+  setUpdateStatus("正在连接 GitHub 检查新版本……");
+
+  try {
+    const update = await invoke("check_app_update");
+
+    if (!update) {
+      setUpdateStatus("已经是最新版本。", "success");
+      return;
+    }
+
+    appVersionLabel.textContent =
+      `当前版本：${update.currentVersion} · 最新版本：${update.version}`;
+
+    setUpdateStatus(`发现 Kardii ${update.version}，可以下载安装。`, "success");
+
+    updateNotes.textContent =
+      update.notes?.trim() || "这个版本包含新的功能与问题修复。";
+
+    updateNotes.classList.remove("hidden");
+    installUpdateButton.classList.remove("hidden");
+  } catch (error) {
+    setUpdateStatus(String(error), "error");
+  } finally {
+    checkUpdateButton.disabled = false;
+  }
+}
+
+async function installAppUpdate() {
+  const confirmed = window.confirm(
+    "即将下载并安装 Kardii 新版本。安装过程中 Kardii 会暂时关闭，是否继续？"
+  );
+
+  if (!confirmed) return;
+
+  checkUpdateButton.disabled = true;
+  installUpdateButton.disabled = true;
+  installUpdateButton.textContent = "正在更新……";
+  setUpdateStatus("正在下载、验证并安装更新，请不要关闭 Kardii……");
+
+  try {
+    await invoke("install_app_update");
+    setUpdateStatus("安装完成，正在重新启动 Kardii……", "success");
+  } catch (error) {
+    setUpdateStatus(String(error), "error");
+    checkUpdateButton.disabled = false;
+    installUpdateButton.disabled = false;
+    installUpdateButton.textContent = "下载并安装";
+  }
 }
 
 function showSettings() {
@@ -1869,6 +1942,8 @@ window.addEventListener("focus", () => {
     && permissionPanel.classList.contains("hidden")
   ) input.focus();
 });
+checkUpdateButton.addEventListener("click", checkForAppUpdate);
+installUpdateButton.addEventListener("click", installAppUpdate);
 
 renderConversation();
 renderToolLogs();
@@ -1880,3 +1955,4 @@ if ("speechSynthesis" in window) {
 }
 refreshVoiceModelStatus();
 setMicPhase("idle");
+void loadAppVersion();

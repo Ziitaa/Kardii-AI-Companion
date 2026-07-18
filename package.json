@@ -3,9 +3,10 @@
   "private": true,
   "version": "0.8.0",
   "scripts": {
-    "dev": "tauri dev",
-    "build": "tauri build"
-  },
+  "dev": "tauri dev",
+  "build": "tauri build",
+  "tauri": "tauri"
+},
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0"
   }

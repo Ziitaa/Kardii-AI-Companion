@@ -22,6 +22,7 @@ use std::{
 };
 use futures_util::StreamExt;
 use tauri::ipc::Channel;
+use tauri_plugin_updater::UpdaterExt;
 
 const KEYRING_SERVICE: &str = "Kardii AI Companion";
 const DEEPSEEK_URL: &str = "https://api.deepseek.com/chat/completions";
@@ -913,10 +914,66 @@ async fn run_terminal_command(command: String) -> Result<TerminalResult, String>
         stderr: truncate_chars(&String::from_utf8_lossy(&output.stderr), 8_000),
     })
 }
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppUpdateInfo {
+    current_version: String,
+    version: String,
+    notes: Option<String>,
+}
 
+#[tauri::command]
+fn get_app_version(app: tauri::AppHandle) -> String {
+    app.package_info().version.to_string()
+}
+
+#[tauri::command]
+async fn check_app_update(
+    app: tauri::AppHandle,
+) -> Result<Option<AppUpdateInfo>, String> {
+    let updater = app
+        .updater()
+        .map_err(|error| format!("无法启动更新器：{error}"))?;
+
+    let update = updater
+        .check()
+        .await
+        .map_err(|error| format!("检查更新失败：{error}"))?;
+
+    Ok(update.map(|update| AppUpdateInfo {
+        current_version: update.current_version,
+        version: update.version,
+        notes: update.body,
+    }))
+}
+
+#[tauri::command]
+async fn install_app_update(app: tauri::AppHandle) -> Result<(), String> {
+    let updater = app
+        .updater()
+        .map_err(|error| format!("无法启动更新器：{error}"))?;
+
+    let update = updater
+        .check()
+        .await
+        .map_err(|error| format!("检查更新失败：{error}"))?
+        .ok_or_else(|| "当前已经是最新版本。".to_string())?;
+
+    update
+        .download_and_install(
+            |_downloaded_bytes, _total_bytes| {},
+            || {},
+        )
+        .await
+        .map_err(|error| format!("下载或安装更新失败：{error}"))?;
+
+    app.restart()
+}
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+    .plugin(tauri_plugin_updater::Builder::new().build())
+    .manage(StreamState::default())
         .manage(StreamState::default())
         .setup(|app| {
             let app_data_dir = app
@@ -975,6 +1032,9 @@ pub fn run() {
             stop_voice_recording,
             get_voice_recording_state,
             clear_voice_recording_result
+            get_app_version,
+            check_app_update,
+            install_app_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Kardii AI Companion");

@@ -838,3 +838,69 @@ textarea {
   cursor: pointer;
   border-radius: 9px;
 }
+.update-card {
+  margin-top: 9px;
+  padding: 11px;
+  background: linear-gradient(145deg, #fff, #fff7fa);
+  border: 1px solid #edd7df;
+  border-radius: 12px;
+}
+
+.update-information {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.update-information strong {
+  color: #745561;
+  font-size: 11px;
+}
+
+.update-status {
+  color: #9b7d89;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.update-status.success {
+  color: #4c9365;
+}
+
+.update-status.error {
+  color: #c24f63;
+}
+
+.update-notes {
+  max-height: 70px;
+  margin-top: 3px;
+  padding: 7px;
+  overflow-y: auto;
+  color: #856b75;
+  font-size: 9px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  background: #fff;
+  border: 1px solid #f0dce4;
+  border-radius: 8px;
+}
+
+.update-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+  margin-top: 9px;
+}
+
+.update-actions button {
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  border-radius: 9px;
+}
+
+.update-actions button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
