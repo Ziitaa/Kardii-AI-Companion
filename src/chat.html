@@ -38,6 +38,7 @@
 
       <form id="chatForm">
         <textarea id="messageInput" rows="1" maxlength="1000" placeholder="问问 Kardii……" aria-label="消息"></textarea>
+       <button id="awarenessButton" type="button" aria-label="查看桌面上下文" title="选择一个窗口让 Kardii 看看">👁</button>
         <button id="micButton" type="button" aria-label="开始语音输入" title="语音输入">🎙</button>
         <button id="stopButton" class="hidden" type="button" aria-label="停止回答">■</button>
         <button id="sendButton" type="submit" aria-label="发送">➤</button>
@@ -235,7 +236,50 @@
           <div id="toolLogList" class="tool-log-list"></div>
         </div>
       </section>
+      <section id="awarenessPanel" class="settings-panel awareness-panel hidden" aria-label="桌面上下文">
+        <div class="settings-box awareness-box">
+          <div class="settings-title">
+            <div class="awareness-title-copy">
+              <strong>让 Kardii 看看</strong>
+              <span>只截取你亲自选择的一个窗口</span>
+            </div>
+            <button id="awarenessCloseButton" class="icon-button" type="button" aria-label="关闭">×</button>
+          </div>
 
+          <p class="awareness-privacy">
+            Kardii 不会持续监控桌面。截图会先在本机显示预览，只有你确认后才会附到下一条消息。
+          </p>
+
+          <div id="awarenessPicker">
+            <div class="awareness-picker-heading">
+              <strong>选择一个窗口</strong>
+              <button id="refreshWindowsButton" class="secondary-button" type="button">刷新窗口</button>
+            </div>
+            <div id="awarenessWindowList" class="awareness-window-list">
+              <div class="awareness-empty">点击“刷新窗口”查看当前可选择的窗口</div>
+            </div>
+          </div>
+
+          <div id="awarenessPreview" class="awareness-preview hidden">
+            <div class="awareness-preview-heading">
+              <strong id="awarenessPreviewTitle">截图预览</strong>
+              <button id="awarenessBackButton" type="button">重新选择</button>
+            </div>
+            <img id="awarenessPreviewImage" alt="所选窗口的截图预览">
+            <p class="awareness-preview-note">
+              请检查画面中是否包含密码、聊天记录或其他隐私内容。
+            </p>
+            <div class="awareness-actions">
+              <button id="awarenessDiscardButton" class="secondary-button" type="button">取消</button>
+              <button id="awarenessUseButton" class="primary-button" type="button">附到下一条消息</button>
+            </div>
+          </div>
+
+          <p id="awarenessStatus" class="settings-status">
+            尚未读取任何桌面内容。
+          </p>
+        </div>
+      </section>
       <section id="permissionPanel" class="settings-panel permission-panel hidden" aria-label="操作确认">
         <div class="permission-box">
           <div id="permissionBadge" class="permission-badge">需要你的允许</div>

@@ -74,6 +74,19 @@ const permissionDetail = document.getElementById("permissionDetail");
 const denyPermissionButton = document.getElementById("denyPermissionButton");
 const allowPermissionButton = document.getElementById("allowPermissionButton");
 const micButton = document.getElementById("micButton");
+const awarenessButton = document.getElementById("awarenessButton");
+const awarenessPanel = document.getElementById("awarenessPanel");
+const awarenessCloseButton = document.getElementById("awarenessCloseButton");
+const refreshWindowsButton = document.getElementById("refreshWindowsButton");
+const awarenessPicker = document.getElementById("awarenessPicker");
+const awarenessWindowList = document.getElementById("awarenessWindowList");
+const awarenessPreview = document.getElementById("awarenessPreview");
+const awarenessPreviewTitle = document.getElementById("awarenessPreviewTitle");
+const awarenessPreviewImage = document.getElementById("awarenessPreviewImage");
+const awarenessBackButton = document.getElementById("awarenessBackButton");
+const awarenessDiscardButton = document.getElementById("awarenessDiscardButton");
+const awarenessUseButton = document.getElementById("awarenessUseButton");
+const awarenessStatus = document.getElementById("awarenessStatus");
 const chatHint = document.getElementById("chatHint");
 const voiceModelLabel = document.getElementById("voiceModelLabel");
 const voiceModelDetail = document.getElementById("voiceModelDetail");
@@ -140,6 +153,8 @@ let memories = loadMemories();
 let suggestedMemory = null;
 let toolLogs = loadToolLogs();
 let pendingToolContext = null;
+let previewDesktopCapture = null;
+let pendingDesktopCapture = null;
 let permissionResolver = null;
 let voiceModelState = "missing";
 let voiceRecordingPhase = "idle";
@@ -302,6 +317,201 @@ function hideTools() {
   input.focus();
 }
 
+function setAwarenessStatus(text, type = "") {
+  awarenessStatus.textContent = text;
+  awarenessStatus.className = `settings-status ${type}`.trim();
+}
+
+function clearAwarenessPreview() {
+  previewDesktopCapture = null;
+  awarenessPreviewImage.removeAttribute("src");
+  awarenessPreviewTitle.textContent = "截图预览";
+}
+
+function showAwarenessPicker() {
+  clearAwarenessPreview();
+  awarenessPicker.classList.remove("hidden");
+  awarenessPreview.classList.add("hidden");
+}
+
+function showAwareness() {
+  awarenessPanel.classList.remove("hidden");
+
+  if (pendingDesktopCapture) {
+    previewDesktopCapture = pendingDesktopCapture;
+    awarenessPreviewTitle.textContent =
+      pendingDesktopCapture.title || pendingDesktopCapture.appName || "截图预览";
+    awarenessPreviewImage.src = pendingDesktopCapture.dataUrl;
+    awarenessPicker.classList.add("hidden");
+    awarenessPreview.classList.remove("hidden");
+    setAwarenessStatus(
+      "这张截图已经附到下一条消息。你可以保留、重新选择或取消。",
+      "success",
+    );
+    return;
+  }
+
+  showAwarenessPicker();
+  setAwarenessStatus("正在读取可选择的窗口……");
+  void refreshDesktopWindows();
+}
+
+function hideAwareness() {
+  awarenessPanel.classList.add("hidden");
+  clearAwarenessPreview();
+  input.focus();
+}
+function renderDesktopWindows(windows) {
+  awarenessWindowList.replaceChildren();
+
+  if (!Array.isArray(windows) || windows.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "awareness-empty";
+    empty.textContent = "没有找到可截图的窗口。请先打开一个普通窗口，再点击刷新。";
+    awarenessWindowList.appendChild(empty);
+    return;
+  }
+
+  windows.forEach((windowInfo) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "awareness-window-item";
+
+    const icon = document.createElement("span");
+    icon.className = "awareness-window-icon";
+    icon.textContent = "▣";
+
+    const copy = document.createElement("span");
+    copy.className = "awareness-window-copy";
+
+    const title = document.createElement("strong");
+    title.textContent = windowInfo.title || windowInfo.appName || "未命名窗口";
+
+    const detail = document.createElement("span");
+    const appName = windowInfo.appName || "未知应用";
+    const focusedLabel = windowInfo.isFocused ? " · 当前窗口" : "";
+    detail.textContent = `${appName} · ${windowInfo.width}×${windowInfo.height}${focusedLabel}`;
+
+    copy.append(title, detail);
+    button.append(icon, copy);
+    button.addEventListener("click", () => {
+      void previewDesktopWindow(windowInfo);
+    });
+
+    awarenessWindowList.appendChild(button);
+  });
+}
+
+async function refreshDesktopWindows() {
+  refreshWindowsButton.disabled = true;
+  awarenessButton.disabled = true;
+  setAwarenessStatus("正在读取可选择的窗口……");
+
+   try {
+    const permissionGranted = await invoke("request_screen_capture_permission");
+
+    if (!permissionGranted) {
+      throw new Error(
+        "尚未获得屏幕录制权限。请在 macOS“系统设置 → 隐私与安全性 → 屏幕录制”中允许 Kardii，然后重新打开应用。",
+      );
+    }
+
+    const windows = await invoke("list_desktop_windows");
+    renderDesktopWindows(windows);
+
+    if (windows.length > 0) {
+      setAwarenessStatus(`找到 ${windows.length} 个窗口。选择一个后才会请求截图权限。`, "success");
+    } else {
+      setAwarenessStatus("没有找到可用窗口，请打开一个窗口后重试。", "error");
+    }
+  } catch (error) {
+    awarenessWindowList.replaceChildren();
+
+    const empty = document.createElement("div");
+    empty.className = "awareness-empty";
+    empty.textContent = "读取窗口失败";
+    awarenessWindowList.appendChild(empty);
+
+    setAwarenessStatus(String(error), "error");
+  } finally {
+    refreshWindowsButton.disabled = false;
+    awarenessButton.disabled = false;
+  }
+}
+async function previewDesktopWindow(windowInfo) {
+  const windowLabel = windowInfo.title || windowInfo.appName || "未命名窗口";
+
+  const allowed = await requestToolPermission({
+    title: "允许截取这个窗口？",
+    description: "Kardii 只会截取你刚才选择的一个窗口，并先在本机显示预览。此时不会发送给 AI。",
+    detail: [
+      `应用：${windowInfo.appName || "未知应用"}`,
+      `窗口：${windowLabel}`,
+      `尺寸：${windowInfo.width}×${windowInfo.height}`,
+      "范围：仅允许这一次",
+    ].join("\n"),
+  });
+
+  if (!allowed) {
+    setAwarenessStatus("你取消了这次截图。");
+    return;
+  }
+
+  refreshWindowsButton.disabled = true;
+  setAwarenessStatus("正在截取所选窗口……");
+
+  try {
+    const result = await invoke("capture_desktop_window", {
+      windowId: windowInfo.id,
+    });
+
+    previewDesktopCapture = result;
+    awarenessPreviewTitle.textContent = result.title || result.appName || "截图预览";
+    awarenessPreviewImage.src = result.dataUrl;
+    awarenessPicker.classList.add("hidden");
+    awarenessPreview.classList.remove("hidden");
+
+    setAwarenessStatus(
+      "截图只在本机预览。请检查隐私内容，再决定是否附到消息。",
+      "success",
+    );
+  } catch (error) {
+    setAwarenessStatus(String(error), "error");
+  } finally {
+    refreshWindowsButton.disabled = false;
+  }
+}
+
+function useDesktopCapture() {
+  if (!previewDesktopCapture) {
+    setAwarenessStatus("请先选择并预览一个窗口。", "error");
+    return;
+  }
+
+  if (aiSettings.provider !== "gemini") {
+    setAwarenessStatus(
+      "桌面图片识别目前需要 Gemini。请先在 AI 设置中切换到 Gemini。",
+      "error",
+    );
+    return;
+  }
+
+  pendingDesktopCapture = previewDesktopCapture;
+  awarenessButton.classList.add("has-capture");
+  awarenessButton.title = "已附加桌面截图，点击可以重新选择";
+  chatHint.textContent = "已附加桌面截图 · 发送下一条消息时才会交给 Gemini";
+  hideAwareness();
+  input.focus();
+}
+
+function discardDesktopCapture() {
+  pendingDesktopCapture = null;
+  awarenessButton.classList.remove("has-capture");
+  awarenessButton.title = "选择一个窗口让 Kardii 看看";
+  chatHint.textContent = "Enter 发送 · Shift + Enter 换行 · Esc 收起";
+  clearAwarenessPreview();
+  hideAwareness();
+}
 function finishPermission(allowed) {
   if (!permissionResolver) return;
   const resolve = permissionResolver;
@@ -1013,6 +1223,7 @@ function setSending(nextSending) {
   stopButton.classList.toggle("hidden", !nextSending);
   stopButton.disabled = false;
   micButton.disabled = nextSending || voiceRecordingPhase === "transcribing";
+  awarenessButton.disabled = nextSending;
   updateReplyActions();
 }
 
@@ -1021,6 +1232,7 @@ async function requestReply() {
   setSending(true);
   await emitTo("main", "kardii-state", "thinking");
   const usingToolContext = Boolean(pendingToolContext);
+  const usingDesktopCapture = Boolean(pendingDesktopCapture);
 
   const replyBubble = addMessage("", "kardii");
   activeRequestId = crypto.randomUUID();
@@ -1054,6 +1266,7 @@ async function requestReply() {
       ollamaBaseUrl: ai.ollamaBaseUrl,
       requestId: activeRequestId,
       maxTokens: Number(responseLengthSelect.value),
+      desktopImageDataUrl: pendingDesktopCapture?.dataUrl || null,
       onEvent: channel,
     });
     if (replyText.trim()) {
@@ -1062,6 +1275,12 @@ async function requestReply() {
       if (usingToolContext) {
         pendingToolContext = null;
         setToolStatus("工具资料已用于本次回答，不会在下一次提问中重复发送。", "success");
+      }
+      if (usingDesktopCapture) {
+        pendingDesktopCapture = null;
+        awarenessButton.classList.remove("has-capture");
+        awarenessButton.title = "选择一个窗口让 Kardii 看看";
+        chatHint.textContent = "Enter 发送 · Shift + Enter 换行 · Esc 收起";
       }
     } else {
       replyBubble.textContent = stopped ? "已停止回答。" : "这次没有收到回复，请重试。";
@@ -1576,7 +1795,17 @@ testVoiceButton.addEventListener("click", () => {
   }
   speakText("你好，我是 Kardii。以后也可以直接对我说话啦！", true);
 });
-
+awarenessButton.addEventListener("click", showAwareness);
+awarenessCloseButton.addEventListener("click", hideAwareness);
+refreshWindowsButton.addEventListener("click", () => {
+  void refreshDesktopWindows();
+});
+awarenessBackButton.addEventListener("click", () => {
+  showAwarenessPicker();
+  setAwarenessStatus("请选择另一个窗口。");
+});
+awarenessDiscardButton.addEventListener("click", discardDesktopCapture);
+awarenessUseButton.addEventListener("click", useDesktopCapture);
 micButton.addEventListener("click", toggleVoiceRecording);
 
 clearHistoryButton.addEventListener("click", () => {
@@ -1624,6 +1853,7 @@ closeButton.addEventListener("click", closeChat);
 window.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
   if (!permissionPanel.classList.contains("hidden")) finishPermission(false);
+  else if (!awarenessPanel.classList.contains("hidden")) hideAwareness();
   else if (!toolsPanel.classList.contains("hidden")) hideTools();
   else if (!profilePanel.classList.contains("hidden")) hideProfile();
   else if (!settingsPanel.classList.contains("hidden")) hideSettings();
@@ -1634,6 +1864,7 @@ window.addEventListener("focus", () => {
   if (
     settingsPanel.classList.contains("hidden")
     && profilePanel.classList.contains("hidden")
+    && awarenessPanel.classList.contains("hidden")
     && toolsPanel.classList.contains("hidden")
     && permissionPanel.classList.contains("hidden")
   ) input.focus();
