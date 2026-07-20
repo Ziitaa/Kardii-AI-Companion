@@ -35,6 +35,7 @@ unsafe extern "C" {
     fn CGPreflightScreenCaptureAccess() -> bool;
     fn CGRequestScreenCaptureAccess() -> bool;
 }
+#[derive(Debug, Clone, Deserialize, Serialize)]
 struct ChatMessage {
     role: String,
     content: serde_json::Value,
