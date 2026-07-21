@@ -1032,7 +1032,7 @@ pub fn run() {
             start_voice_recording,
             stop_voice_recording,
             get_voice_recording_state,
-            clear_voice_recording_result
+            clear_voice_recording_result,
             get_app_version,
             check_app_update,
             install_app_update,
