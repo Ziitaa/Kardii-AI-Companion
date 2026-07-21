@@ -28,7 +28,6 @@ const KEYRING_SERVICE: &str = "Kardii AI Companion";
 const DEEPSEEK_URL: &str = "https://api.deepseek.com/chat/completions";
 const GEMINI_URL: &str = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
 #[cfg(target_os = "macos")]
 #[link(name = "CoreGraphics", kind = "framework")]
 unsafe extern "C" {
@@ -973,8 +972,7 @@ async fn install_app_update(app: tauri::AppHandle) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-    .plugin(tauri_plugin_updater::Builder::new().build())
-    .manage(StreamState::default())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(StreamState::default())
         .setup(|app| {
             let app_data_dir = app
