@@ -7,12 +7,14 @@ const pet = document.getElementById("pet");
 const petImage = document.getElementById("petImage");
 const menu = document.getElementById("menu");
 
-const states = ["idle", "loading", "sleep", "error"];
+const states = ["idle", "thinking", "talking", "happy", "loading", "sleep", "error"];
 const BASE_WINDOW = { width: 440, height: 360 };
+const TRANSIENT_STATE_DURATIONS = { happy: 1650 };
 let currentState = "idle";
 let scale = Number(localStorage.getItem("kardii-scale") || "1");
 let lastInteraction = Date.now();
 let clickTimer;
+let stateReturnTimer;
 let dragStart = null;
 let didDrag = false;
 
@@ -22,11 +24,17 @@ function touch() {
 
 function setState(state) {
   if (!states.includes(state)) return;
+  clearTimeout(stateReturnTimer);
   currentState = state;
   petImage.src = `./assets/pet/${state}.webp`;
   petImage.alt = `Kardii ${state}`;
   menu.classList.add("hidden");
   touch();
+
+  const duration = TRANSIENT_STATE_DURATIONS[state];
+  if (duration) {
+    stateReturnTimer = setTimeout(() => setState("idle"), duration);
+  }
 }
 
 async function setScale(nextScale) {
@@ -145,6 +153,11 @@ appWindow.onMoved(({ payload }) => {
 });
 
 listen("kardii-state", ({ payload }) => setState(payload));
+
+states.forEach((state) => {
+  const image = new Image();
+  image.src = `./assets/pet/${state}.webp`;
+});
 
 ["mousemove", "keydown", "touchstart"].forEach((name) => {
   window.addEventListener(name, touch, { passive: true });

@@ -30,7 +30,7 @@ jobs:
         run: npm ci
 
       - name: Build universal macOS app
-        run: npm run build -- --target universal-apple-darwin
+        run: npm run build -- --target universal-apple-darwin --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
       - name: Upload universal macOS app
         uses: actions/upload-artifact@v4
