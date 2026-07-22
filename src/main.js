@@ -1,4 +1,10 @@
-const { getCurrentWindow, getAllWindows, PhysicalPosition, LogicalSize } = window.__TAURI__.window;
+const {
+  getCurrentWindow,
+  getAllWindows,
+  PhysicalPosition,
+  LogicalPosition,
+  LogicalSize,
+} = window.__TAURI__.window;
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
@@ -122,9 +128,27 @@ async function toggleChat() {
   await chatWindow.setFocus();
 }
 
-document.addEventListener("contextmenu", (event) => {
+async function keepWindowOnScreen() {
+  const margin = 8;
+  const left = Number.isFinite(window.screen.availLeft) ? window.screen.availLeft : 0;
+  const top = Number.isFinite(window.screen.availTop) ? window.screen.availTop : 0;
+  const right = left + window.screen.availWidth;
+  const bottom = top + window.screen.availHeight;
+  const maxX = Math.max(left + margin, right - window.outerWidth - margin);
+  const maxY = Math.max(top + margin, bottom - window.outerHeight - margin);
+  const x = Math.min(Math.max(window.screenX, left + margin), maxX);
+  const y = Math.min(Math.max(window.screenY, top + margin), maxY);
+
+  if (Math.abs(x - window.screenX) > 1 || Math.abs(y - window.screenY) > 1) {
+    await appWindow.setPosition(new LogicalPosition(Math.round(x), Math.round(y)));
+  }
+}
+
+document.addEventListener("contextmenu", async (event) => {
   event.preventDefault();
-  menu.classList.toggle("hidden");
+  const shouldOpen = menu.classList.contains("hidden");
+  menu.classList.toggle("hidden", !shouldOpen);
+  if (shouldOpen) await keepWindowOnScreen();
   touch();
 });
 
