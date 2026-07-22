@@ -72,7 +72,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUyNDExMUQ0NkMzQjFDMjYKUldRbUhEdHMxQkZCNG9WUWp5cEJkdFhDWHFRWTA4SkxNRENIay9iMkNtV0VQeUtRY2hnWjliS2kK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERDNTgzNEVEMkRDQTUyQgpSV1FycGR6U1RvUEZEZWdRNG1LckRoRnBkb1VzWWhqZ2FuRm45dlZVanFBLzNmV2RpS2R3TXV6RQo=",
       "endpoints": [
         "https://github.com/Ziitaa/Kardii-AI-Companion/releases/latest/download/latest.json"
       ],
