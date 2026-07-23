@@ -125,6 +125,7 @@ const TOOL_LOGS_KEY = "kardii-tool-logs-v1";
 const VOICE_SETTINGS_KEY = "kardii-voice-settings-v1";
 const AI_SETTINGS_KEY = "kardii-ai-settings-v1";
 const BUSINESS_DATA_KEY = "kardii-business-data-v1";
+const WORKBENCH_TARGET_KEY = "kardii-workbench-open-target-v1";
 const MAX_SAVED_MESSAGES = 50;
 const PERSONALITIES = {
   healing: "耐心温暖，擅长安慰，也会温和地给出实用建议。",
@@ -855,6 +856,27 @@ function looksSensitiveBusinessText(text) {
   return /(?:api[\s_-]*key|密码|口令|验证码|身份证|银行卡|私钥|secret|token)\s*[:：]?\s*\S+/i.test(text);
 }
 
+function relativeTaskDate(text) {
+  const dueDate = new Date();
+  dueDate.setHours(0, 0, 0, 0);
+  if (/后天/.test(text)) dueDate.setDate(dueDate.getDate() + 2);
+  else if (/明天/.test(text)) dueDate.setDate(dueDate.getDate() + 1);
+  else if (/下周/.test(text)) dueDate.setDate(dueDate.getDate() + 7);
+  else if (!/今天|今日/.test(text)) return "";
+  const offset = dueDate.getTimezoneOffset();
+  return new Date(dueDate.getTime() - offset * 60_000).toISOString().slice(0, 10);
+}
+
+function taskTitleFromMessage(text) {
+  const actionPattern = /(?:联系|发送|确认|整理|准备|跟进|回复|提交|询问|核对|预约|提醒)/;
+  const segments = text.split(/[，。；;！？!?]/).map((part) => part.trim()).filter(Boolean);
+  const selected = [...segments].reverse().find((part) => actionPattern.test(part)) || text;
+  return selected
+    .replace(/^(?:今天|今日|明天|后天|下周)\s*/, "")
+    .replace(/^(?:我|我们)?(?:还)?(?:需要|要|得|应该|请|记得)\s*/, "")
+    .slice(0, 120);
+}
+
 function captureBusinessMessage(text) {
   const clean = text.trim().replace(/\s+/g, " ").slice(0, 1000);
   const type = businessCaptureType(clean);
@@ -893,14 +915,38 @@ function captureBusinessMessage(text) {
       createdAt: capture.createdAt,
     });
   }
+  let generatedTask = null;
+  if (type === "task") {
+    generatedTask = {
+      id: crypto.randomUUID(),
+      title: taskTitleFromMessage(clean),
+      relation: capture.relationName,
+      relationType: capture.relationType,
+      relationId: capture.relationId,
+      dueDate: relativeTaskDate(clean),
+      completed: false,
+      source: "chat",
+      sourceCaptureId: capture.id,
+      createdAt: capture.createdAt,
+    };
+    capture.generatedTaskId = generatedTask.id;
+    businessData.tasks.unshift(generatedTask);
+  }
   localStorage.setItem(BUSINESS_DATA_KEY, JSON.stringify(businessData));
 
   latestBusinessCaptureId = capture.id;
   clearTimeout(businessCaptureTimer);
   const typeLabels = { decision: "重要决定", task: "待办线索", customer: "客户信息", project: "项目动态" };
-  businessCaptureText.textContent = `已自动记录为${typeLabels[type]}${capture.relationName ? ` · ${capture.relationName}` : ""}`;
+  const relationLabel = capture.relationName ? `已记录到「${capture.relationName}」` : `已记录${typeLabels[type]}`;
+  if (generatedTask) {
+    const tomorrow = relativeTaskDate("明天");
+    const dueLabel = generatedTask.dueDate === tomorrow ? "明日任务" : generatedTask.dueDate ? "定时任务" : "任务";
+    businessCaptureText.textContent = `${relationLabel}，并生成${dueLabel}：${generatedTask.title}`;
+  } else {
+    businessCaptureText.textContent = `${relationLabel}：${typeLabels[type]}`;
+  }
   businessCaptureNotice.classList.remove("hidden");
-  businessCaptureTimer = setTimeout(() => businessCaptureNotice.classList.add("hidden"), 7000);
+  businessCaptureTimer = setTimeout(() => businessCaptureNotice.classList.add("hidden"), 10000);
 }
 
 function undoBusinessCapture() {
@@ -909,6 +955,7 @@ function undoBusinessCapture() {
   if (!businessData) return;
   businessData.captures = businessData.captures.filter((capture) => capture.id !== latestBusinessCaptureId);
   businessData.activities = businessData.activities.filter((activity) => activity.sourceCaptureId !== latestBusinessCaptureId);
+  businessData.tasks = businessData.tasks.filter((task) => task.sourceCaptureId !== latestBusinessCaptureId);
   localStorage.setItem(BUSINESS_DATA_KEY, JSON.stringify(businessData));
   latestBusinessCaptureId = null;
   businessCaptureText.textContent = "刚才的商务记录已撤销";
@@ -1534,6 +1581,16 @@ form.addEventListener("submit", async (event) => {
 
 undoBusinessCaptureButton.addEventListener("click", undoBusinessCapture);
 openCapturedWorkbenchButton.addEventListener("click", async () => {
+  const businessData = loadBusinessData();
+  const capture = businessData?.captures.find((item) => item.id === latestBusinessCaptureId);
+  const target = capture?.relationId
+    ? {
+      view: capture.relationType === "customer" ? "customers" : "projects",
+      type: capture.relationType,
+      id: capture.relationId,
+    }
+    : { view: "dashboard" };
+  localStorage.setItem(WORKBENCH_TARGET_KEY, JSON.stringify(target));
   businessCaptureNotice.classList.add("hidden");
   await openWorkbench();
 });
