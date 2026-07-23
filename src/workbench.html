@@ -156,7 +156,19 @@
 
           <section id="projectsView" class="view" data-view-panel="projects">
             <div class="toolbar">
-              <div class="view-summary"><strong id="projectSummary">0 个项目</strong><span>围绕目标、进展和下一步行动管理</span></div>
+              <label class="search-box">
+                <span>⌕</span>
+                <input id="projectSearch" type="search" placeholder="搜索项目、目标、客户或下一步">
+              </label>
+              <select id="projectStatusFilter" class="filter-select" aria-label="按状态筛选">
+                <option value="">全部状态</option>
+                <option value="planned">计划中</option>
+                <option value="active">进行中</option>
+                <option value="on_hold">暂缓</option>
+                <option value="completed">已完成</option>
+                <option value="archived">已归档</option>
+              </select>
+              <div class="view-summary"><strong id="projectSummary">0 个项目</strong><span>目标、客户与下一步行动</span></div>
               <button class="primary-button" type="button" data-action="add-project">＋ 新建项目</button>
             </div>
             <div id="projectGrid" class="project-grid"></div>
@@ -187,8 +199,11 @@
         </div>
         <form id="entityForm">
           <div id="formFields" class="form-fields"></div>
+          <div id="entityRelations" class="entity-relations hidden"></div>
           <div id="entityTimeline" class="entity-timeline hidden"></div>
           <div class="modal-actions">
+            <button id="modalArchiveButton" class="archive-action hidden" type="button">归档</button>
+            <span class="modal-action-spacer"></span>
             <button id="modalCancelButton" class="ghost-action" type="button">取消</button>
             <button id="modalSubmitButton" class="primary-button" type="submit">保存</button>
           </div>
