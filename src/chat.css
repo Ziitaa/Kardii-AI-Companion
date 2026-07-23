@@ -161,6 +161,37 @@ header strong {
   border-radius: 11px;
 }
 
+.business-capture-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 10px 7px;
+  padding: 8px 10px;
+  color: #425466;
+  font-size: 10px;
+  background: #eef7f2;
+  border: 1px solid #cfe7da;
+  border-radius: 10px;
+  box-shadow: 0 5px 14px rgba(47, 94, 70, 0.08);
+}
+
+.business-capture-notice > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.business-capture-notice > div { display: flex; gap: 5px; }
+.business-capture-notice button {
+  padding: 4px 7px;
+  color: #52705f;
+  font-size: 9px;
+  background: #fff;
+  border: 1px solid #c8ddd1;
+  border-radius: 7px;
+}
+
 .memory-suggestion > span { flex: 1; min-width: 0; }
 .memory-suggestion > div { display: flex; flex: 0 0 auto; gap: 4px; }
 .memory-suggestion button {
