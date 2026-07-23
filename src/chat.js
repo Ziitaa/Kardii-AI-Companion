@@ -838,6 +838,7 @@ function loadBusinessData() {
       notes: Array.isArray(saved.notes) ? saved.notes : [],
       captures: Array.isArray(saved.captures) ? saved.captures : [],
       activities: Array.isArray(saved.activities) ? saved.activities : [],
+      intelligence: Array.isArray(saved.intelligence) ? saved.intelligence : [],
     };
   } catch {
     return null;
@@ -845,11 +846,22 @@ function loadBusinessData() {
 }
 
 function businessCaptureType(text) {
+  if (/(?:背调|调查|核验|查一下|查查).*(?:公司|品牌|联系人|分销商|客户)|(?:公司|品牌|联系人|分销商|客户).*(?:背调|调查|核验)/.test(text)) return "intelligence";
   if (/(?:决定|确定|改成|调整为|不要再|暂停|同意|已确认)/.test(text)) return "decision";
   if (/(?:明天|后天|下周|提醒|跟进|联系|发送|确认|整理|准备|下一步|需要我|待办)/.test(text)) return "task";
   if (/(?:客户|买家|采购|联系人|分销商|供应商|公司|品牌方)/.test(text)) return "customer";
   if (/(?:项目|Target|欧洲市场|分销合作|入驻|展会)/i.test(text)) return "project";
   return "";
+}
+
+function intelligenceSubjectFromMessage(text, relationName = "") {
+  if (relationName) return relationName;
+  const match = text.match(/(?:背调|调查|核验|查一下|查查)\s*([^，。；;！？!?]{2,80})/);
+  return String(match?.[1] || text)
+    .replace(/^(?:一下|一下这个|这个)\s*/, "")
+    .replace(/(?:看看|看下|确认|判断|是否|适不适合|能不能).*$/, "")
+    .trim()
+    .slice(0, 80) || "待确认背调对象";
 }
 
 function looksSensitiveBusinessText(text) {
@@ -916,6 +928,7 @@ function captureBusinessMessage(text) {
     });
   }
   let generatedTask = null;
+  let generatedIntelligence = null;
   if (type === "task") {
     generatedTask = {
       id: crypto.randomUUID(),
@@ -931,14 +944,41 @@ function captureBusinessMessage(text) {
     };
     capture.generatedTaskId = generatedTask.id;
     businessData.tasks.unshift(generatedTask);
+  } else if (type === "intelligence") {
+    generatedIntelligence = {
+      id: crypto.randomUUID(),
+      subject: intelligenceSubjectFromMessage(clean, capture.relationName),
+      kind: /联系人|个人/.test(clean) ? "person" : /品牌/.test(clean) ? "brand" : /市场/.test(clean) ? "market" : "company",
+      country: relationCustomer?.country || "",
+      website: relationCustomer?.website || "",
+      status: "planned",
+      objective: clean,
+      facts: "",
+      sources: "",
+      analysis: "",
+      opportunities: "",
+      risks: "",
+      nextAction: "确认调查范围并搜集公开来源",
+      linkedCustomerId: relationCustomer?.id || "",
+      linkedProjectId: relationProject?.id || "",
+      sourceCaptureId: capture.id,
+      createdAt: capture.createdAt,
+    };
+    capture.generatedIntelligenceId = generatedIntelligence.id;
+    capture.relationType = "intelligence";
+    capture.relationId = generatedIntelligence.id;
+    capture.relationName = generatedIntelligence.subject;
+    businessData.intelligence.unshift(generatedIntelligence);
   }
   localStorage.setItem(BUSINESS_DATA_KEY, JSON.stringify(businessData));
 
   latestBusinessCaptureId = capture.id;
   clearTimeout(businessCaptureTimer);
-  const typeLabels = { decision: "重要决定", task: "待办线索", customer: "客户信息", project: "项目动态" };
+  const typeLabels = { decision: "重要决定", task: "待办线索", customer: "客户信息", project: "项目动态", intelligence: "背调任务" };
   const relationLabel = capture.relationName ? `已记录到「${capture.relationName}」` : `已记录${typeLabels[type]}`;
-  if (generatedTask) {
+  if (generatedIntelligence) {
+    businessCaptureText.textContent = `已创建背调任务：${generatedIntelligence.subject}`;
+  } else if (generatedTask) {
     const tomorrow = relativeTaskDate("明天");
     const dueLabel = generatedTask.dueDate === tomorrow ? "明日任务" : generatedTask.dueDate ? "定时任务" : "任务";
     businessCaptureText.textContent = `${relationLabel}，并生成${dueLabel}：${generatedTask.title}`;
@@ -956,6 +996,7 @@ function undoBusinessCapture() {
   businessData.captures = businessData.captures.filter((capture) => capture.id !== latestBusinessCaptureId);
   businessData.activities = businessData.activities.filter((activity) => activity.sourceCaptureId !== latestBusinessCaptureId);
   businessData.tasks = businessData.tasks.filter((task) => task.sourceCaptureId !== latestBusinessCaptureId);
+  businessData.intelligence = businessData.intelligence.filter((item) => item.sourceCaptureId !== latestBusinessCaptureId);
   localStorage.setItem(BUSINESS_DATA_KEY, JSON.stringify(businessData));
   latestBusinessCaptureId = null;
   businessCaptureText.textContent = "刚才的商务记录已撤销";
@@ -1585,7 +1626,7 @@ openCapturedWorkbenchButton.addEventListener("click", async () => {
   const capture = businessData?.captures.find((item) => item.id === latestBusinessCaptureId);
   const target = capture?.relationId
     ? {
-      view: capture.relationType === "customer" ? "customers" : "projects",
+      view: capture.relationType === "customer" ? "customers" : capture.relationType === "intelligence" ? "intelligence" : "projects",
       type: capture.relationType,
       id: capture.relationId,
     }
