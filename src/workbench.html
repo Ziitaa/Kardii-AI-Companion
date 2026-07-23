@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Kardii Business Workbench</title>
+    <link rel="stylesheet" href="./workbench.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="sidebar">
+        <div class="brand" data-tauri-drag-region>
+          <div class="brand-mark">K</div>
+          <div>
+            <strong>Kardii</strong>
+            <span>Business Companion</span>
+          </div>
+        </div>
+
+        <nav class="primary-nav" aria-label="商务工作台导航">
+          <button class="nav-item active" type="button" data-view="dashboard">
+            <span class="nav-icon">⌂</span><span>今日工作台</span>
+          </button>
+          <button class="nav-item" type="button" data-view="customers">
+            <span class="nav-icon">♧</span><span>客户库</span>
+            <span id="customerNavCount" class="nav-count">0</span>
+          </button>
+          <button class="nav-item" type="button" data-view="projects">
+            <span class="nav-icon">◇</span><span>项目库</span>
+            <span id="projectNavCount" class="nav-count">0</span>
+          </button>
+          <button class="nav-item" type="button" data-view="intelligence">
+            <span class="nav-icon">◎</span><span>商业情报</span>
+            <span class="soon-badge">即将推出</span>
+          </button>
+          <button class="nav-item" type="button" data-view="knowledge">
+            <span class="nav-icon">▤</span><span>知识库</span>
+            <span class="soon-badge">即将推出</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <button id="openChatButton" class="ask-kardii" type="button">
+            <span class="kardii-dot"></span>
+            <span><strong>问问 Kardii</strong><small>随时讨论客户与项目</small></span>
+          </button>
+          <span class="local-note">数据仅保存在这台电脑</span>
+        </div>
+      </aside>
+
+      <section class="workspace">
+        <header class="topbar" data-tauri-drag-region>
+          <div>
+            <span id="viewEyebrow" class="eyebrow">BUSINESS WORKBENCH</span>
+            <h1 id="viewTitle">今日工作台</h1>
+          </div>
+          <div class="topbar-actions">
+            <button id="globalSearchButton" class="ghost-button" type="button" title="搜索">⌕</button>
+            <button id="quickAddButton" class="primary-button" type="button">＋ 快速记录</button>
+            <button id="minimizeButton" class="window-button" type="button" aria-label="最小化">−</button>
+            <button id="closeButton" class="window-button" type="button" aria-label="关闭">×</button>
+          </div>
+        </header>
+
+        <div class="content">
+          <section id="dashboardView" class="view active" data-view-panel="dashboard">
+            <div class="welcome-row">
+              <div>
+                <p id="todayLabel" class="date-label"></p>
+                <h2 id="welcomeTitle">今天先推进最重要的一步。</h2>
+                <p class="muted">Kardii 已为你整理客户、项目与下一步行动。</p>
+              </div>
+              <button class="outline-button" type="button" data-action="add-task">添加今日任务</button>
+            </div>
+
+            <div class="metric-grid">
+              <article class="metric-card rose">
+                <span>今日待办</span><strong id="todayTaskCount">0</strong><small id="overdueTaskCount">0 项已逾期</small>
+              </article>
+              <article class="metric-card blue">
+                <span>待跟进客户</span><strong id="followupCount">0</strong><small>按下次行动时间排序</small>
+              </article>
+              <article class="metric-card amber">
+                <span>进行中项目</span><strong id="activeProjectCount">0</strong><small>需要持续推进</small>
+              </article>
+              <article class="metric-card green">
+                <span>本周新记录</span><strong id="weeklyNoteCount">0</strong><small>快速记录与沟通纪要</small>
+              </article>
+            </div>
+
+            <div class="dashboard-grid">
+              <article class="panel task-panel">
+                <div class="panel-heading">
+                  <div><span class="section-kicker">NEXT ACTIONS</span><h3>今天要做</h3></div>
+                  <button class="text-button" type="button" data-action="add-task">＋ 添加</button>
+                </div>
+                <div id="taskList" class="task-list"></div>
+              </article>
+
+              <article class="panel project-panel">
+                <div class="panel-heading">
+                  <div><span class="section-kicker">ACTIVE PROJECTS</span><h3>重点项目</h3></div>
+                  <button class="text-button" type="button" data-navigate="projects">查看全部</button>
+                </div>
+                <div id="dashboardProjects" class="compact-list"></div>
+              </article>
+
+              <article class="panel followup-panel">
+                <div class="panel-heading">
+                  <div><span class="section-kicker">FOLLOW UPS</span><h3>客户跟进</h3></div>
+                  <button class="text-button" type="button" data-navigate="customers">客户库</button>
+                </div>
+                <div id="dashboardFollowups" class="compact-list"></div>
+              </article>
+
+              <article class="panel notes-panel">
+                <div class="panel-heading">
+                  <div><span class="section-kicker">QUICK CAPTURE</span><h3>最近记录</h3></div>
+                  <button class="text-button" type="button" data-action="add-note">＋ 记录</button>
+                </div>
+                <div id="recentNotes" class="compact-list"></div>
+              </article>
+            </div>
+          </section>
+
+          <section id="customersView" class="view" data-view-panel="customers">
+            <div class="toolbar">
+              <label class="search-box">
+                <span>⌕</span>
+                <input id="customerSearch" type="search" placeholder="搜索公司、联系人、国家或渠道">
+              </label>
+              <select id="customerStageFilter" class="filter-select" aria-label="按阶段筛选">
+                <option value="">全部阶段</option>
+                <option value="lead">潜在线索</option>
+                <option value="contacted">已联系</option>
+                <option value="negotiating">洽谈中</option>
+                <option value="partner">合作中</option>
+                <option value="paused">暂缓</option>
+              </select>
+              <button class="primary-button" type="button" data-action="add-customer">＋ 新建客户</button>
+            </div>
+            <div id="customerGrid" class="customer-grid"></div>
+          </section>
+
+          <section id="projectsView" class="view" data-view-panel="projects">
+            <div class="toolbar">
+              <div class="view-summary"><strong id="projectSummary">0 个项目</strong><span>围绕目标、进展和下一步行动管理</span></div>
+              <button class="primary-button" type="button" data-action="add-project">＋ 新建项目</button>
+            </div>
+            <div id="projectGrid" class="project-grid"></div>
+          </section>
+
+          <section id="intelligenceView" class="view empty-view" data-view-panel="intelligence">
+            <div class="empty-illustration">◎</div>
+            <span class="section-kicker">BUSINESS INTELLIGENCE</span>
+            <h2>商业情报中心将在下一阶段接入</h2>
+            <p>输入公司、品牌或联系人后，Kardii 将搜集公开信息，输出机会、风险、合作切入点和资料来源。</p>
+          </section>
+
+          <section id="knowledgeView" class="view empty-view" data-view-panel="knowledge">
+            <div class="empty-illustration">▤</div>
+            <span class="section-kicker">KNOWLEDGE & MEMORY</span>
+            <h2>知识库将在数据结构稳定后接入</h2>
+            <p>未来可导入产品画册、报价单、合同与客户资料，并按客户和项目自动关联。</p>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <div id="modalBackdrop" class="modal-backdrop hidden">
+      <section class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <div class="modal-heading">
+          <div><span id="modalEyebrow" class="section-kicker"></span><h2 id="modalTitle"></h2></div>
+          <button id="modalCloseButton" class="window-button" type="button" aria-label="关闭">×</button>
+        </div>
+        <form id="entityForm">
+          <div id="formFields" class="form-fields"></div>
+          <div class="modal-actions">
+            <button id="modalCancelButton" class="ghost-action" type="button">取消</button>
+            <button id="modalSubmitButton" class="primary-button" type="submit">保存</button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <div id="toast" class="toast hidden" role="status"></div>
+    <script src="./workbench.js"></script>
+  </body>
+</html>
