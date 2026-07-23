@@ -10,6 +10,29 @@ const STAGES = {
   partner: "合作中",
   paused: "暂缓",
 };
+const PRIORITIES = {
+  high: "高优先级",
+  medium: "中优先级",
+  low: "低优先级",
+};
+const PROJECT_STATUSES = {
+  planned: "计划中",
+  active: "进行中",
+  on_hold: "暂缓",
+  completed: "已完成",
+  archived: "已归档",
+};
+const ACTIVITY_TYPES = {
+  call: "电话",
+  email: "邮件",
+  meeting: "会议",
+  message: "消息",
+  note: "备注",
+  customer: "客户记录",
+  project: "项目进展",
+  decision: "重要决定",
+  task: "待办线索",
+};
 
 const viewMeta = {
   dashboard: ["BUSINESS WORKBENCH", "今日工作台"],
@@ -83,6 +106,8 @@ const customerNavCount = document.getElementById("customerNavCount");
 const projectNavCount = document.getElementById("projectNavCount");
 const customerGrid = document.getElementById("customerGrid");
 const projectGrid = document.getElementById("projectGrid");
+const projectSearch = document.getElementById("projectSearch");
+const projectStatusFilter = document.getElementById("projectStatusFilter");
 const taskList = document.getElementById("taskList");
 const dashboardProjects = document.getElementById("dashboardProjects");
 const dashboardFollowups = document.getElementById("dashboardFollowups");
@@ -97,7 +122,9 @@ const modalTitle = document.getElementById("modalTitle");
 const modalSubmitButton = document.getElementById("modalSubmitButton");
 const entityForm = document.getElementById("entityForm");
 const formFields = document.getElementById("formFields");
+const entityRelations = document.getElementById("entityRelations");
 const entityTimeline = document.getElementById("entityTimeline");
+const modalArchiveButton = document.getElementById("modalArchiveButton");
 const toast = document.getElementById("toast");
 
 function dateInputValue(date) {
@@ -114,15 +141,35 @@ function loadData() {
       localStorage.setItem(BUSINESS_DATA_KEY, JSON.stringify(initialData));
       return initialData;
     }
-    return {
+    const normalized = {
       version: 1,
-      customers: Array.isArray(saved.customers) ? saved.customers : [],
-      projects: Array.isArray(saved.projects) ? saved.projects : [],
+      customers: Array.isArray(saved.customers) ? saved.customers.map((customer) => ({
+        priority: "medium",
+        tags: "",
+        website: "",
+        email: "",
+        phone: "",
+        title: "",
+        source: "",
+        notes: "",
+        linkedProjectIds: [],
+        ...customer,
+        linkedProjectIds: Array.isArray(customer.linkedProjectIds) ? customer.linkedProjectIds : [],
+      })) : [],
+      projects: Array.isArray(saved.projects) ? saved.projects.map((project) => ({
+        priority: "medium",
+        owner: "",
+        linkedCustomerIds: [],
+        ...project,
+        linkedCustomerIds: Array.isArray(project.linkedCustomerIds) ? project.linkedCustomerIds : [],
+      })) : [],
       tasks: Array.isArray(saved.tasks) ? saved.tasks : [],
       notes: Array.isArray(saved.notes) ? saved.notes : [],
       captures: Array.isArray(saved.captures) ? saved.captures : [],
       activities: Array.isArray(saved.activities) ? saved.activities : [],
     };
+    syncRelations(normalized);
+    return normalized;
   } catch {
     const initialData = structuredClone(seedData);
     localStorage.setItem(BUSINESS_DATA_KEY, JSON.stringify(initialData));
@@ -130,7 +177,29 @@ function loadData() {
   }
 }
 
+function syncRelations(target = data) {
+  const customerIds = new Set(target.customers.map((customer) => customer.id));
+  const projectIds = new Set(target.projects.map((project) => project.id));
+  target.customers.forEach((customer) => {
+    customer.linkedProjectIds = [...new Set((customer.linkedProjectIds || []).filter((id) => projectIds.has(id)))];
+  });
+  target.projects.forEach((project) => {
+    project.linkedCustomerIds = [...new Set((project.linkedCustomerIds || []).filter((id) => customerIds.has(id)))];
+    project.linkedCustomerIds.forEach((customerId) => {
+      const customer = target.customers.find((item) => item.id === customerId);
+      if (customer && !customer.linkedProjectIds.includes(project.id)) customer.linkedProjectIds.push(project.id);
+    });
+  });
+  target.customers.forEach((customer) => {
+    customer.linkedProjectIds.forEach((projectId) => {
+      const project = target.projects.find((item) => item.id === projectId);
+      if (project && !project.linkedCustomerIds.includes(customer.id)) project.linkedCustomerIds.push(customer.id);
+    });
+  });
+}
+
 function saveData() {
+  syncRelations();
   localStorage.setItem(BUSINESS_DATA_KEY, JSON.stringify(data));
   renderAll();
 }
@@ -265,7 +334,10 @@ function renderCustomers() {
   const query = customerSearch.value.trim().toLowerCase();
   const stage = customerStageFilter.value;
   const customers = data.customers.filter((customer) => {
-    const haystack = [customer.company, customer.contact, customer.country, customer.channel].join(" ").toLowerCase();
+    const haystack = [
+      customer.company, customer.contact, customer.title, customer.country, customer.channel,
+      customer.email, customer.source, customer.tags,
+    ].join(" ").toLowerCase();
     return (!query || haystack.includes(query)) && (!stage || customer.stage === stage);
   });
 
@@ -273,13 +345,17 @@ function renderCustomers() {
     <article class="customer-card" data-action="edit-customer" data-entity-id="${customer.id}">
       <div class="card-top">
         <div class="company-avatar">${escapeHtml((customer.company || "?").slice(0, 1).toUpperCase())}</div>
-        <span class="stage-badge">${STAGES[customer.stage] || "潜在线索"}</span>
+        <div class="card-badges">
+          <span class="priority-badge ${escapeHtml(customer.priority || "medium")}">${PRIORITIES[customer.priority] || "中优先级"}</span>
+          <span class="stage-badge">${STAGES[customer.stage] || "潜在线索"}</span>
+        </div>
       </div>
       <h3>${escapeHtml(customer.company)}</h3>
-      <p class="contact">${escapeHtml(customer.contact || "未填写联系人")}</p>
+      <p class="contact">${escapeHtml(customer.contact || "未填写联系人")}${customer.title ? ` · ${escapeHtml(customer.title)}` : ""}</p>
       <div class="card-facts">
         ${customer.country ? `<span>${escapeHtml(customer.country)}</span>` : ""}
         ${customer.channel ? `<span>${escapeHtml(customer.channel)}</span>` : ""}
+        ${(customer.linkedProjectIds || []).length ? `<span>${customer.linkedProjectIds.length} 个关联项目</span>` : ""}
       </div>
       <div class="next-action">
         <span>下一步行动</span>
@@ -291,21 +367,41 @@ function renderCustomers() {
 }
 
 function renderProjects() {
-  document.getElementById("projectSummary").textContent = `${data.projects.length} 个项目`;
-  projectGrid.innerHTML = data.projects.map((project) => {
+  const query = projectSearch.value.trim().toLowerCase();
+  const status = projectStatusFilter.value;
+  const projects = data.projects.filter((project) => {
+    const linkedNames = (project.linkedCustomerIds || [])
+      .map((id) => data.customers.find((customer) => customer.id === id)?.company || "");
+    const haystack = [project.name, project.goal, project.nextAction, project.owner, ...linkedNames].join(" ").toLowerCase();
+    return (!query || haystack.includes(query)) && (!status || project.status === status);
+  });
+  document.getElementById("projectSummary").textContent = `${projects.length} / ${data.projects.length} 个项目`;
+  projectGrid.innerHTML = projects.map((project) => {
     const progress = Math.min(100, Math.max(0, Number(project.progress) || 0));
+    const linkedCustomers = (project.linkedCustomerIds || [])
+      .map((id) => data.customers.find((customer) => customer.id === id))
+      .filter(Boolean);
     return `
       <article class="project-card" data-action="edit-project" data-entity-id="${project.id}">
         <div class="project-header">
-          <h3>${escapeHtml(project.name)}</h3>
-          <span class="project-status">${project.status === "active" ? "● 进行中" : "○ 已归档"}</span>
+          <div>
+            <span class="priority-label ${escapeHtml(project.priority || "medium")}">${PRIORITIES[project.priority] || "中优先级"}</span>
+            <h3>${escapeHtml(project.name)}</h3>
+          </div>
+          <span class="project-status status-${escapeHtml(project.status || "active")}">● ${PROJECT_STATUSES[project.status] || "进行中"}</span>
         </div>
         <p class="project-goal">${escapeHtml(project.goal || "尚未填写项目目标")}</p>
+        <div class="linked-preview">
+          ${linkedCustomers.length
+            ? linkedCustomers.slice(0, 3).map((customer) => `<span>${escapeHtml(customer.company)}</span>`).join("")
+            : "<span>暂未关联客户</span>"}
+          ${linkedCustomers.length > 3 ? `<span>＋${linkedCustomers.length - 3}</span>` : ""}
+        </div>
         <div class="progress-track"><div class="progress-bar" style="width:${progress}%"></div></div>
-        <div class="project-foot"><span>进度 ${progress}%</span><span>下一步：${escapeHtml(project.nextAction || "待安排")}</span></div>
+        <div class="project-foot"><span>进度 ${progress}%${project.owner ? ` · ${escapeHtml(project.owner)}` : ""}</span><span>下一步：${escapeHtml(project.nextAction || "待安排")}</span></div>
       </article>
     `;
-  }).join("") || emptyMarkup("还没有项目。创建一个真实项目，让 Kardii 从目标和下一步开始陪你推进。");
+  }).join("") || emptyMarkup(query || status ? "没有符合筛选条件的项目。" : "还没有项目。创建一个真实项目，让 Kardii 从目标和下一步开始陪你推进。");
 }
 
 function renderAll() {
@@ -320,8 +416,8 @@ function fieldMarkup({ name, label, type = "text", required = false, full = fals
   const control = type === "textarea"
     ? `<textarea name="${name}" placeholder="${escapeHtml(placeholder)}">${escapeHtml(value)}</textarea>`
     : type === "select"
-      ? `<select name="${name}">${options.map(([optionValue, optionLabel]) => `<option value="${optionValue}" ${optionValue === value ? "selected" : ""}>${optionLabel}</option>`).join("")}</select>`
-      : `<input name="${name}" type="${type}" value="${escapeHtml(value)}" placeholder="${escapeHtml(placeholder)}" ${required ? "required" : ""}>`;
+      ? `<select name="${name}">${options.map(([optionValue, optionLabel]) => `<option value="${escapeHtml(optionValue)}" ${optionValue === value ? "selected" : ""}>${escapeHtml(optionLabel)}</option>`).join("")}</select>`
+      : `<input name="${name}" type="${type}" value="${escapeHtml(value)}" placeholder="${escapeHtml(placeholder)}" ${required ? "required" : ""} ${type === "number" ? 'min="0" max="100"' : ""}>`;
   return `<div class="form-field ${full ? "full" : ""}"><label>${label}${required ? " *" : ""}</label>${control}</div>`;
 }
 
@@ -333,10 +429,37 @@ function timelineMarkup(relationType, relationId) {
   return activities.map((activity) => `
     <div class="timeline-item">
       <span class="timeline-dot"></span>
-      <div><strong>${escapeHtml(captureTypeLabel(activity.kind))}</strong><p>${escapeHtml(activity.content)}</p></div>
+      <div><strong>${escapeHtml(ACTIVITY_TYPES[activity.kind] || captureTypeLabel(activity.kind))}</strong><p>${escapeHtml(activity.content)}</p></div>
       <time>${new Date(activity.createdAt).toLocaleString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time>
     </div>
   `).join("");
+}
+
+function relationPickerMarkup(type, entity) {
+  const options = type === "customer"
+    ? data.projects.map((project) => ({ id: project.id, label: project.name }))
+    : data.customers.map((customer) => ({ id: customer.id, label: customer.company }));
+  const selected = new Set(type === "customer" ? entity?.linkedProjectIds || [] : entity?.linkedCustomerIds || []);
+  const name = type === "customer" ? "linkedProjectIds" : "linkedCustomerIds";
+  const title = type === "customer" ? "关联项目" : "关联客户";
+  const empty = type === "customer" ? "还没有项目可关联" : "还没有客户可关联";
+  return `
+    <div class="relation-heading">
+      <div><strong>${title}</strong><span>保存后两边会自动同步</span></div>
+      <span>${selected.size} 个已关联</span>
+    </div>
+    <div class="relation-options">
+      ${options.length ? options.map((option) => `
+        <div class="relation-option">
+          <label>
+            <input type="checkbox" name="${name}" value="${option.id}" ${selected.has(option.id) ? "checked" : ""}>
+            <span>${escapeHtml(option.label)}</span>
+          </label>
+          ${entity ? `<button type="button" data-open-related="true" data-related-type="${type === "customer" ? "project" : "customer"}" data-related-id="${option.id}">打开</button>` : ""}
+        </div>
+      `).join("") : `<div class="relation-empty">${empty}</div>`}
+    </div>
+  `;
 }
 
 function openModal(type, entityId = "") {
@@ -344,6 +467,11 @@ function openModal(type, entityId = "") {
   editingId = entityId;
   const customer = type === "customer" && entityId ? data.customers.find((item) => item.id === entityId) : null;
   const project = type === "project" && entityId ? data.projects.find((item) => item.id === entityId) : null;
+  const taskRelations = [
+    ["", "不关联"],
+    ...data.projects.map((item) => [`project:${item.id}`, `项目 · ${item.name}`]),
+    ...data.customers.map((item) => [`customer:${item.id}`, `客户 · ${item.company}`]),
+  ];
   const configs = {
     customer: {
       eyebrow: "CUSTOMER MANAGEMENT",
@@ -351,13 +479,24 @@ function openModal(type, entityId = "") {
       button: customer ? "保存修改" : "保存客户",
       fields: [
         { name: "company", label: "公司名称", required: true, placeholder: "例如：ABC Outdoor", value: customer?.company || "" },
-        { name: "contact", label: "联系人", placeholder: "姓名与职位", value: customer?.contact || "" },
+        { name: "priority", label: "优先级", type: "select", options: Object.entries(PRIORITIES), value: customer?.priority || "medium" },
+        { name: "contact", label: "联系人", placeholder: "姓名", value: customer?.contact || "" },
+        { name: "title", label: "职位", placeholder: "例如：采购总监", value: customer?.title || "" },
+        { name: "email", label: "邮箱", type: "email", placeholder: "name@company.com", value: customer?.email || "" },
+        { name: "phone", label: "电话 / WhatsApp", placeholder: "含国家区号", value: customer?.phone || "" },
+        { name: "website", label: "官网", type: "url", placeholder: "https://", value: customer?.website || "" },
         { name: "country", label: "国家 / 地区", placeholder: "例如：德国", value: customer?.country || "" },
         { name: "channel", label: "渠道 / 主营业务", placeholder: "例如：花园家具分销", value: customer?.channel || "" },
+        { name: "source", label: "客户来源", placeholder: "例如：展会 / LinkedIn / 转介绍", value: customer?.source || "" },
         { name: "stage", label: "合作阶段", type: "select", options: Object.entries(STAGES), value: customer?.stage || "lead" },
         { name: "followupDate", label: "下次跟进", type: "date", value: customer?.followupDate || "" },
+        { name: "tags", label: "标签", placeholder: "多个标签用逗号分隔", value: customer?.tags || "" },
         { name: "nextAction", label: "下一步行动", full: true, placeholder: "下一次要做什么", value: customer?.nextAction || "" },
-        ...(customer ? [{ name: "activity", label: "新增沟通记录", type: "textarea", full: true, placeholder: "例如：今天电话确认了样品需求，客户希望周五前收到报价。" }] : []),
+        { name: "notes", label: "客户备注", type: "textarea", full: true, placeholder: "客户偏好、合作机会、风险或其他长期信息", value: customer?.notes || "" },
+        ...(customer ? [
+          { name: "activityKind", label: "本次沟通方式", type: "select", options: [["call", "电话"], ["email", "邮件"], ["meeting", "会议"], ["message", "消息"], ["note", "备注"]], value: "message" },
+          { name: "activity", label: "新增沟通记录", type: "textarea", full: true, placeholder: "例如：今天电话确认了样品需求，客户希望周五前收到报价。" },
+        ] : []),
       ],
     },
     project: {
@@ -366,11 +505,17 @@ function openModal(type, entityId = "") {
       button: project ? "保存修改" : "保存项目",
       fields: [
         { name: "name", label: "项目名称", required: true, placeholder: "例如：德国分销商开发", value: project?.name || "" },
+        { name: "status", label: "项目状态", type: "select", options: Object.entries(PROJECT_STATUSES), value: project?.status || "active" },
+        { name: "priority", label: "优先级", type: "select", options: Object.entries(PRIORITIES), value: project?.priority || "medium" },
         { name: "progress", label: "当前进度（0–100）", type: "number", value: String(project?.progress ?? 0) },
+        { name: "owner", label: "负责人 / 参与人", placeholder: "例如：我、分销负责人", value: project?.owner || "" },
+        { name: "dueDate", label: "目标日期", type: "date", value: project?.dueDate || "" },
         { name: "goal", label: "项目目标", type: "textarea", full: true, placeholder: "这个项目最终要达成什么结果", value: project?.goal || "" },
         { name: "nextAction", label: "下一步行动", full: true, placeholder: "现在最该推进的一步", value: project?.nextAction || "" },
-        { name: "dueDate", label: "目标日期", type: "date", value: project?.dueDate || "" },
-        ...(project ? [{ name: "activity", label: "新增进展记录", type: "textarea", full: true, placeholder: "例如：资料清单已确认，下一步等待地址账单。" }] : []),
+        ...(project ? [
+          { name: "activityKind", label: "本次记录类型", type: "select", options: [["project", "项目进展"], ["decision", "重要决定"], ["meeting", "会议"], ["note", "备注"]], value: "project" },
+          { name: "activity", label: "新增进展记录", type: "textarea", full: true, placeholder: "例如：资料清单已确认，下一步等待地址账单。" },
+        ] : []),
       ],
     },
     task: {
@@ -379,7 +524,7 @@ function openModal(type, entityId = "") {
       button: "添加任务",
       fields: [
         { name: "title", label: "任务", required: true, full: true, placeholder: "只写一个清晰、可执行的动作" },
-        { name: "relation", label: "关联客户 / 项目", placeholder: "可选" },
+        { name: "relationKey", label: "关联客户 / 项目", type: "select", options: taskRelations, value: "" },
         { name: "dueDate", label: "截止日期", type: "date", value: dateInputValue(new Date()) },
       ],
     },
@@ -399,6 +544,17 @@ function openModal(type, entityId = "") {
   modalTitle.textContent = config.title;
   modalSubmitButton.textContent = config.button;
   formFields.innerHTML = config.fields.map(fieldMarkup).join("");
+  if (type === "customer" || type === "project") {
+    entityRelations.innerHTML = relationPickerMarkup(type, customer || project);
+    entityRelations.classList.remove("hidden");
+  } else {
+    entityRelations.classList.add("hidden");
+    entityRelations.innerHTML = "";
+  }
+  modalArchiveButton.classList.toggle("hidden", !customer && !project);
+  modalArchiveButton.textContent = customer
+    ? (customer.stage === "paused" ? "恢复为潜在线索" : "暂缓客户")
+    : (project?.status === "archived" ? "恢复项目" : "归档项目");
   if (customer || project) {
     const relationType = customer ? "customer" : "project";
     entityTimeline.innerHTML = `<div class="timeline-heading"><strong>${customer ? "沟通时间线" : "项目进展"}</strong><span>聊天自动记录与手动记录都会保留在这里</span></div>${timelineMarkup(relationType, entityId)}`;
@@ -416,11 +572,39 @@ function closeModal() {
   entityForm.reset();
   modalType = "";
   editingId = "";
+  entityRelations.classList.add("hidden");
+  entityRelations.innerHTML = "";
   entityTimeline.classList.add("hidden");
+  modalArchiveButton.classList.add("hidden");
 }
 
 function formValue(formData, key) {
   return String(formData.get(key) || "").trim();
+}
+
+function updateEntityLinks(type, entityId, selectedIds) {
+  const selected = new Set(selectedIds);
+  if (type === "customer") {
+    const customer = data.customers.find((item) => item.id === entityId);
+    if (!customer) return;
+    customer.linkedProjectIds = [...selected];
+    data.projects.forEach((project) => {
+      const links = new Set(project.linkedCustomerIds || []);
+      if (selected.has(project.id)) links.add(entityId);
+      else links.delete(entityId);
+      project.linkedCustomerIds = [...links];
+    });
+  } else {
+    const project = data.projects.find((item) => item.id === entityId);
+    if (!project) return;
+    project.linkedCustomerIds = [...selected];
+    data.customers.forEach((customer) => {
+      const links = new Set(customer.linkedProjectIds || []);
+      if (selected.has(customer.id)) links.add(entityId);
+      else links.delete(entityId);
+      customer.linkedProjectIds = [...links];
+    });
+  }
 }
 
 function submitEntity(event) {
@@ -431,21 +615,32 @@ function submitEntity(event) {
     const values = {
       company: formValue(formData, "company"),
       contact: formValue(formData, "contact"),
+      title: formValue(formData, "title"),
+      email: formValue(formData, "email"),
+      phone: formValue(formData, "phone"),
+      website: formValue(formData, "website"),
       country: formValue(formData, "country"),
       channel: formValue(formData, "channel"),
+      source: formValue(formData, "source"),
       stage: formValue(formData, "stage") || "lead",
+      priority: formValue(formData, "priority") || "medium",
       followupDate: formValue(formData, "followupDate"),
+      tags: formValue(formData, "tags"),
       nextAction: formValue(formData, "nextAction"),
+      notes: formValue(formData, "notes"),
     };
+    let customerId = editingId;
     if (editingId) {
       const customer = data.customers.find((item) => item.id === editingId);
       if (customer) Object.assign(customer, values, { updatedAt: now });
-      addManualActivity("customer", editingId, formValue(formData, "activity"), now);
+      addManualActivity("customer", editingId, formValue(formData, "activity"), now, formValue(formData, "activityKind"));
       showToast("客户卡片已更新");
     } else {
-      data.customers.unshift({ id: crypto.randomUUID(), ...values, createdAt: now });
+      customerId = crypto.randomUUID();
+      data.customers.unshift({ id: customerId, ...values, linkedProjectIds: [], createdAt: now });
       showToast("客户卡片已创建");
     }
+    updateEntityLinks("customer", customerId, formData.getAll("linkedProjectIds").map(String));
   } else if (modalType === "project") {
     const values = {
       name: formValue(formData, "name"),
@@ -453,22 +648,33 @@ function submitEntity(event) {
       progress: Number(formValue(formData, "progress")) || 0,
       nextAction: formValue(formData, "nextAction"),
       dueDate: formValue(formData, "dueDate"),
-      status: "active",
+      owner: formValue(formData, "owner"),
+      status: formValue(formData, "status") || "active",
+      priority: formValue(formData, "priority") || "medium",
     };
+    let projectId = editingId;
     if (editingId) {
       const project = data.projects.find((item) => item.id === editingId);
       if (project) Object.assign(project, values, { updatedAt: now });
-      addManualActivity("project", editingId, formValue(formData, "activity"), now);
+      addManualActivity("project", editingId, formValue(formData, "activity"), now, formValue(formData, "activityKind"));
       showToast("项目已更新");
     } else {
-      data.projects.unshift({ id: crypto.randomUUID(), ...values, createdAt: now });
+      projectId = crypto.randomUUID();
+      data.projects.unshift({ id: projectId, ...values, linkedCustomerIds: [], createdAt: now });
       showToast("项目已创建");
     }
+    updateEntityLinks("project", projectId, formData.getAll("linkedCustomerIds").map(String));
   } else if (modalType === "task") {
+    const [relationType = "", relationId = ""] = formValue(formData, "relationKey").split(":");
+    const relationEntity = relationType === "project"
+      ? data.projects.find((item) => item.id === relationId)
+      : data.customers.find((item) => item.id === relationId);
     data.tasks.unshift({
       id: crypto.randomUUID(),
       title: formValue(formData, "title"),
-      relation: formValue(formData, "relation"),
+      relation: relationEntity?.name || relationEntity?.company || "",
+      relationType,
+      relationId,
       dueDate: formValue(formData, "dueDate"),
       completed: false,
       createdAt: now,
@@ -487,14 +693,14 @@ function submitEntity(event) {
   saveData();
 }
 
-function addManualActivity(relationType, relationId, content, createdAt) {
+function addManualActivity(relationType, relationId, content, createdAt, kind = "") {
   if (!content) return;
   data.activities.unshift({
     id: crypto.randomUUID(),
     relationType,
     relationId,
     content,
-    kind: relationType === "customer" ? "customer" : "project",
+    kind: kind || (relationType === "customer" ? "customer" : "project"),
     source: "manual",
     createdAt,
   });
@@ -518,6 +724,25 @@ function handleCaptureAction(captureId, action) {
     capture.status = "archived";
     showToast("记录已归档");
   }
+  saveData();
+}
+
+function toggleEntityArchive() {
+  if (!editingId) return;
+  if (modalType === "customer") {
+    const customer = data.customers.find((item) => item.id === editingId);
+    if (!customer) return;
+    customer.stage = customer.stage === "paused" ? "lead" : "paused";
+    customer.updatedAt = new Date().toISOString();
+    showToast(customer.stage === "paused" ? "客户已暂缓" : "客户已恢复");
+  } else if (modalType === "project") {
+    const project = data.projects.find((item) => item.id === editingId);
+    if (!project) return;
+    project.status = project.status === "archived" ? "active" : "archived";
+    project.updatedAt = new Date().toISOString();
+    showToast(project.status === "archived" ? "项目已归档" : "项目已恢复");
+  }
+  closeModal();
   saveData();
 }
 
@@ -547,6 +772,15 @@ async function openChat() {
 
 navItems.forEach((item) => item.addEventListener("click", () => navigate(item.dataset.view)));
 document.addEventListener("click", (event) => {
+  const relatedTarget = event.target.closest("[data-open-related]");
+  if (relatedTarget) {
+    event.preventDefault();
+    const relatedType = relatedTarget.dataset.relatedType;
+    const relatedId = relatedTarget.dataset.relatedId;
+    openModal(relatedType, relatedId);
+    navigate(relatedType === "customer" ? "customers" : "projects");
+    return;
+  }
   const actionTarget = event.target.closest("[data-action]");
   const action = actionTarget?.dataset.action;
   const navigateTo = event.target.closest("[data-navigate]")?.dataset.navigate;
@@ -573,6 +807,8 @@ taskList.addEventListener("change", (event) => {
 
 customerSearch.addEventListener("input", renderCustomers);
 customerStageFilter.addEventListener("change", renderCustomers);
+projectSearch.addEventListener("input", renderProjects);
+projectStatusFilter.addEventListener("change", renderProjects);
 document.getElementById("quickAddButton").addEventListener("click", () => openModal("note"));
 document.getElementById("globalSearchButton").addEventListener("click", () => {
   navigate("customers");
@@ -583,6 +819,7 @@ document.getElementById("minimizeButton").addEventListener("click", () => appWin
 document.getElementById("closeButton").addEventListener("click", () => appWindow.hide());
 document.getElementById("modalCloseButton").addEventListener("click", closeModal);
 document.getElementById("modalCancelButton").addEventListener("click", closeModal);
+modalArchiveButton.addEventListener("click", toggleEntityArchive);
 modalBackdrop.addEventListener("mousedown", (event) => {
   if (event.target === modalBackdrop) closeModal();
 });
