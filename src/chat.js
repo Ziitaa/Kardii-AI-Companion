@@ -51,6 +51,10 @@ const memorySuggestion = document.getElementById("memorySuggestion");
 const memorySuggestionText = document.getElementById("memorySuggestionText");
 const confirmMemoryButton = document.getElementById("confirmMemoryButton");
 const dismissMemoryButton = document.getElementById("dismissMemoryButton");
+const businessCaptureNotice = document.getElementById("businessCaptureNotice");
+const businessCaptureText = document.getElementById("businessCaptureText");
+const undoBusinessCaptureButton = document.getElementById("undoBusinessCaptureButton");
+const openCapturedWorkbenchButton = document.getElementById("openCapturedWorkbenchButton");
 const copyMigrationButton = document.getElementById("copyMigrationButton");
 const showImportCodeButton = document.getElementById("showImportCodeButton");
 const migrationImportBox = document.getElementById("migrationImportBox");
@@ -158,6 +162,8 @@ let activeRequestId = null;
 let profile = loadProfile();
 let memories = loadMemories();
 let suggestedMemory = null;
+let latestBusinessCaptureId = null;
+let businessCaptureTimer = null;
 let toolLogs = loadToolLogs();
 let pendingToolContext = null;
 let previewDesktopCapture = null;
@@ -818,6 +824,98 @@ function maybeSuggestMemory(text) {
   memorySuggestion.classList.remove("hidden");
 }
 
+function loadBusinessData() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(BUSINESS_DATA_KEY) || "null");
+    if (!saved || typeof saved !== "object") return null;
+    return {
+      ...saved,
+      version: 1,
+      customers: Array.isArray(saved.customers) ? saved.customers : [],
+      projects: Array.isArray(saved.projects) ? saved.projects : [],
+      tasks: Array.isArray(saved.tasks) ? saved.tasks : [],
+      notes: Array.isArray(saved.notes) ? saved.notes : [],
+      captures: Array.isArray(saved.captures) ? saved.captures : [],
+      activities: Array.isArray(saved.activities) ? saved.activities : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+function businessCaptureType(text) {
+  if (/(?:决定|确定|改成|调整为|不要再|暂停|同意|已确认)/.test(text)) return "decision";
+  if (/(?:明天|后天|下周|提醒|跟进|联系|发送|确认|整理|准备|下一步|需要我|待办)/.test(text)) return "task";
+  if (/(?:客户|买家|采购|联系人|分销商|供应商|公司|品牌方)/.test(text)) return "customer";
+  if (/(?:项目|Target|欧洲市场|分销合作|入驻|展会)/i.test(text)) return "project";
+  return "";
+}
+
+function looksSensitiveBusinessText(text) {
+  return /(?:api[\s_-]*key|密码|口令|验证码|身份证|银行卡|私钥|secret|token)\s*[:：]?\s*\S+/i.test(text);
+}
+
+function captureBusinessMessage(text) {
+  const clean = text.trim().replace(/\s+/g, " ").slice(0, 1000);
+  const type = businessCaptureType(clean);
+  if (!type || looksSensitiveBusinessText(clean)) return;
+
+  const businessData = loadBusinessData();
+  if (!businessData) return;
+  const relationProject = businessData.projects.find((project) => clean.toLowerCase().includes(String(project.name || "").toLowerCase()));
+  const relationCustomer = businessData.customers.find((customer) => {
+    const company = String(customer.company || "").trim();
+    const contact = String(customer.contact || "").trim();
+    return (company && clean.toLowerCase().includes(company.toLowerCase()))
+      || (contact && clean.toLowerCase().includes(contact.toLowerCase()));
+  });
+  const capture = {
+    id: crypto.randomUUID(),
+    type,
+    content: clean,
+    source: "chat",
+    status: "inbox",
+    relationType: relationCustomer ? "customer" : relationProject ? "project" : "",
+    relationId: relationCustomer?.id || relationProject?.id || "",
+    relationName: relationCustomer?.company || relationProject?.name || "",
+    createdAt: new Date().toISOString(),
+  };
+  businessData.captures.unshift(capture);
+  if (capture.relationId) {
+    businessData.activities.unshift({
+      id: crypto.randomUUID(),
+      relationType: capture.relationType,
+      relationId: capture.relationId,
+      content: clean,
+      kind: type,
+      source: "chat",
+      sourceCaptureId: capture.id,
+      createdAt: capture.createdAt,
+    });
+  }
+  localStorage.setItem(BUSINESS_DATA_KEY, JSON.stringify(businessData));
+
+  latestBusinessCaptureId = capture.id;
+  clearTimeout(businessCaptureTimer);
+  const typeLabels = { decision: "重要决定", task: "待办线索", customer: "客户信息", project: "项目动态" };
+  businessCaptureText.textContent = `已自动记录为${typeLabels[type]}${capture.relationName ? ` · ${capture.relationName}` : ""}`;
+  businessCaptureNotice.classList.remove("hidden");
+  businessCaptureTimer = setTimeout(() => businessCaptureNotice.classList.add("hidden"), 7000);
+}
+
+function undoBusinessCapture() {
+  if (!latestBusinessCaptureId) return;
+  const businessData = loadBusinessData();
+  if (!businessData) return;
+  businessData.captures = businessData.captures.filter((capture) => capture.id !== latestBusinessCaptureId);
+  businessData.activities = businessData.activities.filter((activity) => activity.sourceCaptureId !== latestBusinessCaptureId);
+  localStorage.setItem(BUSINESS_DATA_KEY, JSON.stringify(businessData));
+  latestBusinessCaptureId = null;
+  businessCaptureText.textContent = "刚才的商务记录已撤销";
+  clearTimeout(businessCaptureTimer);
+  businessCaptureTimer = setTimeout(() => businessCaptureNotice.classList.add("hidden"), 1200);
+}
+
 function showProfile() {
   userNameInput.value = profile.userName;
   personalitySelect.value = profile.personality;
@@ -1428,9 +1526,16 @@ form.addEventListener("submit", async (event) => {
   conversation.push({ role: "user", content: text });
   saveConversation();
   maybeSuggestMemory(text);
+  captureBusinessMessage(text);
   input.value = "";
   resizeInput();
   await requestReply();
+});
+
+undoBusinessCaptureButton.addEventListener("click", undoBusinessCapture);
+openCapturedWorkbenchButton.addEventListener("click", async () => {
+  businessCaptureNotice.classList.add("hidden");
+  await openWorkbench();
 });
 
 stopButton.addEventListener("click", async () => {
