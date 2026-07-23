@@ -2,6 +2,7 @@ const { getCurrentWindow, getAllWindows } = window.__TAURI__.window;
 
 const appWindow = getCurrentWindow();
 const BUSINESS_DATA_KEY = "kardii-business-data-v1";
+const WORKBENCH_TARGET_KEY = "kardii-workbench-open-target-v1";
 const STAGES = {
   lead: "潜在线索",
   contacted: "已联系",
@@ -243,7 +244,9 @@ function renderCaptureInbox() {
       </span>
       <time>${new Date(capture.createdAt).toLocaleDateString("zh-CN")}</time>
       <div class="capture-actions">
-        <button type="button" data-capture-action="task" data-capture-id="${capture.id}">转为任务</button>
+        ${capture.generatedTaskId
+          ? `<button type="button" disabled>已生成任务</button>`
+          : `<button type="button" data-capture-action="task" data-capture-id="${capture.id}">转为任务</button>`}
         <button type="button" data-capture-action="archive" data-capture-id="${capture.id}">归档</button>
       </div>
     </div>
@@ -518,6 +521,23 @@ function handleCaptureAction(captureId, action) {
   saveData();
 }
 
+function consumeWorkbenchTarget() {
+  let target = null;
+  try {
+    target = JSON.parse(localStorage.getItem(WORKBENCH_TARGET_KEY) || "null");
+  } catch {
+    target = null;
+  }
+  localStorage.removeItem(WORKBENCH_TARGET_KEY);
+  if (!target || typeof target !== "object") return;
+  navigate(target.view || "dashboard");
+  if (target.type === "customer" && target.id && data.customers.some((item) => item.id === target.id)) {
+    openModal("customer", target.id);
+  } else if (target.type === "project" && target.id && data.projects.some((item) => item.id === target.id)) {
+    openModal("project", target.id);
+  }
+}
+
 async function openChat() {
   const chatWindow = (await getAllWindows()).find((item) => item.label === "chat");
   if (!chatWindow) return;
@@ -572,10 +592,15 @@ window.addEventListener("keydown", (event) => {
   else if (event.key === "Escape") appWindow.hide();
 });
 window.addEventListener("storage", (event) => {
-  if (event.key !== BUSINESS_DATA_KEY) return;
-  data = loadData();
-  renderAll();
+  if (event.key === BUSINESS_DATA_KEY) {
+    data = loadData();
+    renderAll();
+  }
+  if (event.key === WORKBENCH_TARGET_KEY && event.newValue) {
+    consumeWorkbenchTarget();
+  }
 });
 
 navigate("dashboard");
 renderAll();
+consumeWorkbenchTarget();
