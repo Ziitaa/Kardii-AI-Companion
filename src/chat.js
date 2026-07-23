@@ -1,4 +1,4 @@
-const { getCurrentWindow } = window.__TAURI__.window;
+const { getCurrentWindow, getAllWindows } = window.__TAURI__.window;
 const { emitTo } = window.__TAURI__.event;
 const { invoke, Channel } = window.__TAURI__.core;
 
@@ -10,6 +10,7 @@ const closeButton = document.getElementById("closeButton");
 const sendButton = document.getElementById("sendButton");
 const stopButton = document.getElementById("stopButton");
 const settingsButton = document.getElementById("settingsButton");
+const workbenchButton = document.getElementById("workbenchButton");
 const settingsPanel = document.getElementById("settingsPanel");
 const settingsCloseButton = document.getElementById("settingsCloseButton");
 const providerSelect = document.getElementById("providerSelect");
@@ -119,6 +120,7 @@ const MEMORIES_KEY = "kardii-memories-v1";
 const TOOL_LOGS_KEY = "kardii-tool-logs-v1";
 const VOICE_SETTINGS_KEY = "kardii-voice-settings-v1";
 const AI_SETTINGS_KEY = "kardii-ai-settings-v1";
+const BUSINESS_DATA_KEY = "kardii-business-data-v1";
 const MAX_SAVED_MESSAGES = 50;
 const PERSONALITIES = {
   healing: "耐心温暖，擅长安慰，也会温和地给出实用建议。",
@@ -169,6 +171,14 @@ let systemVoices = [];
 let voiceSettings = loadVoiceSettings();
 let aiSettings = loadAiSettings();
 let ollamaModels = [];
+
+async function openWorkbench() {
+  const workbenchWindow = (await getAllWindows()).find((item) => item.label === "workbench");
+  if (!workbenchWindow) return;
+  await workbenchWindow.show();
+  await workbenchWindow.unminimize();
+  await workbenchWindow.setFocus();
+}
 
 function loadAiSettings() {
   try {
@@ -656,16 +666,30 @@ function applyImportedPersonalization(data) {
 }
 
 function createFullBackup() {
+  let businessData = null;
+  try {
+    const saved = JSON.parse(localStorage.getItem(BUSINESS_DATA_KEY) || "null");
+    if (
+      saved?.version === 1
+      && Array.isArray(saved.customers)
+      && Array.isArray(saved.projects)
+      && Array.isArray(saved.tasks)
+      && Array.isArray(saved.notes)
+    ) businessData = saved;
+  } catch {
+    businessData = null;
+  }
   return {
     format: "kardii-backup",
     version: 1,
-    appVersion: "0.7.2",
+    appVersion: "0.8.2",
     createdAt: new Date().toISOString(),
     profile,
     memories,
     conversation,
     responseLength: responseLengthSelect.value,
     aiSettings,
+    businessData,
   };
 }
 
@@ -699,6 +723,15 @@ function applyFullBackup(data) {
     saveAiSettings();
     renderProviderSettings();
     void refreshProviderState();
+  }
+  if (
+    data.businessData?.version === 1
+    && Array.isArray(data.businessData.customers)
+    && Array.isArray(data.businessData.projects)
+    && Array.isArray(data.businessData.tasks)
+    && Array.isArray(data.businessData.notes)
+  ) {
+    localStorage.setItem(BUSINESS_DATA_KEY, JSON.stringify(data.businessData));
   }
   renderConversation();
 }
@@ -1917,6 +1950,7 @@ input.addEventListener("keydown", (event) => {
 });
 
 settingsButton.addEventListener("click", showSettings);
+workbenchButton.addEventListener("click", openWorkbench);
 settingsCloseButton.addEventListener("click", hideSettings);
 profileButton.addEventListener("click", showProfile);
 profileCloseButton.addEventListener("click", hideProfile);
