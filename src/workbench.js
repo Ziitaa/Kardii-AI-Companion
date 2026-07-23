@@ -64,11 +64,14 @@ const seedData = {
     },
   ],
   notes: [],
+  captures: [],
+  activities: [],
 };
 
 let data = loadData();
 let activeView = "dashboard";
 let modalType = "";
+let editingId = "";
 let toastTimer;
 
 const navItems = [...document.querySelectorAll(".nav-item")];
@@ -83,6 +86,8 @@ const taskList = document.getElementById("taskList");
 const dashboardProjects = document.getElementById("dashboardProjects");
 const dashboardFollowups = document.getElementById("dashboardFollowups");
 const recentNotes = document.getElementById("recentNotes");
+const captureInbox = document.getElementById("captureInbox");
+const captureInboxCount = document.getElementById("captureInboxCount");
 const customerSearch = document.getElementById("customerSearch");
 const customerStageFilter = document.getElementById("customerStageFilter");
 const modalBackdrop = document.getElementById("modalBackdrop");
@@ -91,6 +96,7 @@ const modalTitle = document.getElementById("modalTitle");
 const modalSubmitButton = document.getElementById("modalSubmitButton");
 const entityForm = document.getElementById("entityForm");
 const formFields = document.getElementById("formFields");
+const entityTimeline = document.getElementById("entityTimeline");
 const toast = document.getElementById("toast");
 
 function dateInputValue(date) {
@@ -113,6 +119,8 @@ function loadData() {
       projects: Array.isArray(saved.projects) ? saved.projects : [],
       tasks: Array.isArray(saved.tasks) ? saved.tasks : [],
       notes: Array.isArray(saved.notes) ? saved.notes : [],
+      captures: Array.isArray(saved.captures) ? saved.captures : [],
+      activities: Array.isArray(saved.activities) ? saved.activities : [],
     };
   } catch {
     const initialData = structuredClone(seedData);
@@ -210,6 +218,36 @@ function renderDashboard() {
   recentNotes.innerHTML = [...data.notes].reverse().slice(0, 4)
     .map((note) => compactMarkup(note.title || "快速记录", note.content, new Date(note.createdAt).toLocaleDateString("zh-CN")))
     .join("") || emptyMarkup("随手记录电话要点、客户反馈或灵感。");
+
+  renderCaptureInbox();
+}
+
+function captureTypeLabel(type) {
+  return {
+    decision: "重要决定",
+    task: "待办线索",
+    customer: "客户信息",
+    project: "项目动态",
+  }[type] || "商务记录";
+}
+
+function renderCaptureInbox() {
+  const pending = data.captures.filter((capture) => capture.status === "inbox");
+  captureInboxCount.textContent = `${pending.length} 条待整理`;
+  captureInbox.innerHTML = pending.slice(0, 5).map((capture) => `
+    <div class="capture-item">
+      <span class="capture-type">${captureTypeLabel(capture.type)}</span>
+      <span class="capture-copy">
+        <strong>${escapeHtml(capture.relationName || "未关联")}</strong>
+        <span>${escapeHtml(capture.content)}</span>
+      </span>
+      <time>${new Date(capture.createdAt).toLocaleDateString("zh-CN")}</time>
+      <div class="capture-actions">
+        <button type="button" data-capture-action="task" data-capture-id="${capture.id}">转为任务</button>
+        <button type="button" data-capture-action="archive" data-capture-id="${capture.id}">归档</button>
+      </div>
+    </div>
+  `).join("") || `<div class="capture-empty">聊天里出现新的客户、项目、决定或下一步时，Kardii 会自动记录在这里。</div>`;
 }
 
 function compactMarkup(title, detail, meta) {
@@ -229,7 +267,7 @@ function renderCustomers() {
   });
 
   customerGrid.innerHTML = customers.map((customer) => `
-    <article class="customer-card">
+    <article class="customer-card" data-action="edit-customer" data-entity-id="${customer.id}">
       <div class="card-top">
         <div class="company-avatar">${escapeHtml((customer.company || "?").slice(0, 1).toUpperCase())}</div>
         <span class="stage-badge">${STAGES[customer.stage] || "潜在线索"}</span>
@@ -254,7 +292,7 @@ function renderProjects() {
   projectGrid.innerHTML = data.projects.map((project) => {
     const progress = Math.min(100, Math.max(0, Number(project.progress) || 0));
     return `
-      <article class="project-card">
+      <article class="project-card" data-action="edit-project" data-entity-id="${project.id}">
         <div class="project-header">
           <h3>${escapeHtml(project.name)}</h3>
           <span class="project-status">${project.status === "active" ? "● 进行中" : "○ 已归档"}</span>
@@ -279,38 +317,57 @@ function fieldMarkup({ name, label, type = "text", required = false, full = fals
   const control = type === "textarea"
     ? `<textarea name="${name}" placeholder="${escapeHtml(placeholder)}">${escapeHtml(value)}</textarea>`
     : type === "select"
-      ? `<select name="${name}">${options.map(([optionValue, optionLabel]) => `<option value="${optionValue}">${optionLabel}</option>`).join("")}</select>`
+      ? `<select name="${name}">${options.map(([optionValue, optionLabel]) => `<option value="${optionValue}" ${optionValue === value ? "selected" : ""}>${optionLabel}</option>`).join("")}</select>`
       : `<input name="${name}" type="${type}" value="${escapeHtml(value)}" placeholder="${escapeHtml(placeholder)}" ${required ? "required" : ""}>`;
   return `<div class="form-field ${full ? "full" : ""}"><label>${label}${required ? " *" : ""}</label>${control}</div>`;
 }
 
-function openModal(type) {
+function timelineMarkup(relationType, relationId) {
+  const activities = data.activities
+    .filter((activity) => activity.relationType === relationType && activity.relationId === relationId)
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  if (!activities.length) return `<div class="timeline-empty">还没有沟通或进展记录。保存下方的新记录后会出现在这里。</div>`;
+  return activities.map((activity) => `
+    <div class="timeline-item">
+      <span class="timeline-dot"></span>
+      <div><strong>${escapeHtml(captureTypeLabel(activity.kind))}</strong><p>${escapeHtml(activity.content)}</p></div>
+      <time>${new Date(activity.createdAt).toLocaleString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time>
+    </div>
+  `).join("");
+}
+
+function openModal(type, entityId = "") {
   modalType = type;
+  editingId = entityId;
+  const customer = type === "customer" && entityId ? data.customers.find((item) => item.id === entityId) : null;
+  const project = type === "project" && entityId ? data.projects.find((item) => item.id === entityId) : null;
   const configs = {
     customer: {
       eyebrow: "CUSTOMER MANAGEMENT",
-      title: "新建客户",
-      button: "保存客户",
+      title: customer ? customer.company : "新建客户",
+      button: customer ? "保存修改" : "保存客户",
       fields: [
-        { name: "company", label: "公司名称", required: true, placeholder: "例如：ABC Outdoor" },
-        { name: "contact", label: "联系人", placeholder: "姓名与职位" },
-        { name: "country", label: "国家 / 地区", placeholder: "例如：德国" },
-        { name: "channel", label: "渠道 / 主营业务", placeholder: "例如：花园家具分销" },
-        { name: "stage", label: "合作阶段", type: "select", options: Object.entries(STAGES) },
-        { name: "followupDate", label: "下次跟进", type: "date" },
-        { name: "nextAction", label: "下一步行动", full: true, placeholder: "下一次要做什么" },
+        { name: "company", label: "公司名称", required: true, placeholder: "例如：ABC Outdoor", value: customer?.company || "" },
+        { name: "contact", label: "联系人", placeholder: "姓名与职位", value: customer?.contact || "" },
+        { name: "country", label: "国家 / 地区", placeholder: "例如：德国", value: customer?.country || "" },
+        { name: "channel", label: "渠道 / 主营业务", placeholder: "例如：花园家具分销", value: customer?.channel || "" },
+        { name: "stage", label: "合作阶段", type: "select", options: Object.entries(STAGES), value: customer?.stage || "lead" },
+        { name: "followupDate", label: "下次跟进", type: "date", value: customer?.followupDate || "" },
+        { name: "nextAction", label: "下一步行动", full: true, placeholder: "下一次要做什么", value: customer?.nextAction || "" },
+        ...(customer ? [{ name: "activity", label: "新增沟通记录", type: "textarea", full: true, placeholder: "例如：今天电话确认了样品需求，客户希望周五前收到报价。" }] : []),
       ],
     },
     project: {
       eyebrow: "PROJECT MANAGEMENT",
-      title: "新建项目",
-      button: "保存项目",
+      title: project ? project.name : "新建项目",
+      button: project ? "保存修改" : "保存项目",
       fields: [
-        { name: "name", label: "项目名称", required: true, placeholder: "例如：德国分销商开发" },
-        { name: "progress", label: "当前进度（0–100）", type: "number", value: "0" },
-        { name: "goal", label: "项目目标", type: "textarea", full: true, placeholder: "这个项目最终要达成什么结果" },
-        { name: "nextAction", label: "下一步行动", full: true, placeholder: "现在最该推进的一步" },
-        { name: "dueDate", label: "目标日期", type: "date" },
+        { name: "name", label: "项目名称", required: true, placeholder: "例如：德国分销商开发", value: project?.name || "" },
+        { name: "progress", label: "当前进度（0–100）", type: "number", value: String(project?.progress ?? 0) },
+        { name: "goal", label: "项目目标", type: "textarea", full: true, placeholder: "这个项目最终要达成什么结果", value: project?.goal || "" },
+        { name: "nextAction", label: "下一步行动", full: true, placeholder: "现在最该推进的一步", value: project?.nextAction || "" },
+        { name: "dueDate", label: "目标日期", type: "date", value: project?.dueDate || "" },
+        ...(project ? [{ name: "activity", label: "新增进展记录", type: "textarea", full: true, placeholder: "例如：资料清单已确认，下一步等待地址账单。" }] : []),
       ],
     },
     task: {
@@ -339,6 +396,14 @@ function openModal(type) {
   modalTitle.textContent = config.title;
   modalSubmitButton.textContent = config.button;
   formFields.innerHTML = config.fields.map(fieldMarkup).join("");
+  if (customer || project) {
+    const relationType = customer ? "customer" : "project";
+    entityTimeline.innerHTML = `<div class="timeline-heading"><strong>${customer ? "沟通时间线" : "项目进展"}</strong><span>聊天自动记录与手动记录都会保留在这里</span></div>${timelineMarkup(relationType, entityId)}`;
+    entityTimeline.classList.remove("hidden");
+  } else {
+    entityTimeline.classList.add("hidden");
+    entityTimeline.innerHTML = "";
+  }
   modalBackdrop.classList.remove("hidden");
   formFields.querySelector("input, textarea, select")?.focus();
 }
@@ -347,6 +412,8 @@ function closeModal() {
   modalBackdrop.classList.add("hidden");
   entityForm.reset();
   modalType = "";
+  editingId = "";
+  entityTimeline.classList.add("hidden");
 }
 
 function formValue(formData, key) {
@@ -358,8 +425,7 @@ function submitEntity(event) {
   const formData = new FormData(entityForm);
   const now = new Date().toISOString();
   if (modalType === "customer") {
-    data.customers.unshift({
-      id: crypto.randomUUID(),
+    const values = {
       company: formValue(formData, "company"),
       contact: formValue(formData, "contact"),
       country: formValue(formData, "country"),
@@ -367,21 +433,34 @@ function submitEntity(event) {
       stage: formValue(formData, "stage") || "lead",
       followupDate: formValue(formData, "followupDate"),
       nextAction: formValue(formData, "nextAction"),
-      createdAt: now,
-    });
-    showToast("客户卡片已创建");
+    };
+    if (editingId) {
+      const customer = data.customers.find((item) => item.id === editingId);
+      if (customer) Object.assign(customer, values, { updatedAt: now });
+      addManualActivity("customer", editingId, formValue(formData, "activity"), now);
+      showToast("客户卡片已更新");
+    } else {
+      data.customers.unshift({ id: crypto.randomUUID(), ...values, createdAt: now });
+      showToast("客户卡片已创建");
+    }
   } else if (modalType === "project") {
-    data.projects.unshift({
-      id: crypto.randomUUID(),
+    const values = {
       name: formValue(formData, "name"),
       goal: formValue(formData, "goal"),
       progress: Number(formValue(formData, "progress")) || 0,
       nextAction: formValue(formData, "nextAction"),
       dueDate: formValue(formData, "dueDate"),
       status: "active",
-      createdAt: now,
-    });
-    showToast("项目已创建");
+    };
+    if (editingId) {
+      const project = data.projects.find((item) => item.id === editingId);
+      if (project) Object.assign(project, values, { updatedAt: now });
+      addManualActivity("project", editingId, formValue(formData, "activity"), now);
+      showToast("项目已更新");
+    } else {
+      data.projects.unshift({ id: crypto.randomUUID(), ...values, createdAt: now });
+      showToast("项目已创建");
+    }
   } else if (modalType === "task") {
     data.tasks.unshift({
       id: crypto.randomUUID(),
@@ -405,6 +484,40 @@ function submitEntity(event) {
   saveData();
 }
 
+function addManualActivity(relationType, relationId, content, createdAt) {
+  if (!content) return;
+  data.activities.unshift({
+    id: crypto.randomUUID(),
+    relationType,
+    relationId,
+    content,
+    kind: relationType === "customer" ? "customer" : "project",
+    source: "manual",
+    createdAt,
+  });
+}
+
+function handleCaptureAction(captureId, action) {
+  const capture = data.captures.find((item) => item.id === captureId);
+  if (!capture) return;
+  if (action === "task") {
+    data.tasks.unshift({
+      id: crypto.randomUUID(),
+      title: capture.content.slice(0, 120),
+      relation: capture.relationName || "",
+      dueDate: dateInputValue(new Date()),
+      completed: false,
+      createdAt: new Date().toISOString(),
+    });
+    capture.status = "converted";
+    showToast("已转为今日任务");
+  } else if (action === "archive") {
+    capture.status = "archived";
+    showToast("记录已归档");
+  }
+  saveData();
+}
+
 async function openChat() {
   const chatWindow = (await getAllWindows()).find((item) => item.label === "chat");
   if (!chatWindow) return;
@@ -414,13 +527,20 @@ async function openChat() {
 
 navItems.forEach((item) => item.addEventListener("click", () => navigate(item.dataset.view)));
 document.addEventListener("click", (event) => {
-  const action = event.target.closest("[data-action]")?.dataset.action;
+  const actionTarget = event.target.closest("[data-action]");
+  const action = actionTarget?.dataset.action;
   const navigateTo = event.target.closest("[data-navigate]")?.dataset.navigate;
   if (navigateTo) navigate(navigateTo);
   if (action === "add-customer") openModal("customer");
   if (action === "add-project") openModal("project");
   if (action === "add-task") openModal("task");
   if (action === "add-note") openModal("note");
+  if (action === "edit-customer") openModal("customer", actionTarget.dataset.entityId);
+  if (action === "edit-project") openModal("project", actionTarget.dataset.entityId);
+  const captureActionTarget = event.target.closest("[data-capture-action]");
+  if (captureActionTarget) {
+    handleCaptureAction(captureActionTarget.dataset.captureId, captureActionTarget.dataset.captureAction);
+  }
 });
 
 taskList.addEventListener("change", (event) => {
