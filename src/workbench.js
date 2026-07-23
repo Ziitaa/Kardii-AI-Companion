@@ -33,6 +33,18 @@ const ACTIVITY_TYPES = {
   decision: "重要决定",
   task: "待办线索",
 };
+const INTELLIGENCE_STATUSES = {
+  planned: "待调查",
+  researching: "调查中",
+  reviewed: "已核验",
+  archived: "已归档",
+};
+const INTELLIGENCE_KINDS = {
+  company: "公司",
+  person: "联系人",
+  brand: "品牌",
+  market: "市场",
+};
 
 const viewMeta = {
   dashboard: ["BUSINESS WORKBENCH", "今日工作台"],
@@ -90,6 +102,7 @@ const seedData = {
   notes: [],
   captures: [],
   activities: [],
+  intelligence: [],
 };
 
 let data = loadData();
@@ -104,10 +117,14 @@ const viewEyebrow = document.getElementById("viewEyebrow");
 const viewTitle = document.getElementById("viewTitle");
 const customerNavCount = document.getElementById("customerNavCount");
 const projectNavCount = document.getElementById("projectNavCount");
+const intelligenceNavCount = document.getElementById("intelligenceNavCount");
 const customerGrid = document.getElementById("customerGrid");
 const projectGrid = document.getElementById("projectGrid");
 const projectSearch = document.getElementById("projectSearch");
 const projectStatusFilter = document.getElementById("projectStatusFilter");
+const intelligenceGrid = document.getElementById("intelligenceGrid");
+const intelligenceSearch = document.getElementById("intelligenceSearch");
+const intelligenceStatusFilter = document.getElementById("intelligenceStatusFilter");
 const taskList = document.getElementById("taskList");
 const dashboardProjects = document.getElementById("dashboardProjects");
 const dashboardFollowups = document.getElementById("dashboardFollowups");
@@ -167,6 +184,22 @@ function loadData() {
       notes: Array.isArray(saved.notes) ? saved.notes : [],
       captures: Array.isArray(saved.captures) ? saved.captures : [],
       activities: Array.isArray(saved.activities) ? saved.activities : [],
+      intelligence: Array.isArray(saved.intelligence) ? saved.intelligence.map((item) => ({
+        kind: "company",
+        status: "planned",
+        country: "",
+        website: "",
+        objective: "",
+        facts: "",
+        analysis: "",
+        opportunities: "",
+        risks: "",
+        nextAction: "",
+        sources: "",
+        linkedCustomerId: "",
+        linkedProjectId: "",
+        ...item,
+      })) : [],
     };
     syncRelations(normalized);
     return normalized;
@@ -298,6 +331,7 @@ function captureTypeLabel(type) {
     task: "待办线索",
     customer: "客户信息",
     project: "项目动态",
+    intelligence: "背调任务",
   }[type] || "商务记录";
 }
 
@@ -313,7 +347,9 @@ function renderCaptureInbox() {
       </span>
       <time>${new Date(capture.createdAt).toLocaleDateString("zh-CN")}</time>
       <div class="capture-actions">
-        ${capture.generatedTaskId
+        ${capture.generatedIntelligenceId
+          ? `<button type="button" disabled>已创建背调</button>`
+          : capture.generatedTaskId
           ? `<button type="button" disabled>已生成任务</button>`
           : `<button type="button" data-capture-action="task" data-capture-id="${capture.id}">转为任务</button>`}
         <button type="button" data-capture-action="archive" data-capture-id="${capture.id}">归档</button>
@@ -404,12 +440,57 @@ function renderProjects() {
   }).join("") || emptyMarkup(query || status ? "没有符合筛选条件的项目。" : "还没有项目。创建一个真实项目，让 Kardii 从目标和下一步开始陪你推进。");
 }
 
+function intelligenceRelationLabel(item) {
+  const customer = data.customers.find((entry) => entry.id === item.linkedCustomerId);
+  const project = data.projects.find((entry) => entry.id === item.linkedProjectId);
+  return [customer?.company, project?.name].filter(Boolean).join(" · ") || "未关联客户或项目";
+}
+
+function sourceCount(value) {
+  return String(value || "").split(/\r?\n/).map((item) => item.trim()).filter(Boolean).length;
+}
+
+function renderIntelligence() {
+  const query = intelligenceSearch.value.trim().toLowerCase();
+  const status = intelligenceStatusFilter.value;
+  const items = data.intelligence.filter((item) => {
+    const haystack = [
+      item.subject, item.country, item.website, item.objective, item.facts, item.analysis,
+      item.opportunities, item.risks, intelligenceRelationLabel(item),
+    ].join(" ").toLowerCase();
+    return (!query || haystack.includes(query)) && (!status || item.status === status);
+  });
+  document.getElementById("intelligenceSummary").textContent = `${items.length} / ${data.intelligence.length} 份背调`;
+  intelligenceGrid.innerHTML = items.map((item) => `
+    <article class="intelligence-card" data-action="edit-intelligence" data-entity-id="${item.id}">
+      <div class="intelligence-card-head">
+        <div>
+          <span class="intelligence-kind">${INTELLIGENCE_KINDS[item.kind] || "公司"}</span>
+          <h3>${escapeHtml(item.subject || "未命名背调")}</h3>
+        </div>
+        <span class="intelligence-status ${escapeHtml(item.status || "planned")}">${INTELLIGENCE_STATUSES[item.status] || "待调查"}</span>
+      </div>
+      <p class="intelligence-objective">${escapeHtml(item.objective || "尚未填写本次背调目的")}</p>
+      <div class="intelligence-signals">
+        <div class="signal-box"><span>合作机会（AI 判断）</span><strong>${escapeHtml(item.opportunities || "待分析")}</strong></div>
+        <div class="signal-box"><span>风险提示（AI 判断）</span><strong>${escapeHtml(item.risks || "待分析")}</strong></div>
+      </div>
+      <div class="intelligence-meta">
+        <span>${escapeHtml(intelligenceRelationLabel(item))}</span>
+        <span>${sourceCount(item.sources)} 个公开来源</span>
+      </div>
+    </article>
+  `).join("") || emptyMarkup(query || status ? "没有符合筛选条件的背调档案。" : "还没有背调档案。新建一份公司或联系人背调，先明确调查目的。");
+}
+
 function renderAll() {
   customerNavCount.textContent = String(data.customers.length);
   projectNavCount.textContent = String(data.projects.length);
+  intelligenceNavCount.textContent = String(data.intelligence.length);
   renderDashboard();
   renderCustomers();
   renderProjects();
+  renderIntelligence();
 }
 
 function fieldMarkup({ name, label, type = "text", required = false, full = false, options = [], placeholder = "", value = "" }) {
@@ -467,11 +548,14 @@ function openModal(type, entityId = "") {
   editingId = entityId;
   const customer = type === "customer" && entityId ? data.customers.find((item) => item.id === entityId) : null;
   const project = type === "project" && entityId ? data.projects.find((item) => item.id === entityId) : null;
+  const intelligence = type === "intelligence" && entityId ? data.intelligence.find((item) => item.id === entityId) : null;
   const taskRelations = [
     ["", "不关联"],
     ...data.projects.map((item) => [`project:${item.id}`, `项目 · ${item.name}`]),
     ...data.customers.map((item) => [`customer:${item.id}`, `客户 · ${item.company}`]),
   ];
+  const intelligenceCustomerOptions = [["", "不关联客户"], ...data.customers.map((item) => [item.id, item.company])];
+  const intelligenceProjectOptions = [["", "不关联项目"], ...data.projects.map((item) => [item.id, item.name])];
   const configs = {
     customer: {
       eyebrow: "CUSTOMER MANAGEMENT",
@@ -537,6 +621,27 @@ function openModal(type, entityId = "") {
         { name: "content", label: "内容", type: "textarea", required: true, full: true, placeholder: "客户反馈、沟通要点、想法或待确认事项" },
       ],
     },
+    intelligence: {
+      eyebrow: "BUSINESS INTELLIGENCE",
+      title: intelligence ? intelligence.subject : "新建背调",
+      button: intelligence ? "保存背调" : "创建背调",
+      fields: [
+        { name: "subject", label: "背调对象", required: true, placeholder: "公司、品牌或联系人名称", value: intelligence?.subject || "" },
+        { name: "kind", label: "对象类型", type: "select", options: Object.entries(INTELLIGENCE_KINDS), value: intelligence?.kind || "company" },
+        { name: "country", label: "国家 / 地区", placeholder: "例如：美国", value: intelligence?.country || "" },
+        { name: "website", label: "官网 / 主页", type: "url", placeholder: "https://", value: intelligence?.website || "" },
+        { name: "status", label: "调查状态", type: "select", options: Object.entries(INTELLIGENCE_STATUSES), value: intelligence?.status || "planned" },
+        { name: "linkedCustomerId", label: "关联客户", type: "select", options: intelligenceCustomerOptions, value: intelligence?.linkedCustomerId || "" },
+        { name: "linkedProjectId", label: "关联项目", type: "select", options: intelligenceProjectOptions, value: intelligence?.linkedProjectId || "" },
+        { name: "nextAction", label: "下一步行动", placeholder: "例如：核验公司注册信息", value: intelligence?.nextAction || "" },
+        { name: "objective", label: "本次调查目的", type: "textarea", required: true, full: true, placeholder: "例如：判断是否适合作为欧洲分销合作伙伴", value: intelligence?.objective || "" },
+        { name: "facts", label: "公开事实（只写可被来源支持的内容）", type: "textarea", full: true, placeholder: "成立时间、主营业务、团队、渠道、市场等", value: intelligence?.facts || "" },
+        { name: "sources", label: "公开来源（每行一个链接）", type: "textarea", full: true, placeholder: "https://example.com/company\nhttps://example.com/news", value: intelligence?.sources || "" },
+        { name: "analysis", label: "综合判断（AI / 人工分析）", type: "textarea", full: true, placeholder: "把推断与公开事实分开，不要写成已经核实的事实", value: intelligence?.analysis || "" },
+        { name: "opportunities", label: "合作机会（AI 判断）", type: "textarea", placeholder: "可能的合作切入点", value: intelligence?.opportunities || "" },
+        { name: "risks", label: "风险与待核验项（AI 判断）", type: "textarea", placeholder: "风险、矛盾信息或缺失证据", value: intelligence?.risks || "" },
+      ],
+    },
   };
   const config = configs[type];
   if (!config) return;
@@ -551,10 +656,12 @@ function openModal(type, entityId = "") {
     entityRelations.classList.add("hidden");
     entityRelations.innerHTML = "";
   }
-  modalArchiveButton.classList.toggle("hidden", !customer && !project);
+  modalArchiveButton.classList.toggle("hidden", !customer && !project && !intelligence);
   modalArchiveButton.textContent = customer
     ? (customer.stage === "paused" ? "恢复为潜在线索" : "暂缓客户")
-    : (project?.status === "archived" ? "恢复项目" : "归档项目");
+    : project
+      ? (project.status === "archived" ? "恢复项目" : "归档项目")
+      : (intelligence?.status === "archived" ? "恢复背调" : "归档背调");
   if (customer || project) {
     const relationType = customer ? "customer" : "project";
     entityTimeline.innerHTML = `<div class="timeline-heading"><strong>${customer ? "沟通时间线" : "项目进展"}</strong><span>聊天自动记录与手动记录都会保留在这里</span></div>${timelineMarkup(relationType, entityId)}`;
@@ -688,6 +795,31 @@ function submitEntity(event) {
       createdAt: now,
     });
     showToast("记录已保存");
+  } else if (modalType === "intelligence") {
+    const values = {
+      subject: formValue(formData, "subject"),
+      kind: formValue(formData, "kind") || "company",
+      country: formValue(formData, "country"),
+      website: formValue(formData, "website"),
+      status: formValue(formData, "status") || "planned",
+      linkedCustomerId: formValue(formData, "linkedCustomerId"),
+      linkedProjectId: formValue(formData, "linkedProjectId"),
+      objective: formValue(formData, "objective"),
+      facts: formValue(formData, "facts"),
+      sources: formValue(formData, "sources"),
+      analysis: formValue(formData, "analysis"),
+      opportunities: formValue(formData, "opportunities"),
+      risks: formValue(formData, "risks"),
+      nextAction: formValue(formData, "nextAction"),
+    };
+    if (editingId) {
+      const intelligence = data.intelligence.find((item) => item.id === editingId);
+      if (intelligence) Object.assign(intelligence, values, { updatedAt: now });
+      showToast("背调档案已更新");
+    } else {
+      data.intelligence.unshift({ id: crypto.randomUUID(), ...values, createdAt: now });
+      showToast("背调任务已创建");
+    }
   }
   closeModal();
   saveData();
@@ -741,6 +873,12 @@ function toggleEntityArchive() {
     project.status = project.status === "archived" ? "active" : "archived";
     project.updatedAt = new Date().toISOString();
     showToast(project.status === "archived" ? "项目已归档" : "项目已恢复");
+  } else if (modalType === "intelligence") {
+    const intelligence = data.intelligence.find((item) => item.id === editingId);
+    if (!intelligence) return;
+    intelligence.status = intelligence.status === "archived" ? "planned" : "archived";
+    intelligence.updatedAt = new Date().toISOString();
+    showToast(intelligence.status === "archived" ? "背调已归档" : "背调已恢复");
   }
   closeModal();
   saveData();
@@ -760,6 +898,8 @@ function consumeWorkbenchTarget() {
     openModal("customer", target.id);
   } else if (target.type === "project" && target.id && data.projects.some((item) => item.id === target.id)) {
     openModal("project", target.id);
+  } else if (target.type === "intelligence" && target.id && data.intelligence.some((item) => item.id === target.id)) {
+    openModal("intelligence", target.id);
   }
 }
 
@@ -789,8 +929,10 @@ document.addEventListener("click", (event) => {
   if (action === "add-project") openModal("project");
   if (action === "add-task") openModal("task");
   if (action === "add-note") openModal("note");
+  if (action === "add-intelligence") openModal("intelligence");
   if (action === "edit-customer") openModal("customer", actionTarget.dataset.entityId);
   if (action === "edit-project") openModal("project", actionTarget.dataset.entityId);
+  if (action === "edit-intelligence") openModal("intelligence", actionTarget.dataset.entityId);
   const captureActionTarget = event.target.closest("[data-capture-action]");
   if (captureActionTarget) {
     handleCaptureAction(captureActionTarget.dataset.captureId, captureActionTarget.dataset.captureAction);
@@ -809,6 +951,8 @@ customerSearch.addEventListener("input", renderCustomers);
 customerStageFilter.addEventListener("change", renderCustomers);
 projectSearch.addEventListener("input", renderProjects);
 projectStatusFilter.addEventListener("change", renderProjects);
+intelligenceSearch.addEventListener("input", renderIntelligence);
+intelligenceStatusFilter.addEventListener("change", renderIntelligence);
 document.getElementById("quickAddButton").addEventListener("click", () => openModal("note"));
 document.getElementById("globalSearchButton").addEventListener("click", () => {
   navigate("customers");
