@@ -128,6 +128,14 @@ async function toggleChat() {
   await chatWindow.setFocus();
 }
 
+async function openWorkbench() {
+  const workbenchWindow = (await getAllWindows()).find((window) => window.label === "workbench");
+  if (!workbenchWindow) return;
+  await workbenchWindow.show();
+  await workbenchWindow.unminimize();
+  await workbenchWindow.setFocus();
+}
+
 async function keepWindowOnScreen() {
   const margin = 8;
   const left = Number.isFinite(window.screen.availLeft) ? window.screen.availLeft : 0;
@@ -160,6 +168,8 @@ document.addEventListener("click", async (event) => {
   if (action === "smaller") await setScale(scale - 0.1);
   if (action === "larger") await setScale(scale + 0.1);
   if (action === "reset") await setScale(1);
+  if (action === "workbench") await openWorkbench();
+  if (action === "chat") await toggleChat();
   if (action === "hide") await appWindow.hide();
   if (action === "quit") await invoke("quit_app");
 
