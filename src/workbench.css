@@ -289,8 +289,19 @@ button { cursor: pointer; }
 }
 .customer-card:hover, .project-card:hover { transform: translateY(-2px); box-shadow: 0 9px 25px rgba(42, 49, 62, 0.08); }
 .card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.card-badges { display: flex; align-items: flex-end; gap: 5px; flex-direction: column; }
 .company-avatar { display: grid; width: 38px; height: 38px; place-items: center; color: #fff; font-family: Georgia, serif; font-size: 16px; background: linear-gradient(145deg, #7287a4, #425b7d); border-radius: 10px; }
 .stage-badge { padding: 5px 8px; color: #8d6473; font-size: 8px; background: #f8edf1; border-radius: 999px; }
+.priority-badge, .priority-label {
+  padding: 3px 6px;
+  color: #7d8793;
+  font-size: 7px;
+  font-weight: 700;
+  background: #f2f4f6;
+  border-radius: 999px;
+}
+.priority-badge.high, .priority-label.high { color: #a24c68; background: #fbe8ef; }
+.priority-badge.low, .priority-label.low { color: #5d7e70; background: #eaf5f0; }
 .customer-card h3, .project-card h3 { margin: 12px 0 3px; font-size: 13px; }
 .customer-card .contact { margin: 0; color: #8d96a1; font-size: 9px; }
 .card-facts { display: flex; gap: 6px; margin: 12px 0; flex-wrap: wrap; }
@@ -305,9 +316,15 @@ button { cursor: pointer; }
 .project-card { position: relative; overflow: hidden; padding: 19px; }
 .project-card::before { position: absolute; inset: 0 auto 0 0; width: 4px; content: ""; background: #c76587; }
 .project-header { display: flex; justify-content: space-between; gap: 12px; }
-.project-header h3 { margin: 0; font-family: Georgia, "Microsoft YaHei", serif; font-size: 16px; }
+.project-header h3 { margin: 5px 0 0; font-family: Georgia, "Microsoft YaHei", serif; font-size: 16px; }
 .project-status { color: #5e8f75; font-size: 8px; }
+.project-status.status-planned { color: #75859b; }
+.project-status.status-on_hold { color: #a47745; }
+.project-status.status-completed { color: #477e65; }
+.project-status.status-archived { color: #90969e; }
 .project-goal { min-height: 32px; margin: 9px 0 15px; color: #77818d; font-size: 10px; line-height: 1.55; }
+.linked-preview { display: flex; gap: 5px; margin: -5px 0 13px; flex-wrap: wrap; }
+.linked-preview span { padding: 4px 7px; color: #687584; font-size: 8px; background: #f3f5f7; border-radius: 6px; }
 .progress-track { height: 5px; overflow: hidden; background: #edf0f2; border-radius: 999px; }
 .progress-bar { height: 100%; background: linear-gradient(90deg, #c66183, #dc92a9); border-radius: inherit; }
 .project-foot { display: flex; justify-content: space-between; margin-top: 8px; color: #8c949e; font-size: 8px; }
@@ -321,7 +338,7 @@ button { cursor: pointer; }
 
 .modal-backdrop { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: 30px; background: rgba(24, 31, 43, 0.35); backdrop-filter: blur(5px); }
 .hidden { display: none !important; }
-.modal { width: min(620px, 100%); max-height: calc(100vh - 60px); padding: 21px; overflow-y: auto; background: #fff; border: 1px solid rgba(255, 255, 255, 0.7); border-radius: 16px; box-shadow: 0 25px 70px rgba(22, 29, 41, 0.24); }
+.modal { width: min(760px, 100%); max-height: calc(100vh - 60px); padding: 21px; overflow-y: auto; background: #fff; border: 1px solid rgba(255, 255, 255, 0.7); border-radius: 16px; box-shadow: 0 25px 70px rgba(22, 29, 41, 0.24); }
 .modal-heading { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 18px; }
 .modal-heading h2 { margin: 4px 0 0; font-family: Georgia, "Microsoft YaHei", serif; font-size: 20px; }
 .form-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
@@ -331,7 +348,39 @@ button { cursor: pointer; }
 .form-field input, .form-field select, .form-field textarea { width: 100%; padding: 10px 11px; color: var(--ink); outline: 0; background: #fafafb; border: 1px solid #e2e5e9; border-radius: 8px; }
 .form-field textarea { min-height: 72px; resize: vertical; }
 .form-field input:focus, .form-field select:focus, .form-field textarea:focus { border-color: #cb7d99; box-shadow: 0 0 0 3px rgba(203, 125, 153, 0.09); }
-.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+.modal-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+.modal-action-spacer { flex: 1; }
+.archive-action {
+  padding: 8px 10px;
+  color: #8a6571;
+  font-size: 9px;
+  background: #fff;
+  border: 1px solid #ead9df;
+  border-radius: 8px;
+}
+.archive-action:hover { background: #fbf2f5; }
+.entity-relations { margin-top: 18px; padding-top: 16px; border-top: 1px solid #eceef1; }
+.relation-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; }
+.relation-heading div strong, .relation-heading div span { display: block; }
+.relation-heading div strong { font-size: 11px; }
+.relation-heading div span, .relation-heading > span { margin-top: 2px; color: #999fa7; font-size: 8px; }
+.relation-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.relation-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 7px;
+  min-width: 0;
+  padding: 8px 9px;
+  background: #fafafb;
+  border: 1px solid #eceef1;
+  border-radius: 8px;
+}
+.relation-option label { display: flex; align-items: center; gap: 7px; min-width: 0; color: #606b78; font-size: 9px; }
+.relation-option label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.relation-option input { width: 14px; height: 14px; accent-color: #c46183; }
+.relation-option button { padding: 3px 6px; color: #a15f77; font-size: 8px; background: #fff; border: 1px solid #ead6de; border-radius: 5px; }
+.relation-empty { grid-column: 1 / -1; padding: 12px; color: #9ca2aa; font-size: 9px; text-align: center; background: #fafafb; border-radius: 8px; }
 .entity-timeline { margin-top: 18px; padding-top: 16px; border-top: 1px solid #eceef1; }
 .timeline-heading { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px; }
 .timeline-heading strong { font-size: 11px; }
