@@ -88,6 +88,18 @@
               </article>
             </div>
 
+            <article class="capture-inbox">
+              <div class="panel-heading">
+                <div>
+                  <span class="section-kicker">AUTO CAPTURE</span>
+                  <h3>聊天自动记录</h3>
+                  <p>客户动态、项目进展、重要决定和待办会先进入这里，保留原话供你整理。</p>
+                </div>
+                <span id="captureInboxCount" class="capture-count">0 条待整理</span>
+              </div>
+              <div id="captureInbox" class="capture-list"></div>
+            </article>
+
             <div class="dashboard-grid">
               <article class="panel task-panel">
                 <div class="panel-heading">
@@ -175,6 +187,7 @@
         </div>
         <form id="entityForm">
           <div id="formFields" class="form-fields"></div>
+          <div id="entityTimeline" class="entity-timeline hidden"></div>
           <div class="modal-actions">
             <button id="modalCancelButton" class="ghost-action" type="button">取消</button>
             <button id="modalSubmitButton" class="primary-button" type="submit">保存</button>
