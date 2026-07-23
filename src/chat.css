@@ -85,7 +85,9 @@ header strong {
 }
 
 .icon-button:hover { background: rgba(205, 112, 148, 0.12); }
-.tools-button { margin-left: auto; font-size: 15px; font-weight: 700; }
+.workbench-button { margin-left: auto; font-size: 16px; font-weight: 700; }
+.workbench-button + .tools-button { margin-left: 0; }
+.tools-button { margin-left: 0; font-size: 15px; font-weight: 700; }
 .tools-button + .profile-button { margin-left: 0; }
 .profile-button { margin-left: 0; font-size: 20px; }
 .profile-button + .settings-button { margin-left: 0; }
