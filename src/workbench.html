@@ -31,7 +31,7 @@
           </button>
           <button class="nav-item" type="button" data-view="intelligence">
             <span class="nav-icon">◎</span><span>商业情报</span>
-            <span class="soon-badge">即将推出</span>
+            <span id="intelligenceNavCount" class="nav-count">0</span>
           </button>
           <button class="nav-item" type="button" data-view="knowledge">
             <span class="nav-icon">▤</span><span>知识库</span>
@@ -174,11 +174,30 @@
             <div id="projectGrid" class="project-grid"></div>
           </section>
 
-          <section id="intelligenceView" class="view empty-view" data-view-panel="intelligence">
-            <div class="empty-illustration">◎</div>
-            <span class="section-kicker">BUSINESS INTELLIGENCE</span>
-            <h2>商业情报中心将在下一阶段接入</h2>
-            <p>输入公司、品牌或联系人后，Kardii 将搜集公开信息，输出机会、风险、合作切入点和资料来源。</p>
+          <section id="intelligenceView" class="view" data-view-panel="intelligence">
+            <div class="intelligence-intro">
+              <div>
+                <span class="section-kicker">BUSINESS INTELLIGENCE</span>
+                <h2>把公开事实和 AI 判断分开保存。</h2>
+                <p>每份背调都保留来源、风险、机会和下一步，可关联到客户或项目。</p>
+              </div>
+              <button class="primary-button" type="button" data-action="add-intelligence">＋ 新建背调</button>
+            </div>
+            <div class="toolbar intelligence-toolbar">
+              <label class="search-box">
+                <span>⌕</span>
+                <input id="intelligenceSearch" type="search" placeholder="搜索公司、品牌、联系人或市场">
+              </label>
+              <select id="intelligenceStatusFilter" class="filter-select" aria-label="按背调状态筛选">
+                <option value="">全部状态</option>
+                <option value="planned">待调查</option>
+                <option value="researching">调查中</option>
+                <option value="reviewed">已核验</option>
+                <option value="archived">已归档</option>
+              </select>
+              <div class="view-summary"><strong id="intelligenceSummary">0 份背调</strong><span>公司、品牌与联系人</span></div>
+            </div>
+            <div id="intelligenceGrid" class="intelligence-grid"></div>
           </section>
 
           <section id="knowledgeView" class="view empty-view" data-view-panel="knowledge">
