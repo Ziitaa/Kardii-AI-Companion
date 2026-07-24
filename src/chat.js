@@ -955,6 +955,9 @@ function captureBusinessMessage(text) {
       objective: clean,
       facts: "",
       sources: "",
+      sourceDetails: [],
+      researchQueries: [],
+      researchedAt: "",
       analysis: "",
       opportunities: "",
       risks: "",
@@ -977,7 +980,7 @@ function captureBusinessMessage(text) {
   const typeLabels = { decision: "重要决定", task: "待办线索", customer: "客户信息", project: "项目动态", intelligence: "背调任务" };
   const relationLabel = capture.relationName ? `已记录到「${capture.relationName}」` : `已记录${typeLabels[type]}`;
   if (generatedIntelligence) {
-    businessCaptureText.textContent = `已创建背调任务：${generatedIntelligence.subject}`;
+    businessCaptureText.textContent = `已创建背调任务：${generatedIntelligence.subject}，点“查看”即可开始联网调查`;
   } else if (generatedTask) {
     const tomorrow = relativeTaskDate("明天");
     const dueLabel = generatedTask.dueDate === tomorrow ? "明日任务" : generatedTask.dueDate ? "定时任务" : "任务";
