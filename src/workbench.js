@@ -1,8 +1,10 @@
 const { getCurrentWindow, getAllWindows } = window.__TAURI__.window;
+const { invoke } = window.__TAURI__.core;
 
 const appWindow = getCurrentWindow();
 const BUSINESS_DATA_KEY = "kardii-business-data-v1";
 const WORKBENCH_TARGET_KEY = "kardii-workbench-open-target-v1";
+const AI_SETTINGS_KEY = "kardii-ai-settings-v1";
 const STAGES = {
   lead: "潜在线索",
   contacted: "已联系",
@@ -110,6 +112,7 @@ let activeView = "dashboard";
 let modalType = "";
 let editingId = "";
 let toastTimer;
+let activeResearchId = "";
 
 const navItems = [...document.querySelectorAll(".nav-item")];
 const viewPanels = [...document.querySelectorAll("[data-view-panel]")];
@@ -139,6 +142,7 @@ const modalTitle = document.getElementById("modalTitle");
 const modalSubmitButton = document.getElementById("modalSubmitButton");
 const entityForm = document.getElementById("entityForm");
 const formFields = document.getElementById("formFields");
+const entityResearch = document.getElementById("entityResearch");
 const entityRelations = document.getElementById("entityRelations");
 const entityTimeline = document.getElementById("entityTimeline");
 const modalArchiveButton = document.getElementById("modalArchiveButton");
@@ -196,9 +200,14 @@ function loadData() {
         risks: "",
         nextAction: "",
         sources: "",
+        sourceDetails: [],
+        researchQueries: [],
+        researchedAt: "",
         linkedCustomerId: "",
         linkedProjectId: "",
         ...item,
+        sourceDetails: Array.isArray(item.sourceDetails) ? item.sourceDetails : [],
+        researchQueries: Array.isArray(item.researchQueries) ? item.researchQueries : [],
       })) : [],
     };
     syncRelations(normalized);
@@ -502,6 +511,56 @@ function fieldMarkup({ name, label, type = "text", required = false, full = fals
   return `<div class="form-field ${full ? "full" : ""}"><label>${label}${required ? " *" : ""}</label>${control}</div>`;
 }
 
+function currentResearchAiConfig() {
+  let saved = {};
+  try {
+    saved = JSON.parse(localStorage.getItem(AI_SETTINGS_KEY) || "{}");
+  } catch {
+    saved = {};
+  }
+  const provider = ["deepseek", "gemini", "ollama"].includes(saved.provider) ? saved.provider : "deepseek";
+  return {
+    provider,
+    model: provider === "deepseek"
+      ? "deepseek-v4-flash"
+      : provider === "gemini"
+        ? (["gemini-3.1-flash-lite", "gemini-3.5-flash"].includes(saved.geminiModel) ? saved.geminiModel : "gemini-3.1-flash-lite")
+        : String(saved.ollamaModel || ""),
+    ollamaBaseUrl: String(saved.ollamaBaseUrl || "http://127.0.0.1:11434"),
+  };
+}
+
+function researchPanelMarkup(item) {
+  const sources = Array.isArray(item.sourceDetails) ? item.sourceDetails : [];
+  const running = activeResearchId === item.id;
+  const researchedAt = item.researchedAt
+    ? new Date(item.researchedAt).toLocaleString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+    : "";
+  return `
+    <div class="research-heading">
+      <div>
+        <strong>联网背调</strong>
+        <span>${researchedAt ? `上次调查：${escapeHtml(researchedAt)} · 搜索结果仍需人工核验` : "搜索公开网页，并用当前 AI 生成带来源的初步结论"}</span>
+      </div>
+      <button class="research-run-button" type="button" data-action="run-intelligence-research" ${running ? "disabled" : ""}>
+        ${running ? '<span class="research-spinner"></span> 正在搜索与分析…' : (researchedAt ? "重新联网调查" : "开始联网调查")}
+      </button>
+    </div>
+    ${sources.length ? `
+      <div class="research-source-list">
+        ${sources.map((source, index) => `
+          <button type="button" class="research-source" data-action="open-research-source" data-source-url="${escapeHtml(source.url)}">
+            <span>[${index + 1}]</span>
+            <strong>${escapeHtml(source.title || source.url)}</strong>
+            <small>${escapeHtml(source.url)}</small>
+          </button>
+        `).join("")}
+      </div>
+    ` : '<p class="research-empty">联网调查完成后，来源会保存在这里；公开事实中的 [1]、[2] 会对应这些网页。</p>'}
+    <div id="researchError" class="research-error hidden"></div>
+  `;
+}
+
 function timelineMarkup(relationType, relationId) {
   const activities = data.activities
     .filter((activity) => activity.relationType === relationType && activity.relationId === relationId)
@@ -649,6 +708,13 @@ function openModal(type, entityId = "") {
   modalTitle.textContent = config.title;
   modalSubmitButton.textContent = config.button;
   formFields.innerHTML = config.fields.map(fieldMarkup).join("");
+  if (intelligence) {
+    entityResearch.innerHTML = researchPanelMarkup(intelligence);
+    entityResearch.classList.remove("hidden");
+  } else {
+    entityResearch.classList.add("hidden");
+    entityResearch.innerHTML = "";
+  }
   if (type === "customer" || type === "project") {
     entityRelations.innerHTML = relationPickerMarkup(type, customer || project);
     entityRelations.classList.remove("hidden");
@@ -679,6 +745,8 @@ function closeModal() {
   entityForm.reset();
   modalType = "";
   editingId = "";
+  entityResearch.classList.add("hidden");
+  entityResearch.innerHTML = "";
   entityRelations.classList.add("hidden");
   entityRelations.innerHTML = "";
   entityTimeline.classList.add("hidden");
@@ -687,6 +755,92 @@ function closeModal() {
 
 function formValue(formData, key) {
   return String(formData.get(key) || "").trim();
+}
+
+function intelligenceValuesFromForm(formData) {
+  return {
+    subject: formValue(formData, "subject"),
+    kind: formValue(formData, "kind") || "company",
+    country: formValue(formData, "country"),
+    website: formValue(formData, "website"),
+    status: formValue(formData, "status") || "planned",
+    linkedCustomerId: formValue(formData, "linkedCustomerId"),
+    linkedProjectId: formValue(formData, "linkedProjectId"),
+    objective: formValue(formData, "objective"),
+    facts: formValue(formData, "facts"),
+    sources: formValue(formData, "sources"),
+    analysis: formValue(formData, "analysis"),
+    opportunities: formValue(formData, "opportunities"),
+    risks: formValue(formData, "risks"),
+    nextAction: formValue(formData, "nextAction"),
+  };
+}
+
+function showResearchError(message) {
+  const errorElement = document.getElementById("researchError");
+  if (!errorElement) return;
+  errorElement.textContent = message;
+  errorElement.classList.remove("hidden");
+}
+
+async function runIntelligenceResearch() {
+  if (!editingId || activeResearchId) return;
+  const intelligence = data.intelligence.find((item) => item.id === editingId);
+  if (!intelligence) return;
+  const values = intelligenceValuesFromForm(new FormData(entityForm));
+  if (!values.subject || !values.objective) {
+    showResearchError("请先填写背调对象和调查目的。");
+    return;
+  }
+  const ai = currentResearchAiConfig();
+  if (!ai.model) {
+    showResearchError("当前 Ollama 还没有选择模型，请先到聊天设置中选择模型。");
+    return;
+  }
+  const previousStatus = intelligence.status;
+  Object.assign(intelligence, values, { status: "researching", updatedAt: new Date().toISOString() });
+  activeResearchId = intelligence.id;
+  saveData();
+  entityResearch.innerHTML = researchPanelMarkup(intelligence);
+  try {
+    const result = await invoke("run_business_research", {
+      request: {
+        subject: values.subject,
+        kind: values.kind,
+        country: values.country,
+        website: values.website,
+        objective: values.objective,
+        provider: ai.provider,
+        model: ai.model,
+        ollamaBaseUrl: ai.ollamaBaseUrl,
+      },
+    });
+    Object.assign(intelligence, {
+      facts: result.facts || "",
+      analysis: result.analysis || "",
+      opportunities: result.opportunities || "",
+      risks: result.risks || "",
+      nextAction: result.nextAction || "",
+      sources: (result.sources || []).map((source) => source.url).join("\n"),
+      sourceDetails: Array.isArray(result.sources) ? result.sources : [],
+      researchQueries: Array.isArray(result.queries) ? result.queries : [],
+      researchedAt: new Date().toISOString(),
+      status: "researching",
+      updatedAt: new Date().toISOString(),
+    });
+    const shouldRefreshModal = modalType === "intelligence" && editingId === intelligence.id;
+    activeResearchId = "";
+    saveData();
+    if (shouldRefreshModal) openModal("intelligence", intelligence.id);
+    showToast(`已完成 ${intelligence.subject} 的初步背调，请人工核验来源`);
+  } catch (error) {
+    intelligence.status = previousStatus;
+    intelligence.updatedAt = new Date().toISOString();
+    activeResearchId = "";
+    saveData();
+    entityResearch.innerHTML = researchPanelMarkup(intelligence);
+    showResearchError(String(error));
+  }
 }
 
 function updateEntityLinks(type, entityId, selectedIds) {
@@ -796,22 +950,7 @@ function submitEntity(event) {
     });
     showToast("记录已保存");
   } else if (modalType === "intelligence") {
-    const values = {
-      subject: formValue(formData, "subject"),
-      kind: formValue(formData, "kind") || "company",
-      country: formValue(formData, "country"),
-      website: formValue(formData, "website"),
-      status: formValue(formData, "status") || "planned",
-      linkedCustomerId: formValue(formData, "linkedCustomerId"),
-      linkedProjectId: formValue(formData, "linkedProjectId"),
-      objective: formValue(formData, "objective"),
-      facts: formValue(formData, "facts"),
-      sources: formValue(formData, "sources"),
-      analysis: formValue(formData, "analysis"),
-      opportunities: formValue(formData, "opportunities"),
-      risks: formValue(formData, "risks"),
-      nextAction: formValue(formData, "nextAction"),
-    };
+    const values = intelligenceValuesFromForm(formData);
     if (editingId) {
       const intelligence = data.intelligence.find((item) => item.id === editingId);
       if (intelligence) Object.assign(intelligence, values, { updatedAt: now });
@@ -933,6 +1072,11 @@ document.addEventListener("click", (event) => {
   if (action === "edit-customer") openModal("customer", actionTarget.dataset.entityId);
   if (action === "edit-project") openModal("project", actionTarget.dataset.entityId);
   if (action === "edit-intelligence") openModal("intelligence", actionTarget.dataset.entityId);
+  if (action === "run-intelligence-research") runIntelligenceResearch();
+  if (action === "open-research-source") {
+    const url = actionTarget.dataset.sourceUrl;
+    if (url) invoke("open_external_url", { url }).catch((error) => showResearchError(String(error)));
+  }
   const captureActionTarget = event.target.closest("[data-capture-action]");
   if (captureActionTarget) {
     handleCaptureAction(captureActionTarget.dataset.captureId, captureActionTarget.dataset.captureAction);
