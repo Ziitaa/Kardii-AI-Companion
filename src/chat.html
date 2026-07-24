@@ -86,10 +86,12 @@
 
           <label for="responseLengthSelect">回答长度</label>
           <select id="responseLengthSelect">
-            <option value="250">简短 · 更省费用</option>
-            <option value="500">标准</option>
-            <option value="900">详细</option>
+            <option value="auto">自动完整 · 推荐</option>
+            <option value="1200">简短 · 更省费用</option>
+            <option value="4000">详细</option>
+            <option value="8000">超长 · 费用更高</option>
           </select>
+          <p class="provider-description">“自动完整”会在模型因长度停止时自动续写并拼接，避免回答停在半句话。</p>
 
           <div id="apiKeySection">
             <label id="apiKeyLabel" for="apiKeyInput">API Key</label>
