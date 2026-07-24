@@ -31,6 +31,8 @@ cpal = "0.16"
 sherpa-onnx = { version = "1.13.4", default-features = false }
 bzip2 = "0.4"
 tar = "0.4"
+pdf-extract = "0.12"
+zip = { version = "8.6", default-features = false, features = ["deflate"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3", features = ["windows-native"] }
