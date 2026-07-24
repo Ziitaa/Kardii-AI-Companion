@@ -47,6 +47,9 @@ const INTELLIGENCE_KINDS = {
   brand: "品牌",
   market: "市场",
 };
+const KNOWLEDGE_TEXT_TYPES = new Set([
+  "txt", "md", "json", "csv", "log", "toml", "yaml", "yml", "js", "ts", "html", "css", "rs", "py",
+]);
 
 const viewMeta = {
   dashboard: ["BUSINESS WORKBENCH", "今日工作台"],
@@ -105,6 +108,7 @@ const seedData = {
   captures: [],
   activities: [],
   intelligence: [],
+  knowledge: [],
 };
 
 let data = loadData();
@@ -113,6 +117,8 @@ let modalType = "";
 let editingId = "";
 let toastTimer;
 let activeResearchId = "";
+let activeKnowledgeAnalysisId = "";
+let latestKnowledgeSources = [];
 
 const navItems = [...document.querySelectorAll(".nav-item")];
 const viewPanels = [...document.querySelectorAll("[data-view-panel]")];
@@ -121,6 +127,7 @@ const viewTitle = document.getElementById("viewTitle");
 const customerNavCount = document.getElementById("customerNavCount");
 const projectNavCount = document.getElementById("projectNavCount");
 const intelligenceNavCount = document.getElementById("intelligenceNavCount");
+const knowledgeNavCount = document.getElementById("knowledgeNavCount");
 const customerGrid = document.getElementById("customerGrid");
 const projectGrid = document.getElementById("projectGrid");
 const projectSearch = document.getElementById("projectSearch");
@@ -128,12 +135,20 @@ const projectStatusFilter = document.getElementById("projectStatusFilter");
 const intelligenceGrid = document.getElementById("intelligenceGrid");
 const intelligenceSearch = document.getElementById("intelligenceSearch");
 const intelligenceStatusFilter = document.getElementById("intelligenceStatusFilter");
+const knowledgeGrid = document.getElementById("knowledgeGrid");
+const knowledgeSearch = document.getElementById("knowledgeSearch");
+const knowledgeTypeFilter = document.getElementById("knowledgeTypeFilter");
+const knowledgeQuestion = document.getElementById("knowledgeQuestion");
+const knowledgeQaStatus = document.getElementById("knowledgeQaStatus");
+const knowledgeAnswer = document.getElementById("knowledgeAnswer");
+const knowledgeAnswerSources = document.getElementById("knowledgeAnswerSources");
 const taskList = document.getElementById("taskList");
 const dashboardProjects = document.getElementById("dashboardProjects");
 const dashboardFollowups = document.getElementById("dashboardFollowups");
 const recentNotes = document.getElementById("recentNotes");
 const captureInbox = document.getElementById("captureInbox");
 const captureInboxCount = document.getElementById("captureInboxCount");
+const captureStatusFilter = document.getElementById("captureStatusFilter");
 const customerSearch = document.getElementById("customerSearch");
 const customerStageFilter = document.getElementById("customerStageFilter");
 const modalBackdrop = document.getElementById("modalBackdrop");
@@ -143,9 +158,11 @@ const modalSubmitButton = document.getElementById("modalSubmitButton");
 const entityForm = document.getElementById("entityForm");
 const formFields = document.getElementById("formFields");
 const entityResearch = document.getElementById("entityResearch");
+const entityKnowledge = document.getElementById("entityKnowledge");
 const entityRelations = document.getElementById("entityRelations");
 const entityTimeline = document.getElementById("entityTimeline");
 const modalArchiveButton = document.getElementById("modalArchiveButton");
+const modalDeleteButton = document.getElementById("modalDeleteButton");
 const toast = document.getElementById("toast");
 
 function dateInputValue(date) {
@@ -209,6 +226,27 @@ function loadData() {
         sourceDetails: Array.isArray(item.sourceDetails) ? item.sourceDetails : [],
         researchQueries: Array.isArray(item.researchQueries) ? item.researchQueries : [],
       })) : [],
+      knowledge: Array.isArray(saved.knowledge) ? saved.knowledge.map((item) => ({
+        title: "",
+        fileName: "",
+        filePath: "",
+        fileType: "txt",
+        fileSize: 0,
+        content: "",
+        charCount: 0,
+        pageCount: 0,
+        warning: "",
+        status: "active",
+        tags: "",
+        summary: "",
+        keyPoints: "",
+        risks: "",
+        actions: "",
+        analyzedAt: "",
+        linkedCustomerId: "",
+        linkedProjectId: "",
+        ...item,
+      })) : [],
     };
     syncRelations(normalized);
     return normalized;
@@ -238,12 +276,26 @@ function syncRelations(target = data) {
       if (project && !project.linkedCustomerIds.includes(customer.id)) project.linkedCustomerIds.push(customer.id);
     });
   });
+  target.intelligence.forEach((item) => {
+    if (item.linkedCustomerId && !customerIds.has(item.linkedCustomerId)) item.linkedCustomerId = "";
+    if (item.linkedProjectId && !projectIds.has(item.linkedProjectId)) item.linkedProjectId = "";
+  });
+  target.knowledge.forEach((item) => {
+    if (item.linkedCustomerId && !customerIds.has(item.linkedCustomerId)) item.linkedCustomerId = "";
+    if (item.linkedProjectId && !projectIds.has(item.linkedProjectId)) item.linkedProjectId = "";
+  });
 }
 
 function saveData() {
   syncRelations();
-  localStorage.setItem(BUSINESS_DATA_KEY, JSON.stringify(data));
+  try {
+    localStorage.setItem(BUSINESS_DATA_KEY, JSON.stringify(data));
+  } catch {
+    showToast("本机存储空间不足，请先删除不再需要的知识库文件");
+    return false;
+  }
   renderAll();
+  return true;
 }
 
 function escapeHtml(value) {
@@ -305,14 +357,18 @@ function renderDashboard() {
   document.getElementById("activeProjectCount").textContent = String(activeProjects.length);
   document.getElementById("weeklyNoteCount").textContent = String(weeklyNotes.length);
 
-  const tasks = [...openTasks.filter((task) => isDueTodayOrEarlier(task.dueDate)), ...openTasks.filter((task) => !isDueTodayOrEarlier(task.dueDate))]
-    .slice(0, 5);
+  const tasks = [
+    ...openTasks.filter((task) => isDueTodayOrEarlier(task.dueDate)),
+    ...openTasks.filter((task) => !isDueTodayOrEarlier(task.dueDate)),
+    ...data.tasks.filter((task) => task.completed),
+  ];
   taskList.innerHTML = tasks.length ? tasks.map((task) => `
-    <label class="task-item ${task.completed ? "done" : ""}">
+    <div class="task-item ${task.completed ? "done" : ""}">
       <input class="task-check" type="checkbox" data-task-id="${task.id}" ${task.completed ? "checked" : ""}>
       <span class="task-copy"><strong>${escapeHtml(task.title)}</strong><span>${escapeHtml(task.relation || "独立任务")}</span></span>
       <span class="tag">${formatDate(task.dueDate)}</span>
-    </label>
+      <button class="inline-delete" type="button" data-action="delete-task" data-entity-id="${task.id}" aria-label="删除任务" title="删除任务">×</button>
+    </div>
   `).join("") : emptyMarkup("今天还没有任务，先添加一件最重要的事。");
 
   dashboardProjects.innerHTML = activeProjects.slice(0, 4).map((project) => compactMarkup(
@@ -327,8 +383,13 @@ function renderDashboard() {
     .map((customer) => compactMarkup(customer.company, customer.nextAction, formatDate(customer.followupDate)))
     .join("") || emptyMarkup("添加客户后，下一步行动会出现在这里。");
 
-  recentNotes.innerHTML = [...data.notes].reverse().slice(0, 4)
-    .map((note) => compactMarkup(note.title || "快速记录", note.content, new Date(note.createdAt).toLocaleDateString("zh-CN")))
+  recentNotes.innerHTML = [...data.notes].reverse()
+    .map((note) => compactMarkup(
+      note.title || "快速记录",
+      note.content,
+      new Date(note.createdAt).toLocaleDateString("zh-CN"),
+      { action: "delete-note", id: note.id, label: "删除记录" },
+    ))
     .join("") || emptyMarkup("随手记录电话要点、客户反馈或灵感。");
 
   renderCaptureInbox();
@@ -345,9 +406,11 @@ function captureTypeLabel(type) {
 }
 
 function renderCaptureInbox() {
-  const pending = data.captures.filter((capture) => capture.status === "inbox");
-  captureInboxCount.textContent = `${pending.length} 条待整理`;
-  captureInbox.innerHTML = pending.slice(0, 5).map((capture) => `
+  const status = captureStatusFilter.value;
+  const items = data.captures.filter((capture) => !status || capture.status === status);
+  const pendingCount = data.captures.filter((capture) => capture.status === "inbox").length;
+  captureInboxCount.textContent = status === "inbox" ? `${pendingCount} 条待整理` : `${items.length} 条记录`;
+  captureInbox.innerHTML = items.map((capture) => `
     <div class="capture-item">
       <span class="capture-type">${captureTypeLabel(capture.type)}</span>
       <span class="capture-copy">
@@ -356,19 +419,25 @@ function renderCaptureInbox() {
       </span>
       <time>${new Date(capture.createdAt).toLocaleDateString("zh-CN")}</time>
       <div class="capture-actions">
-        ${capture.generatedIntelligenceId
+        ${capture.status === "archived"
+          ? `<button type="button" data-capture-action="restore" data-capture-id="${capture.id}">恢复</button>`
+          : capture.generatedIntelligenceId
           ? `<button type="button" disabled>已创建背调</button>`
           : capture.generatedTaskId
           ? `<button type="button" disabled>已生成任务</button>`
           : `<button type="button" data-capture-action="task" data-capture-id="${capture.id}">转为任务</button>`}
-        <button type="button" data-capture-action="archive" data-capture-id="${capture.id}">归档</button>
+        ${capture.status === "archived" ? "" : `<button type="button" data-capture-action="archive" data-capture-id="${capture.id}">归档</button>`}
+        <button class="danger-link" type="button" data-capture-action="delete" data-capture-id="${capture.id}">删除</button>
       </div>
     </div>
-  `).join("") || `<div class="capture-empty">聊天里出现新的客户、项目、决定或下一步时，Kardii 会自动记录在这里。</div>`;
+  `).join("") || `<div class="capture-empty">${status === "archived" ? "还没有已归档记录。" : "聊天里出现新的客户、项目、决定或下一步时，Kardii 会自动记录在这里。"}</div>`;
 }
 
-function compactMarkup(title, detail, meta) {
-  return `<div class="compact-item"><span class="compact-dot"></span><span class="compact-copy"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(detail || "暂无下一步")}</span></span><span class="compact-meta">${escapeHtml(meta)}</span></div>`;
+function compactMarkup(title, detail, meta, deleteConfig = null) {
+  const deleteButton = deleteConfig
+    ? `<button class="inline-delete" type="button" data-action="${deleteConfig.action}" data-entity-id="${deleteConfig.id}" aria-label="${escapeHtml(deleteConfig.label)}" title="${escapeHtml(deleteConfig.label)}">×</button>`
+    : "";
+  return `<div class="compact-item"><span class="compact-dot"></span><span class="compact-copy"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(detail || "暂无下一步")}</span></span><span class="compact-meta">${escapeHtml(meta)}</span>${deleteButton}</div>`;
 }
 
 function emptyMarkup(message) {
@@ -492,14 +561,72 @@ function renderIntelligence() {
   `).join("") || emptyMarkup(query || status ? "没有符合筛选条件的背调档案。" : "还没有背调档案。新建一份公司或联系人背调，先明确调查目的。");
 }
 
+function formatFileSize(size) {
+  const bytes = Number(size) || 0;
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function knowledgeTypeGroup(fileType) {
+  return KNOWLEDGE_TEXT_TYPES.has(fileType) ? "text" : fileType;
+}
+
+function knowledgeRelationLabels(item) {
+  const customer = data.customers.find((entry) => entry.id === item.linkedCustomerId);
+  const project = data.projects.find((entry) => entry.id === item.linkedProjectId);
+  return [customer?.company, project?.name].filter(Boolean);
+}
+
+function renderKnowledge() {
+  const query = knowledgeSearch.value.trim().toLowerCase();
+  const type = knowledgeTypeFilter.value;
+  const items = data.knowledge.filter((item) => {
+    const statusMatches = type === "archived" ? item.status === "archived" : item.status !== "archived";
+    const typeMatches = !type || type === "archived" || knowledgeTypeGroup(item.fileType) === type;
+    const haystack = [
+      item.title, item.fileName, item.tags, item.summary, item.keyPoints, item.risks, item.actions,
+      String(item.content || "").slice(0, 20_000), ...knowledgeRelationLabels(item),
+    ].join(" ").toLowerCase();
+    return statusMatches && typeMatches && (!query || haystack.includes(query));
+  });
+  const activeCount = data.knowledge.filter((item) => item.status !== "archived").length;
+  document.getElementById("knowledgeSummary").textContent = `${items.length} / ${activeCount} 份资料`;
+  knowledgeGrid.innerHTML = items.map((item) => {
+    const relations = knowledgeRelationLabels(item);
+    const analyzedAt = item.analyzedAt
+      ? new Date(item.analyzedAt).toLocaleDateString("zh-CN")
+      : "尚未 AI 分析";
+    return `
+      <article class="knowledge-card" data-action="edit-knowledge" data-entity-id="${item.id}">
+        <div class="knowledge-card-head">
+          <span class="file-type-badge">${escapeHtml(item.fileType || "file")}</span>
+          <span class="intelligence-status ${item.status === "archived" ? "archived" : "reviewed"}">${item.status === "archived" ? "已归档" : "可检索"}</span>
+        </div>
+        <h3>${escapeHtml(item.title || item.fileName || "未命名资料")}</h3>
+        <p>${escapeHtml(item.summary || "已完成本机文字提取。打开资料后可让 AI 生成摘要、重点、风险和下一步。")}</p>
+        <div class="knowledge-card-links">
+          ${relations.length ? relations.map((label) => `<span>${escapeHtml(label)}</span>`).join("") : "<span>未关联业务对象</span>"}
+        </div>
+        <div class="knowledge-card-meta">
+          <span>${formatFileSize(item.fileSize)} · ${(Number(item.charCount) || 0).toLocaleString("zh-CN")} 字</span>
+          <span>${escapeHtml(analyzedAt)}</span>
+        </div>
+      </article>
+    `;
+  }).join("") || emptyMarkup(query || type ? "没有符合条件的知识库资料。" : "知识库还是空的。点击“导入文件”添加第一份资料。");
+}
+
 function renderAll() {
   customerNavCount.textContent = String(data.customers.length);
   projectNavCount.textContent = String(data.projects.length);
   intelligenceNavCount.textContent = String(data.intelligence.length);
+  knowledgeNavCount.textContent = String(data.knowledge.filter((item) => item.status !== "archived").length);
   renderDashboard();
   renderCustomers();
   renderProjects();
   renderIntelligence();
+  renderKnowledge();
 }
 
 function fieldMarkup({ name, label, type = "text", required = false, full = false, options = [], placeholder = "", value = "" }) {
@@ -561,6 +688,89 @@ function researchPanelMarkup(item) {
   `;
 }
 
+function knowledgePanelMarkup(item) {
+  const running = activeKnowledgeAnalysisId === item.id;
+  const analyzedAt = item.analyzedAt
+    ? new Date(item.analyzedAt).toLocaleString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+    : "";
+  const analysisBoxes = [
+    ["摘要", item.summary],
+    ["关键事实与数据", item.keyPoints],
+    ["风险与待确认", item.risks],
+    ["建议下一步", item.actions],
+  ];
+  return `
+    <div class="knowledge-analysis-heading">
+      <div>
+        <strong>文件分析</strong>
+        <span>${analyzedAt ? `上次分析：${escapeHtml(analyzedAt)}` : "先在本机提取文字，再使用当前 AI 分析相关内容"}</span>
+      </div>
+      <div class="knowledge-file-actions">
+        <button type="button" data-action="open-knowledge-file">打开原文件</button>
+        <button type="button" data-action="run-knowledge-analysis" ${running ? "disabled" : ""}>${running ? "正在分析…" : (analyzedAt ? "重新分析" : "AI 分析")}</button>
+      </div>
+    </div>
+    ${item.warning ? `<div class="research-error">${escapeHtml(item.warning)}</div>` : ""}
+    <div class="knowledge-analysis-grid">
+      ${analysisBoxes.map(([label, value]) => `
+        <div class="knowledge-analysis-box">
+          <strong>${label}</strong>
+          <p>${escapeHtml(value || "等待 AI 分析")}</p>
+        </div>
+      `).join("")}
+    </div>
+    <div class="knowledge-preview">${escapeHtml(String(item.content || "").slice(0, 8_000))}${String(item.content || "").length > 8_000 ? "\n\n…（这里只预览前 8,000 字，问答会检索完整已保存内容）" : ""}</div>
+    <div id="knowledgeAnalysisError" class="research-error hidden"></div>
+  `;
+}
+
+function showKnowledgeAnalysisError(message) {
+  const element = document.getElementById("knowledgeAnalysisError");
+  if (!element) return;
+  element.textContent = message;
+  element.classList.remove("hidden");
+}
+
+async function runKnowledgeAnalysis() {
+  if (!editingId || activeKnowledgeAnalysisId) return;
+  const item = data.knowledge.find((entry) => entry.id === editingId);
+  if (!item) return;
+  const ai = currentResearchAiConfig();
+  if (!ai.model) {
+    showKnowledgeAnalysisError("当前 Ollama 还没有选择模型，请先到聊天设置中选择模型。");
+    return;
+  }
+  activeKnowledgeAnalysisId = item.id;
+  entityKnowledge.innerHTML = knowledgePanelMarkup(item);
+  try {
+    const result = await invoke("analyze_knowledge_document", {
+      request: {
+        title: item.title || item.fileName,
+        content: item.content,
+        provider: ai.provider,
+        model: ai.model,
+        ollamaBaseUrl: ai.ollamaBaseUrl,
+      },
+    });
+    Object.assign(item, {
+      summary: result.summary || "",
+      keyPoints: result.keyPoints || "",
+      risks: result.risks || "",
+      actions: result.actions || "",
+      analyzedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    activeKnowledgeAnalysisId = "";
+    saveData();
+    if (modalType === "knowledge" && editingId === item.id) openModal("knowledge", item.id);
+    showToast(`${item.title || item.fileName} 已完成文件分析`);
+  } catch (error) {
+    activeKnowledgeAnalysisId = "";
+    entityKnowledge.innerHTML = knowledgePanelMarkup(item);
+    showKnowledgeAnalysisError(String(error));
+  }
+}
+
 function timelineMarkup(relationType, relationId) {
   const activities = data.activities
     .filter((activity) => activity.relationType === relationType && activity.relationId === relationId)
@@ -571,6 +781,7 @@ function timelineMarkup(relationType, relationId) {
       <span class="timeline-dot"></span>
       <div><strong>${escapeHtml(ACTIVITY_TYPES[activity.kind] || captureTypeLabel(activity.kind))}</strong><p>${escapeHtml(activity.content)}</p></div>
       <time>${new Date(activity.createdAt).toLocaleString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time>
+      <button class="inline-delete" type="button" data-action="delete-activity" data-entity-id="${activity.id}" aria-label="删除这条记录" title="删除这条记录">×</button>
     </div>
   `).join("");
 }
@@ -608,6 +819,7 @@ function openModal(type, entityId = "") {
   const customer = type === "customer" && entityId ? data.customers.find((item) => item.id === entityId) : null;
   const project = type === "project" && entityId ? data.projects.find((item) => item.id === entityId) : null;
   const intelligence = type === "intelligence" && entityId ? data.intelligence.find((item) => item.id === entityId) : null;
+  const knowledge = type === "knowledge" && entityId ? data.knowledge.find((item) => item.id === entityId) : null;
   const taskRelations = [
     ["", "不关联"],
     ...data.projects.map((item) => [`project:${item.id}`, `项目 · ${item.name}`]),
@@ -615,6 +827,8 @@ function openModal(type, entityId = "") {
   ];
   const intelligenceCustomerOptions = [["", "不关联客户"], ...data.customers.map((item) => [item.id, item.company])];
   const intelligenceProjectOptions = [["", "不关联项目"], ...data.projects.map((item) => [item.id, item.name])];
+  const knowledgeCustomerOptions = [["", "不关联客户"], ...data.customers.map((item) => [item.id, item.company])];
+  const knowledgeProjectOptions = [["", "不关联项目"], ...data.projects.map((item) => [item.id, item.name])];
   const configs = {
     customer: {
       eyebrow: "CUSTOMER MANAGEMENT",
@@ -701,6 +915,19 @@ function openModal(type, entityId = "") {
         { name: "risks", label: "风险与待核验项（AI 判断）", type: "textarea", placeholder: "风险、矛盾信息或缺失证据", value: intelligence?.risks || "" },
       ],
     },
+    knowledge: {
+      eyebrow: "KNOWLEDGE & FILE ANALYSIS",
+      title: knowledge?.title || knowledge?.fileName || "知识库资料",
+      button: "保存资料",
+      fields: [
+        { name: "title", label: "资料名称", required: true, full: true, value: knowledge?.title || knowledge?.fileName || "" },
+        { name: "tags", label: "标签", placeholder: "例如：Target、合同、地址材料", value: knowledge?.tags || "" },
+        { name: "status", label: "资料状态", type: "select", options: [["active", "可检索"], ["archived", "已归档"]], value: knowledge?.status || "active" },
+        { name: "linkedCustomerId", label: "关联客户", type: "select", options: knowledgeCustomerOptions, value: knowledge?.linkedCustomerId || "" },
+        { name: "linkedProjectId", label: "关联项目", type: "select", options: knowledgeProjectOptions, value: knowledge?.linkedProjectId || "" },
+        { name: "manualNotes", label: "人工备注", type: "textarea", full: true, placeholder: "补充文件用途、版本差异或需要长期记住的内容", value: knowledge?.manualNotes || "" },
+      ],
+    },
   };
   const config = configs[type];
   if (!config) return;
@@ -715,6 +942,13 @@ function openModal(type, entityId = "") {
     entityResearch.classList.add("hidden");
     entityResearch.innerHTML = "";
   }
+  if (knowledge) {
+    entityKnowledge.innerHTML = knowledgePanelMarkup(knowledge);
+    entityKnowledge.classList.remove("hidden");
+  } else {
+    entityKnowledge.classList.add("hidden");
+    entityKnowledge.innerHTML = "";
+  }
   if (type === "customer" || type === "project") {
     entityRelations.innerHTML = relationPickerMarkup(type, customer || project);
     entityRelations.classList.remove("hidden");
@@ -722,12 +956,15 @@ function openModal(type, entityId = "") {
     entityRelations.classList.add("hidden");
     entityRelations.innerHTML = "";
   }
-  modalArchiveButton.classList.toggle("hidden", !customer && !project && !intelligence);
+  modalArchiveButton.classList.toggle("hidden", !customer && !project && !intelligence && !knowledge);
+  modalDeleteButton.classList.toggle("hidden", !customer && !project && !intelligence && !knowledge);
   modalArchiveButton.textContent = customer
     ? (customer.stage === "paused" ? "恢复为潜在线索" : "暂缓客户")
     : project
       ? (project.status === "archived" ? "恢复项目" : "归档项目")
-      : (intelligence?.status === "archived" ? "恢复背调" : "归档背调");
+      : intelligence
+        ? (intelligence.status === "archived" ? "恢复背调" : "归档背调")
+        : (knowledge?.status === "archived" ? "恢复资料" : "归档资料");
   if (customer || project) {
     const relationType = customer ? "customer" : "project";
     entityTimeline.innerHTML = `<div class="timeline-heading"><strong>${customer ? "沟通时间线" : "项目进展"}</strong><span>聊天自动记录与手动记录都会保留在这里</span></div>${timelineMarkup(relationType, entityId)}`;
@@ -747,10 +984,13 @@ function closeModal() {
   editingId = "";
   entityResearch.classList.add("hidden");
   entityResearch.innerHTML = "";
+  entityKnowledge.classList.add("hidden");
+  entityKnowledge.innerHTML = "";
   entityRelations.classList.add("hidden");
   entityRelations.innerHTML = "";
   entityTimeline.classList.add("hidden");
   modalArchiveButton.classList.add("hidden");
+  modalDeleteButton.classList.add("hidden");
 }
 
 function formValue(formData, key) {
@@ -959,6 +1199,20 @@ function submitEntity(event) {
       data.intelligence.unshift({ id: crypto.randomUUID(), ...values, createdAt: now });
       showToast("背调任务已创建");
     }
+  } else if (modalType === "knowledge") {
+    const item = data.knowledge.find((entry) => entry.id === editingId);
+    if (item) {
+      Object.assign(item, {
+        title: formValue(formData, "title"),
+        tags: formValue(formData, "tags"),
+        status: formValue(formData, "status") || "active",
+        linkedCustomerId: formValue(formData, "linkedCustomerId"),
+        linkedProjectId: formValue(formData, "linkedProjectId"),
+        manualNotes: formValue(formData, "manualNotes"),
+        updatedAt: now,
+      });
+      showToast("知识库资料已更新");
+    }
   }
   closeModal();
   saveData();
@@ -994,6 +1248,21 @@ function handleCaptureAction(captureId, action) {
   } else if (action === "archive") {
     capture.status = "archived";
     showToast("记录已归档");
+  } else if (action === "restore") {
+    capture.status = "inbox";
+    showToast("记录已恢复到待整理");
+  } else if (action === "delete") {
+    const linkedLabel = capture.generatedIntelligenceId
+      ? "，以及它自动创建的背调档案"
+      : capture.generatedTaskId
+        ? "，以及它自动创建的任务"
+        : "";
+    if (!window.confirm(`确定永久删除这条聊天自动记录${linkedLabel}吗？此操作无法撤销。`)) return;
+    data.captures = data.captures.filter((item) => item.id !== captureId);
+    data.activities = data.activities.filter((item) => item.sourceCaptureId !== captureId);
+    data.tasks = data.tasks.filter((item) => item.sourceCaptureId !== captureId);
+    data.intelligence = data.intelligence.filter((item) => item.sourceCaptureId !== captureId);
+    showToast("聊天自动记录已删除");
   }
   saveData();
 }
@@ -1018,9 +1287,326 @@ function toggleEntityArchive() {
     intelligence.status = intelligence.status === "archived" ? "planned" : "archived";
     intelligence.updatedAt = new Date().toISOString();
     showToast(intelligence.status === "archived" ? "背调已归档" : "背调已恢复");
+  } else if (modalType === "knowledge") {
+    const item = data.knowledge.find((entry) => entry.id === editingId);
+    if (!item) return;
+    item.status = item.status === "archived" ? "active" : "archived";
+    item.updatedAt = new Date().toISOString();
+    showToast(item.status === "archived" ? "资料已归档" : "资料已恢复");
   }
   closeModal();
   saveData();
+}
+
+function deleteCurrentEntity() {
+  if (!editingId) return;
+  const labels = {
+    customer: "客户及其沟通时间线",
+    project: "项目及其进展时间线",
+    intelligence: "背调档案与调查结果",
+    knowledge: "知识库资料与已提取文字",
+  };
+  if (!labels[modalType]) return;
+  if (!window.confirm(`确定永久删除这份${labels[modalType]}吗？关联的其他客户、项目不会被删除，此操作无法撤销。`)) return;
+  if (modalType === "customer") {
+    data.customers = data.customers.filter((item) => item.id !== editingId);
+    data.projects.forEach((project) => {
+      project.linkedCustomerIds = (project.linkedCustomerIds || []).filter((id) => id !== editingId);
+    });
+    data.activities = data.activities.filter((item) => !(item.relationType === "customer" && item.relationId === editingId));
+    data.tasks.forEach((task) => {
+      if (task.relationType === "customer" && task.relationId === editingId) {
+        task.relationType = "";
+        task.relationId = "";
+        task.relation = "";
+      }
+    });
+    data.intelligence.forEach((item) => {
+      if (item.linkedCustomerId === editingId) item.linkedCustomerId = "";
+    });
+    data.knowledge.forEach((item) => {
+      if (item.linkedCustomerId === editingId) item.linkedCustomerId = "";
+    });
+  } else if (modalType === "project") {
+    data.projects = data.projects.filter((item) => item.id !== editingId);
+    data.customers.forEach((customer) => {
+      customer.linkedProjectIds = (customer.linkedProjectIds || []).filter((id) => id !== editingId);
+    });
+    data.activities = data.activities.filter((item) => !(item.relationType === "project" && item.relationId === editingId));
+    data.tasks.forEach((task) => {
+      if (task.relationType === "project" && task.relationId === editingId) {
+        task.relationType = "";
+        task.relationId = "";
+        task.relation = "";
+      }
+    });
+    data.intelligence.forEach((item) => {
+      if (item.linkedProjectId === editingId) item.linkedProjectId = "";
+    });
+    data.knowledge.forEach((item) => {
+      if (item.linkedProjectId === editingId) item.linkedProjectId = "";
+    });
+  } else if (modalType === "intelligence") {
+    data.intelligence = data.intelligence.filter((item) => item.id !== editingId);
+    data.captures.forEach((capture) => {
+      if (capture.generatedIntelligenceId === editingId) {
+        capture.generatedIntelligenceId = "";
+        capture.relationType = "";
+        capture.relationId = "";
+      }
+    });
+  } else if (modalType === "knowledge") {
+    data.knowledge = data.knowledge.filter((item) => item.id !== editingId);
+  }
+  closeModal();
+  saveData();
+  showToast("已永久删除");
+}
+
+function deleteTask(taskId) {
+  const task = data.tasks.find((item) => item.id === taskId);
+  if (!task || !window.confirm(`确定删除任务“${task.title}”吗？`)) return;
+  data.tasks = data.tasks.filter((item) => item.id !== taskId);
+  data.captures.forEach((capture) => {
+    if (capture.generatedTaskId === taskId) capture.generatedTaskId = "";
+  });
+  saveData();
+  showToast("任务已删除");
+}
+
+function deleteNote(noteId) {
+  const note = data.notes.find((item) => item.id === noteId);
+  if (!note || !window.confirm(`确定删除记录“${note.title || "快速记录"}”吗？`)) return;
+  data.notes = data.notes.filter((item) => item.id !== noteId);
+  saveData();
+  showToast("记录已删除");
+}
+
+function deleteActivity(activityId) {
+  const activity = data.activities.find((item) => item.id === activityId);
+  if (!activity || !window.confirm("确定删除这条沟通 / 进展记录吗？")) return;
+  data.activities = data.activities.filter((item) => item.id !== activityId);
+  const currentType = modalType;
+  const currentId = editingId;
+  saveData();
+  if (currentType && currentId) openModal(currentType, currentId);
+  showToast("时间线记录已删除");
+}
+
+function knowledgeSearchTerms(question) {
+  const lower = String(question || "").toLowerCase();
+  const terms = new Set(lower.match(/[a-z0-9][a-z0-9._-]{1,}/g) || []);
+  const chineseRuns = lower.match(/[\u3400-\u9fff]{2,}/g) || [];
+  chineseRuns.forEach((run) => {
+    if (run.length <= 8) terms.add(run);
+    for (let index = 0; index < run.length - 1; index += 1) {
+      terms.add(run.slice(index, index + 2));
+    }
+  });
+  return [...terms].filter((term) => term.length > 1).slice(0, 40);
+}
+
+function splitKnowledgeContent(content, size = 1_600, overlap = 180) {
+  const text = String(content || "").trim();
+  if (!text) return [];
+  const chunks = [];
+  let start = 0;
+  while (start < text.length) {
+    let end = Math.min(text.length, start + size);
+    if (end < text.length) {
+      const boundary = Math.max(
+        text.lastIndexOf("\n", end),
+        text.lastIndexOf("。", end),
+        text.lastIndexOf(".", end),
+      );
+      if (boundary > start + Math.floor(size * 0.55)) end = boundary + 1;
+    }
+    const chunk = text.slice(start, end).trim();
+    if (chunk) chunks.push(chunk);
+    if (end >= text.length) break;
+    start = Math.max(start + 1, end - overlap);
+  }
+  return chunks;
+}
+
+function retrieveKnowledge(question, limit = 8) {
+  const terms = knowledgeSearchTerms(question);
+  const candidates = [];
+  data.knowledge.filter((item) => item.status !== "archived").forEach((item) => {
+    const titleText = `${item.title || ""} ${item.fileName || ""} ${item.tags || ""}`.toLowerCase();
+    splitKnowledgeContent(item.content).forEach((content, index) => {
+      const haystack = content.toLowerCase();
+      let score = 0;
+      terms.forEach((term) => {
+        if (titleText.includes(term)) score += 8;
+        let position = haystack.indexOf(term);
+        let occurrences = 0;
+        while (position >= 0 && occurrences < 8) {
+          score += term.length > 3 ? 4 : 2;
+          occurrences += 1;
+          position = haystack.indexOf(term, position + term.length);
+        }
+      });
+      if (index === 0) score += 0.2;
+      candidates.push({ item, content, chunkIndex: index, score });
+    });
+  });
+  const ranked = candidates.sort((a, b) => b.score - a.score);
+  const positive = ranked.filter((entry) => entry.score > 0);
+  return (positive.length ? positive : ranked).slice(0, limit);
+}
+
+function renderKnowledgeAnswerSources() {
+  knowledgeAnswerSources.innerHTML = latestKnowledgeSources.map((source, index) => `
+    <button type="button" data-action="open-knowledge-source" data-entity-id="${source.id}">
+      [K${index + 1}] ${escapeHtml(source.title)} · 片段 ${source.chunkIndex + 1}
+    </button>
+  `).join("");
+  knowledgeAnswerSources.classList.toggle("hidden", latestKnowledgeSources.length === 0);
+}
+
+async function askKnowledgeBase() {
+  const question = knowledgeQuestion.value.trim();
+  if (!question) {
+    knowledgeQaStatus.textContent = "请先输入想从文件中确认的问题。";
+    knowledgeQaStatus.className = "knowledge-qa-status error";
+    return;
+  }
+  const snippets = retrieveKnowledge(question);
+  if (!snippets.length) {
+    knowledgeQaStatus.textContent = "知识库还没有可检索资料，请先导入文件。";
+    knowledgeQaStatus.className = "knowledge-qa-status error";
+    return;
+  }
+  const ai = currentResearchAiConfig();
+  if (!ai.model) {
+    knowledgeQaStatus.textContent = "当前 Ollama 还没有选择模型，请先到聊天设置中选择模型。";
+    knowledgeQaStatus.className = "knowledge-qa-status error";
+    return;
+  }
+  latestKnowledgeSources = snippets.map((entry) => ({
+    id: entry.item.id,
+    title: entry.item.title || entry.item.fileName,
+    chunkIndex: entry.chunkIndex,
+  }));
+  const context = snippets.map((entry, index) => (
+    `[K${index + 1}]\n资料：${entry.item.title || entry.item.fileName}\n片段：${entry.chunkIndex + 1}\n${entry.content}`
+  )).join("\n\n");
+  const button = document.getElementById("askKnowledgeButton");
+  button.disabled = true;
+  button.textContent = "正在检索与分析…";
+  knowledgeQaStatus.textContent = `已在本机找到 ${snippets.length} 个相关片段，正在交给当前 AI 分析。`;
+  knowledgeQaStatus.className = "knowledge-qa-status";
+  knowledgeAnswer.classList.add("hidden");
+  knowledgeAnswerSources.classList.add("hidden");
+  try {
+    const answer = await invoke("ask_knowledge_base", {
+      request: {
+        question,
+        context,
+        provider: ai.provider,
+        model: ai.model,
+        ollamaBaseUrl: ai.ollamaBaseUrl,
+      },
+    });
+    knowledgeAnswer.textContent = answer;
+    knowledgeAnswer.classList.remove("hidden");
+    renderKnowledgeAnswerSources();
+    knowledgeQaStatus.textContent = "回答已完成。点击下方来源可打开对应资料核对原文。";
+  } catch (error) {
+    knowledgeQaStatus.textContent = String(error);
+    knowledgeQaStatus.className = "knowledge-qa-status error";
+  } finally {
+    button.disabled = false;
+    button.textContent = "开始分析";
+  }
+}
+
+async function importKnowledgeFiles() {
+  const button = document.getElementById("importKnowledgeButton");
+  button.disabled = true;
+  button.textContent = "正在读取文件…";
+  try {
+    const files = await invoke("import_knowledge_files");
+    if (!Array.isArray(files) || !files.length) return;
+    const previous = structuredClone(data.knowledge);
+    let imported = 0;
+    let replaced = 0;
+    const warnings = [];
+    files.forEach((file) => {
+      const existing = data.knowledge.find((item) => item.filePath === file.path);
+      if (existing) {
+        Object.assign(existing, {
+          fileName: file.name,
+          fileType: file.fileType,
+          fileSize: file.size,
+          content: file.content,
+          charCount: file.charCount,
+          pageCount: file.pageCount,
+          warning: file.warning,
+          summary: "",
+          keyPoints: "",
+          risks: "",
+          actions: "",
+          analyzedAt: "",
+          updatedAt: new Date().toISOString(),
+        });
+        replaced += 1;
+      } else {
+        const searchable = `${file.name} ${String(file.content || "").slice(0, 30_000)}`.toLowerCase();
+        const matchedCustomer = data.customers.find((customer) => {
+          const company = String(customer.company || "").trim().toLowerCase();
+          return company.length >= 2 && searchable.includes(company);
+        });
+        const matchedProject = data.projects.find((project) => {
+          const name = String(project.name || "").trim().toLowerCase();
+          return name.length >= 2 && searchable.includes(name);
+        });
+        data.knowledge.unshift({
+          id: crypto.randomUUID(),
+          title: file.name.replace(/\.[^.]+$/, ""),
+          fileName: file.name,
+          filePath: file.path,
+          fileType: file.fileType,
+          fileSize: file.size,
+          content: file.content,
+          charCount: file.charCount,
+          pageCount: file.pageCount,
+          warning: file.warning,
+          status: "active",
+          tags: "",
+          manualNotes: "",
+          summary: "",
+          keyPoints: "",
+          risks: "",
+          actions: "",
+          analyzedAt: "",
+          linkedCustomerId: matchedCustomer?.id || "",
+          linkedProjectId: matchedProject?.id || "",
+          createdAt: new Date().toISOString(),
+        });
+        imported += 1;
+      }
+      if (file.warning) warnings.push(`${file.name}：${file.warning}`);
+    });
+    const totalChars = data.knowledge.reduce((sum, item) => sum + String(item.content || "").length, 0);
+    if (totalChars > 2_500_000) {
+      data.knowledge = previous;
+      throw new Error("知识库已超过约 250 万字的本机安全容量。请先删除或归档并删除不再需要的资料，再分批导入。");
+    }
+    if (!saveData()) {
+      data.knowledge = previous;
+      renderAll();
+      return;
+    }
+    const summary = [imported ? `新增 ${imported} 份` : "", replaced ? `更新 ${replaced} 份` : ""].filter(Boolean).join("，");
+    showToast(`${summary || "文件"}已进入知识库${warnings.length ? "，部分长文件已截取" : ""}`);
+  } catch (error) {
+    showToast(String(error));
+  } finally {
+    button.disabled = false;
+    button.textContent = "＋ 导入文件";
+  }
 }
 
 function consumeWorkbenchTarget() {
@@ -1039,6 +1625,8 @@ function consumeWorkbenchTarget() {
     openModal("project", target.id);
   } else if (target.type === "intelligence" && target.id && data.intelligence.some((item) => item.id === target.id)) {
     openModal("intelligence", target.id);
+  } else if (target.type === "knowledge" && target.id && data.knowledge.some((item) => item.id === target.id)) {
+    openModal("knowledge", target.id);
   }
 }
 
@@ -1072,7 +1660,20 @@ document.addEventListener("click", (event) => {
   if (action === "edit-customer") openModal("customer", actionTarget.dataset.entityId);
   if (action === "edit-project") openModal("project", actionTarget.dataset.entityId);
   if (action === "edit-intelligence") openModal("intelligence", actionTarget.dataset.entityId);
+  if (action === "edit-knowledge") openModal("knowledge", actionTarget.dataset.entityId);
   if (action === "run-intelligence-research") runIntelligenceResearch();
+  if (action === "run-knowledge-analysis") runKnowledgeAnalysis();
+  if (action === "open-knowledge-file") {
+    const item = data.knowledge.find((entry) => entry.id === editingId);
+    if (item?.filePath) invoke("open_local_file", { path: item.filePath }).catch((error) => showKnowledgeAnalysisError(String(error)));
+  }
+  if (action === "open-knowledge-source") {
+    navigate("knowledge");
+    openModal("knowledge", actionTarget.dataset.entityId);
+  }
+  if (action === "delete-task") deleteTask(actionTarget.dataset.entityId);
+  if (action === "delete-note") deleteNote(actionTarget.dataset.entityId);
+  if (action === "delete-activity") deleteActivity(actionTarget.dataset.entityId);
   if (action === "open-research-source") {
     const url = actionTarget.dataset.sourceUrl;
     if (url) invoke("open_external_url", { url }).catch((error) => showResearchError(String(error)));
@@ -1097,6 +1698,14 @@ projectSearch.addEventListener("input", renderProjects);
 projectStatusFilter.addEventListener("change", renderProjects);
 intelligenceSearch.addEventListener("input", renderIntelligence);
 intelligenceStatusFilter.addEventListener("change", renderIntelligence);
+knowledgeSearch.addEventListener("input", renderKnowledge);
+knowledgeTypeFilter.addEventListener("change", renderKnowledge);
+captureStatusFilter.addEventListener("change", renderCaptureInbox);
+document.getElementById("importKnowledgeButton").addEventListener("click", importKnowledgeFiles);
+document.getElementById("askKnowledgeButton").addEventListener("click", askKnowledgeBase);
+knowledgeQuestion.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) askKnowledgeBase();
+});
 document.getElementById("quickAddButton").addEventListener("click", () => openModal("note"));
 document.getElementById("globalSearchButton").addEventListener("click", () => {
   navigate("customers");
@@ -1108,6 +1717,7 @@ document.getElementById("closeButton").addEventListener("click", () => appWindow
 document.getElementById("modalCloseButton").addEventListener("click", closeModal);
 document.getElementById("modalCancelButton").addEventListener("click", closeModal);
 modalArchiveButton.addEventListener("click", toggleEntityArchive);
+modalDeleteButton.addEventListener("click", deleteCurrentEntity);
 modalBackdrop.addEventListener("mousedown", (event) => {
   if (event.target === modalBackdrop) closeModal();
 });
