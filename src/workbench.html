@@ -35,7 +35,7 @@
           </button>
           <button class="nav-item" type="button" data-view="knowledge">
             <span class="nav-icon">▤</span><span>知识库</span>
-            <span class="soon-badge">即将推出</span>
+            <span id="knowledgeNavCount" class="nav-count">0</span>
           </button>
         </nav>
 
@@ -95,7 +95,14 @@
                   <h3>聊天自动记录</h3>
                   <p>客户动态、项目进展、重要决定和待办会先进入这里，保留原话供你整理。</p>
                 </div>
-                <span id="captureInboxCount" class="capture-count">0 条待整理</span>
+                <div class="capture-heading-actions">
+                  <select id="captureStatusFilter" class="mini-filter" aria-label="自动记录状态">
+                    <option value="inbox">待整理</option>
+                    <option value="archived">已归档</option>
+                    <option value="">全部记录</option>
+                  </select>
+                  <span id="captureInboxCount" class="capture-count">0 条待整理</span>
+                </div>
               </div>
               <div id="captureInbox" class="capture-list"></div>
             </article>
@@ -200,11 +207,46 @@
             <div id="intelligenceGrid" class="intelligence-grid"></div>
           </section>
 
-          <section id="knowledgeView" class="view empty-view" data-view-panel="knowledge">
-            <div class="empty-illustration">▤</div>
-            <span class="section-kicker">KNOWLEDGE & MEMORY</span>
-            <h2>知识库将在数据结构稳定后接入</h2>
-            <p>未来可导入产品画册、报价单、合同与客户资料，并按客户和项目自动关联。</p>
+          <section id="knowledgeView" class="view" data-view-panel="knowledge">
+            <div class="knowledge-intro">
+              <div>
+                <span class="section-kicker">KNOWLEDGE & FILE ANALYSIS</span>
+                <h2>让产品、合同与客户资料真正参与回答。</h2>
+                <p>支持 PDF、Word、PPT、Excel 与常见文本；AI 结论与原文件内容分开保存。</p>
+              </div>
+              <button id="importKnowledgeButton" class="primary-button" type="button">＋ 导入文件</button>
+            </div>
+            <div class="toolbar knowledge-toolbar">
+              <label class="search-box">
+                <span>⌕</span>
+                <input id="knowledgeSearch" type="search" placeholder="搜索文件名、摘要、标签或内容">
+              </label>
+              <select id="knowledgeTypeFilter" class="filter-select" aria-label="按文件类型筛选">
+                <option value="">全部类型</option>
+                <option value="pdf">PDF</option>
+                <option value="docx">Word</option>
+                <option value="pptx">PPT</option>
+                <option value="xlsx">Excel</option>
+                <option value="text">文本 / 代码</option>
+                <option value="archived">已归档</option>
+              </select>
+              <div class="view-summary"><strong id="knowledgeSummary">0 份资料</strong><span>本机解析并保存</span></div>
+            </div>
+            <div class="knowledge-layout">
+              <div id="knowledgeGrid" class="knowledge-grid"></div>
+              <aside class="knowledge-qa">
+                <div class="knowledge-qa-heading">
+                  <span class="section-kicker">ASK YOUR FILES</span>
+                  <h3>问知识库</h3>
+                  <p>先在本机检索相关片段，再交给当前 AI 回答并标注来源。</p>
+                </div>
+                <textarea id="knowledgeQuestion" rows="4" maxlength="1000" placeholder="例如：这几份 Target 地址合同里，付款条件和电话核验责任分别是什么？"></textarea>
+                <button id="askKnowledgeButton" class="primary-button" type="button">开始分析</button>
+                <p id="knowledgeQaStatus" class="knowledge-qa-status">知识库资料不会发送给搜索引擎；只有相关片段会交给你当前选择的 AI。</p>
+                <div id="knowledgeAnswer" class="knowledge-answer hidden"></div>
+                <div id="knowledgeAnswerSources" class="knowledge-answer-sources hidden"></div>
+              </aside>
+            </div>
           </section>
         </div>
       </section>
@@ -219,9 +261,11 @@
         <form id="entityForm">
           <div id="formFields" class="form-fields"></div>
           <div id="entityResearch" class="entity-research hidden"></div>
+          <div id="entityKnowledge" class="entity-knowledge hidden"></div>
           <div id="entityRelations" class="entity-relations hidden"></div>
           <div id="entityTimeline" class="entity-timeline hidden"></div>
           <div class="modal-actions">
+            <button id="modalDeleteButton" class="delete-action hidden" type="button">永久删除</button>
             <button id="modalArchiveButton" class="archive-action hidden" type="button">归档</button>
             <span class="modal-action-spacer"></span>
             <button id="modalCancelButton" class="ghost-action" type="button">取消</button>
