@@ -15,6 +15,7 @@ const menu = document.getElementById("menu");
 
 const states = ["idle", "thinking", "talking", "happy", "loading", "sleep", "error"];
 const BASE_WINDOW = { width: 440, height: 360 };
+const MENU_PANEL_WIDTH = 316;
 const TRANSIENT_STATE_DURATIONS = { happy: 1650 };
 let currentState = "idle";
 let scale = Number(localStorage.getItem("kardii-scale") || "1");
@@ -23,6 +24,7 @@ let clickTimer;
 let stateReturnTimer;
 let dragStart = null;
 let didDrag = false;
+let menuLayout = null;
 
 function touch() {
   lastInteraction = Date.now();
@@ -34,7 +36,7 @@ function setState(state) {
   currentState = state;
   petImage.src = `./assets/pet/${state}.webp`;
   petImage.alt = `Kardii ${state}`;
-  menu.classList.add("hidden");
+  void closeContextMenu();
   touch();
 
   const duration = TRANSIENT_STATE_DURATIONS[state];
@@ -51,6 +53,49 @@ async function setScale(nextScale) {
     Math.max(280, Math.round(BASE_WINDOW.width * scale)),
     Math.max(230, Math.round(BASE_WINDOW.height * scale)),
   ));
+}
+
+async function openContextMenu() {
+  if (!menu.classList.contains("hidden")) return;
+
+  const position = await appWindow.outerPosition();
+  const size = await appWindow.outerSize();
+  const pixelRatio = window.devicePixelRatio || 1;
+  const menuPhysicalWidth = Math.round(MENU_PANEL_WIDTH * pixelRatio);
+  const monitorLeft = Math.round((window.screen.availLeft || 0) * pixelRatio);
+  const monitorRight = monitorLeft + Math.round(window.screen.availWidth * pixelRatio);
+  const leftSpace = position.x - monitorLeft;
+  const rightSpace = monitorRight - (position.x + size.width);
+  const side = rightSpace >= menuPhysicalWidth || rightSpace >= leftSpace ? "right" : "left";
+  const expandedX = side === "left"
+    ? Math.max(monitorLeft, position.x - menuPhysicalWidth)
+    : position.x;
+
+  menuLayout = { position, side };
+  document.body.classList.add("menu-open", `menu-side-${side}`);
+  if (side === "left") {
+    await appWindow.setPosition(new PhysicalPosition(expandedX, position.y));
+  }
+  await appWindow.setSize(new LogicalSize(
+    Math.max(280, Math.round(BASE_WINDOW.width * scale)) + MENU_PANEL_WIDTH,
+    Math.max(230, Math.round(BASE_WINDOW.height * scale)),
+  ));
+  menu.classList.remove("hidden");
+}
+
+async function closeContextMenu() {
+  if (!menuLayout && menu.classList.contains("hidden")) return;
+  const layout = menuLayout;
+  menu.classList.add("hidden");
+  document.body.classList.remove("menu-open", "menu-side-left", "menu-side-right");
+  menuLayout = null;
+  await appWindow.setSize(new LogicalSize(
+    Math.max(280, Math.round(BASE_WINDOW.width * scale)),
+    Math.max(230, Math.round(BASE_WINDOW.height * scale)),
+  ));
+  if (layout?.position) {
+    await appWindow.setPosition(new PhysicalPosition(layout.position.x, layout.position.y));
+  }
 }
 
 async function restorePosition() {
@@ -128,6 +173,14 @@ async function toggleChat() {
   await chatWindow.setFocus();
 }
 
+async function openWorkbench() {
+  const workbenchWindow = (await getAllWindows()).find((window) => window.label === "workbench");
+  if (!workbenchWindow) return;
+  await workbenchWindow.show();
+  await workbenchWindow.unminimize();
+  await workbenchWindow.setFocus();
+}
+
 async function keepWindowOnScreen() {
   const margin = 8;
   const left = Number.isFinite(window.screen.availLeft) ? window.screen.availLeft : 0;
@@ -146,9 +199,8 @@ async function keepWindowOnScreen() {
 
 document.addEventListener("contextmenu", async (event) => {
   event.preventDefault();
-  const shouldOpen = menu.classList.contains("hidden");
-  menu.classList.toggle("hidden", !shouldOpen);
-  if (shouldOpen) await keepWindowOnScreen();
+  if (menu.classList.contains("hidden")) await openContextMenu();
+  else await closeContextMenu();
   touch();
 });
 
@@ -156,19 +208,23 @@ document.addEventListener("click", async (event) => {
   const state = event.target?.dataset?.state;
   const action = event.target?.dataset?.action;
 
+  if (state || action) await closeContextMenu();
   if (state) setState(state);
   if (action === "smaller") await setScale(scale - 0.1);
   if (action === "larger") await setScale(scale + 0.1);
   if (action === "reset") await setScale(1);
+  if (action === "workbench") await openWorkbench();
+  if (action === "chat") await toggleChat();
   if (action === "hide") await appWindow.hide();
   if (action === "quit") await invoke("quit_app");
 
-  if (!menu.contains(event.target)) menu.classList.add("hidden");
+  if (!menu.contains(event.target)) await closeContextMenu();
 });
 
-window.addEventListener("wheel", (event) => {
+window.addEventListener("wheel", async (event) => {
   event.preventDefault();
-  void setScale(scale + (event.deltaY < 0 ? 0.1 : -0.1));
+  await closeContextMenu();
+  await setScale(scale + (event.deltaY < 0 ? 0.1 : -0.1));
   touch();
 }, { passive: false });
 

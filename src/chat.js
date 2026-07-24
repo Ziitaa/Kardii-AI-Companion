@@ -1,4 +1,4 @@
-const { getCurrentWindow } = window.__TAURI__.window;
+const { getCurrentWindow, getAllWindows } = window.__TAURI__.window;
 const { emitTo } = window.__TAURI__.event;
 const { invoke, Channel } = window.__TAURI__.core;
 
@@ -10,6 +10,7 @@ const closeButton = document.getElementById("closeButton");
 const sendButton = document.getElementById("sendButton");
 const stopButton = document.getElementById("stopButton");
 const settingsButton = document.getElementById("settingsButton");
+const workbenchButton = document.getElementById("workbenchButton");
 const settingsPanel = document.getElementById("settingsPanel");
 const settingsCloseButton = document.getElementById("settingsCloseButton");
 const providerSelect = document.getElementById("providerSelect");
@@ -50,6 +51,10 @@ const memorySuggestion = document.getElementById("memorySuggestion");
 const memorySuggestionText = document.getElementById("memorySuggestionText");
 const confirmMemoryButton = document.getElementById("confirmMemoryButton");
 const dismissMemoryButton = document.getElementById("dismissMemoryButton");
+const businessCaptureNotice = document.getElementById("businessCaptureNotice");
+const businessCaptureText = document.getElementById("businessCaptureText");
+const undoBusinessCaptureButton = document.getElementById("undoBusinessCaptureButton");
+const openCapturedWorkbenchButton = document.getElementById("openCapturedWorkbenchButton");
 const copyMigrationButton = document.getElementById("copyMigrationButton");
 const showImportCodeButton = document.getElementById("showImportCodeButton");
 const migrationImportBox = document.getElementById("migrationImportBox");
@@ -119,7 +124,10 @@ const MEMORIES_KEY = "kardii-memories-v1";
 const TOOL_LOGS_KEY = "kardii-tool-logs-v1";
 const VOICE_SETTINGS_KEY = "kardii-voice-settings-v1";
 const AI_SETTINGS_KEY = "kardii-ai-settings-v1";
+const BUSINESS_DATA_KEY = "kardii-business-data-v1";
+const WORKBENCH_TARGET_KEY = "kardii-workbench-open-target-v1";
 const MAX_SAVED_MESSAGES = 50;
+const RESPONSE_LENGTH_VALUES = new Set(["auto", "1200", "4000", "8000"]);
 const PERSONALITIES = {
   healing: "耐心温暖，擅长安慰，也会温和地给出实用建议。",
   clingy: "喜欢陪着你，会撒娇和轻微吃醋，但不会影响正常回答。",
@@ -156,8 +164,11 @@ let activeRequestId = null;
 let profile = loadProfile();
 let memories = loadMemories();
 let suggestedMemory = null;
+let latestBusinessCaptureId = null;
+let businessCaptureTimer = null;
 let toolLogs = loadToolLogs();
 let pendingToolContext = null;
+let pendingKnowledgeContext = null;
 let previewDesktopCapture = null;
 let pendingDesktopCapture = null;
 let permissionResolver = null;
@@ -169,6 +180,14 @@ let systemVoices = [];
 let voiceSettings = loadVoiceSettings();
 let aiSettings = loadAiSettings();
 let ollamaModels = [];
+
+async function openWorkbench() {
+  const workbenchWindow = (await getAllWindows()).find((item) => item.label === "workbench");
+  if (!workbenchWindow) return;
+  await workbenchWindow.show();
+  await workbenchWindow.unminimize();
+  await workbenchWindow.setFocus();
+}
 
 function loadAiSettings() {
   try {
@@ -554,15 +573,17 @@ function addToolNotice(text) {
 
 function messagesWithToolContext() {
   const recent = conversation.slice(-12).map((message) => ({ ...message }));
-  if (!pendingToolContext || recent.length === 0) return recent;
+  if ((!pendingToolContext && !pendingKnowledgeContext) || recent.length === 0) return recent;
   const lastIndex = recent.length - 1;
   if (recent[lastIndex].role !== "user") return recent;
-  recent[lastIndex].content = [
-    `[用户明确授权的本地工具资料：${pendingToolContext.label}]`,
-    pendingToolContext.content,
-    "",
-    `[用户当前问题] ${recent[lastIndex].content}`,
-  ].join("\n");
+  const contextParts = [];
+  if (pendingToolContext) {
+    contextParts.push(`[用户明确授权的本地工具资料：${pendingToolContext.label}]`, pendingToolContext.content);
+  }
+  if (pendingKnowledgeContext) {
+    contextParts.push("[用户知识库中与当前问题最相关的本机检索片段]", pendingKnowledgeContext);
+  }
+  recent[lastIndex].content = [...contextParts, "", `[用户当前问题] ${recent[lastIndex].content}`].join("\n");
   return recent;
 }
 
@@ -656,16 +677,30 @@ function applyImportedPersonalization(data) {
 }
 
 function createFullBackup() {
+  let businessData = null;
+  try {
+    const saved = JSON.parse(localStorage.getItem(BUSINESS_DATA_KEY) || "null");
+    if (
+      saved?.version === 1
+      && Array.isArray(saved.customers)
+      && Array.isArray(saved.projects)
+      && Array.isArray(saved.tasks)
+      && Array.isArray(saved.notes)
+    ) businessData = saved;
+  } catch {
+    businessData = null;
+  }
   return {
     format: "kardii-backup",
     version: 1,
-    appVersion: "0.7.2",
+    appVersion: "0.8.2",
     createdAt: new Date().toISOString(),
     profile,
     memories,
     conversation,
     responseLength: responseLengthSelect.value,
     aiSettings,
+    businessData,
   };
 }
 
@@ -677,11 +712,11 @@ function applyFullBackup(data) {
   conversation = Array.isArray(data.conversation)
     ? data.conversation
       .filter((message) => ["user", "assistant"].includes(message?.role) && typeof message?.content === "string" && message.content.trim())
-      .map((message) => ({ role: message.role, content: message.content.slice(0, 8000) }))
+      .map((message) => ({ role: message.role, content: message.content.slice(0, 100_000) }))
       .slice(-MAX_SAVED_MESSAGES)
     : [];
   saveConversation();
-  const responseLength = ["250", "500", "900"].includes(String(data.responseLength)) ? String(data.responseLength) : "500";
+  const responseLength = RESPONSE_LENGTH_VALUES.has(String(data.responseLength)) ? String(data.responseLength) : "auto";
   responseLengthSelect.value = responseLength;
   localStorage.setItem(RESPONSE_LENGTH_KEY, responseLength);
   if (data.aiSettings && Object.hasOwn(AI_PROVIDERS, data.aiSettings.provider)) {
@@ -699,6 +734,15 @@ function applyFullBackup(data) {
     saveAiSettings();
     renderProviderSettings();
     void refreshProviderState();
+  }
+  if (
+    data.businessData?.version === 1
+    && Array.isArray(data.businessData.customers)
+    && Array.isArray(data.businessData.projects)
+    && Array.isArray(data.businessData.tasks)
+    && Array.isArray(data.businessData.notes)
+  ) {
+    localStorage.setItem(BUSINESS_DATA_KEY, JSON.stringify(data.businessData));
   }
   renderConversation();
 }
@@ -783,6 +827,349 @@ function maybeSuggestMemory(text) {
   suggestedMemory = clean;
   memorySuggestionText.textContent = `要让 Kardii 记住“${clean}”吗？`;
   memorySuggestion.classList.remove("hidden");
+}
+
+function loadBusinessData() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(BUSINESS_DATA_KEY) || "null");
+    if (!saved || typeof saved !== "object") return null;
+    return {
+      ...saved,
+      version: 1,
+      customers: Array.isArray(saved.customers) ? saved.customers : [],
+      projects: Array.isArray(saved.projects) ? saved.projects : [],
+      tasks: Array.isArray(saved.tasks) ? saved.tasks : [],
+      notes: Array.isArray(saved.notes) ? saved.notes : [],
+      captures: Array.isArray(saved.captures) ? saved.captures : [],
+      activities: Array.isArray(saved.activities) ? saved.activities : [],
+      intelligence: Array.isArray(saved.intelligence) ? saved.intelligence : [],
+      knowledge: Array.isArray(saved.knowledge) ? saved.knowledge : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+function chatKnowledgeTerms(text) {
+  const lower = String(text || "").toLowerCase();
+  const terms = new Set(lower.match(/[a-z0-9][a-z0-9._-]{1,}/g) || []);
+  (lower.match(/[\u3400-\u9fff]{2,}/g) || []).forEach((run) => {
+    if (run.length <= 8) terms.add(run);
+    for (let index = 0; index < run.length - 1; index += 1) terms.add(run.slice(index, index + 2));
+  });
+  return [...terms].filter((term) => term.length > 1).slice(0, 30);
+}
+
+function chatKnowledgeChunks(content, size = 1_500) {
+  const text = String(content || "").trim();
+  const chunks = [];
+  for (let start = 0; start < text.length; start += size - 150) {
+    const chunk = text.slice(start, start + size).trim();
+    if (chunk) chunks.push(chunk);
+    if (start + size >= text.length) break;
+  }
+  return chunks;
+}
+
+function prepareKnowledgeContext(text) {
+  pendingKnowledgeContext = null;
+  const businessData = loadBusinessData();
+  const knowledge = businessData?.knowledge.filter((item) => item.status !== "archived") || [];
+  if (!knowledge.length) return;
+  const lower = text.toLowerCase();
+  const explicit = /(?:知识库|文件|资料|合同|报价单|画册|产品手册|附件|文档)/.test(text);
+  const named = knowledge.some((item) => {
+    const title = String(item.title || item.fileName || "").trim().toLowerCase();
+    return title.length >= 2 && lower.includes(title);
+  });
+  if (!explicit && !named) return;
+  const terms = chatKnowledgeTerms(text);
+  const candidates = [];
+  knowledge.forEach((item) => {
+    const title = `${item.title || ""} ${item.fileName || ""} ${item.tags || ""}`.toLowerCase();
+    chatKnowledgeChunks(item.content).forEach((content, chunkIndex) => {
+      const haystack = content.toLowerCase();
+      let score = chunkIndex === 0 ? 0.1 : 0;
+      terms.forEach((term) => {
+        if (title.includes(term)) score += 8;
+        if (haystack.includes(term)) score += term.length > 3 ? 4 : 2;
+      });
+      candidates.push({ item, content, chunkIndex, score });
+    });
+  });
+  const ranked = candidates.sort((a, b) => b.score - a.score);
+  const selected = (ranked.some((item) => item.score > 0) ? ranked.filter((item) => item.score > 0) : ranked).slice(0, 6);
+  if (!selected.length) return;
+  pendingKnowledgeContext = selected.map((entry, index) => (
+    `[K${index + 1}] 资料：${entry.item.title || entry.item.fileName}，片段 ${entry.chunkIndex + 1}\n${entry.content}`
+  )).join("\n\n");
+  pendingKnowledgeContext += "\n\n[回答要求] 只根据以上片段回答；事实使用 [K1] 形式标注来源，资料不足时明确说明。";
+  chatHint.textContent = `已从知识库找到 ${selected.length} 个相关片段，将随本次问题发送给当前 AI`;
+}
+
+function businessCaptureType(text) {
+  if (/(?:背调|尽调)/.test(text)
+    || /(?:调查|核验|查一下|查查|查一查).*(?:公司|品牌|联系人|分销商|客户|供应商|市场)/
+      .test(text)
+    || /(?:公司|品牌|联系人|分销商|客户|供应商|市场).*(?:调查|核验|查一下|查查|查一查)/
+      .test(text)) return "intelligence";
+  if (/(?:决定|确定|改成|调整为|不要再|暂停|同意|已确认)/.test(text)) return "decision";
+  if (/(?:明天|后天|下周|提醒|跟进|联系|发送|确认|整理|准备|下一步|需要我|待办)/.test(text)) return "task";
+  if (/(?:客户|买家|采购|联系人|分销商|供应商|公司|品牌方)/.test(text)) return "customer";
+  if (/(?:项目|Target|欧洲市场|分销合作|入驻|展会)/i.test(text)) return "project";
+  return "";
+}
+
+function intelligenceSubjectFromMessage(text, relationName = "") {
+  if (relationName) return relationName;
+  const match = text.match(/(?:背调|尽调|调查|核验|查一下|查查|查一查)\s*([^，。；;！？!?]{2,80})/);
+  return String(match?.[1] || text)
+    .replace(/^(?:一下|一下这个|这个)\s*/, "")
+    .replace(/(?:看看|看下|确认|判断|是否|适不适合|能不能).*$/, "")
+    .trim()
+    .slice(0, 80) || "待确认背调对象";
+}
+
+function looksSensitiveBusinessText(text) {
+  return /(?:api[\s_-]*key|密码|口令|验证码|身份证|银行卡|私钥|secret|token)\s*[:：]?\s*\S+/i.test(text);
+}
+
+function relativeTaskDate(text) {
+  const dueDate = new Date();
+  dueDate.setHours(0, 0, 0, 0);
+  if (/后天/.test(text)) dueDate.setDate(dueDate.getDate() + 2);
+  else if (/明天/.test(text)) dueDate.setDate(dueDate.getDate() + 1);
+  else if (/下周/.test(text)) dueDate.setDate(dueDate.getDate() + 7);
+  else if (!/今天|今日/.test(text)) return "";
+  const offset = dueDate.getTimezoneOffset();
+  return new Date(dueDate.getTime() - offset * 60_000).toISOString().slice(0, 10);
+}
+
+function taskTitleFromMessage(text) {
+  const actionPattern = /(?:联系|发送|确认|整理|准备|跟进|回复|提交|询问|核对|预约|提醒)/;
+  const segments = text.split(/[，。；;！？!?]/).map((part) => part.trim()).filter(Boolean);
+  const selected = [...segments].reverse().find((part) => actionPattern.test(part)) || text;
+  return selected
+    .replace(/^(?:今天|今日|明天|后天|下周)\s*/, "")
+    .replace(/^(?:我|我们)?(?:还)?(?:需要|要|得|应该|请|记得)\s*/, "")
+    .slice(0, 120);
+}
+
+function captureBusinessMessage(text) {
+  const clean = text.trim().replace(/\s+/g, " ").slice(0, 1000);
+  const type = businessCaptureType(clean);
+  if (!type || looksSensitiveBusinessText(clean)) return null;
+
+  const businessData = loadBusinessData();
+  if (!businessData) return null;
+  const relationProject = businessData.projects.find((project) => clean.toLowerCase().includes(String(project.name || "").toLowerCase()));
+  const relationCustomer = businessData.customers.find((customer) => {
+    const company = String(customer.company || "").trim();
+    const contact = String(customer.contact || "").trim();
+    return (company && clean.toLowerCase().includes(company.toLowerCase()))
+      || (contact && clean.toLowerCase().includes(contact.toLowerCase()));
+  });
+  const capture = {
+    id: crypto.randomUUID(),
+    type,
+    content: clean,
+    source: "chat",
+    status: "inbox",
+    relationType: relationCustomer ? "customer" : relationProject ? "project" : "",
+    relationId: relationCustomer?.id || relationProject?.id || "",
+    relationName: relationCustomer?.company || relationProject?.name || "",
+    createdAt: new Date().toISOString(),
+  };
+  businessData.captures.unshift(capture);
+  if (capture.relationId) {
+    businessData.activities.unshift({
+      id: crypto.randomUUID(),
+      relationType: capture.relationType,
+      relationId: capture.relationId,
+      content: clean,
+      kind: type,
+      source: "chat",
+      sourceCaptureId: capture.id,
+      createdAt: capture.createdAt,
+    });
+  }
+  let generatedTask = null;
+  let generatedIntelligence = null;
+  if (type === "task") {
+    generatedTask = {
+      id: crypto.randomUUID(),
+      title: taskTitleFromMessage(clean),
+      relation: capture.relationName,
+      relationType: capture.relationType,
+      relationId: capture.relationId,
+      dueDate: relativeTaskDate(clean),
+      completed: false,
+      source: "chat",
+      sourceCaptureId: capture.id,
+      createdAt: capture.createdAt,
+    };
+    capture.generatedTaskId = generatedTask.id;
+    businessData.tasks.unshift(generatedTask);
+  } else if (type === "intelligence") {
+    generatedIntelligence = {
+      id: crypto.randomUUID(),
+      subject: intelligenceSubjectFromMessage(clean, relationCustomer?.company || ""),
+      kind: /联系人|个人/.test(clean) ? "person" : /品牌/.test(clean) ? "brand" : /市场/.test(clean) ? "market" : "company",
+      country: relationCustomer?.country || "",
+      website: relationCustomer?.website || "",
+      status: "planned",
+      objective: clean,
+      facts: "",
+      sources: "",
+      sourceDetails: [],
+      researchQueries: [],
+      researchedAt: "",
+      analysis: "",
+      opportunities: "",
+      risks: "",
+      nextAction: "确认调查范围并搜集公开来源",
+      linkedCustomerId: relationCustomer?.id || "",
+      linkedProjectId: relationProject?.id || "",
+      sourceCaptureId: capture.id,
+      createdAt: capture.createdAt,
+    };
+    capture.generatedIntelligenceId = generatedIntelligence.id;
+    capture.relationType = "intelligence";
+    capture.relationId = generatedIntelligence.id;
+    capture.relationName = generatedIntelligence.subject;
+    businessData.intelligence.unshift(generatedIntelligence);
+  }
+  localStorage.setItem(BUSINESS_DATA_KEY, JSON.stringify(businessData));
+
+  latestBusinessCaptureId = capture.id;
+  clearTimeout(businessCaptureTimer);
+  const typeLabels = { decision: "重要决定", task: "待办线索", customer: "客户信息", project: "项目动态", intelligence: "背调任务" };
+  const relationLabel = capture.relationName ? `已记录到「${capture.relationName}」` : `已记录${typeLabels[type]}`;
+  if (generatedIntelligence) {
+    businessCaptureText.textContent = `已创建背调任务：${generatedIntelligence.subject}，点“查看”即可开始联网调查`;
+  } else if (generatedTask) {
+    const tomorrow = relativeTaskDate("明天");
+    const dueLabel = generatedTask.dueDate === tomorrow ? "明日任务" : generatedTask.dueDate ? "定时任务" : "任务";
+    businessCaptureText.textContent = `${relationLabel}，并生成${dueLabel}：${generatedTask.title}`;
+  } else {
+    businessCaptureText.textContent = `${relationLabel}：${typeLabels[type]}`;
+  }
+  businessCaptureNotice.classList.remove("hidden");
+  businessCaptureTimer = setTimeout(() => businessCaptureNotice.classList.add("hidden"), 10000);
+  return { type, capture, generatedTask, generatedIntelligence };
+}
+
+function formatBusinessResearchReply(item, result) {
+  const sources = Array.isArray(result.sources) ? result.sources : [];
+  const sourceLines = sources.map((source, index) => (
+    `[${index + 1}] ${source.title || "公开来源"}\n${source.url}`
+  )).join("\n");
+  return [
+    `已经完成「${item.subject}」的第一轮联网背调，并保存到商务工作台。`,
+    result.facts ? `公开事实\n${result.facts}` : "",
+    result.analysis ? `AI 综合判断\n${result.analysis}` : "",
+    result.opportunities ? `合作机会\n${result.opportunities}` : "",
+    result.risks ? `风险与待核验项\n${result.risks}` : "",
+    result.nextAction ? `建议下一步\n${result.nextAction}` : "",
+    sourceLines ? `公开来源\n${sourceLines}` : "",
+    "这是一份基于公开搜索结果的初步调查，状态保持为“调查中”；关键注册、诉讼、财务或联系人信息仍需要人工核验。",
+  ].filter(Boolean).join("\n\n");
+}
+
+async function runBusinessResearchFromChat(captureResult) {
+  const intelligenceId = captureResult?.generatedIntelligence?.id;
+  if (!intelligenceId) return false;
+  stopSpeaking();
+  setSending(true);
+  stopButton.disabled = true;
+  await emitTo("main", "kardii-state", "thinking");
+  const replyBubble = addMessage(`正在联网调查 ${captureResult.generatedIntelligence.subject}，我会把来源和结论一起保存……`, "kardii");
+  try {
+    const ai = currentAiConfig();
+    const item = captureResult.generatedIntelligence;
+    const inProgressData = loadBusinessData();
+    const inProgressItem = inProgressData?.intelligence.find((entry) => entry.id === intelligenceId);
+    if (inProgressItem) {
+      inProgressItem.status = "researching";
+      inProgressItem.updatedAt = new Date().toISOString();
+      localStorage.setItem(BUSINESS_DATA_KEY, JSON.stringify(inProgressData));
+    }
+    const result = await invoke("run_business_research", {
+      request: {
+        subject: item.subject,
+        kind: item.kind,
+        country: item.country,
+        website: item.website,
+        objective: item.objective,
+        provider: ai.provider,
+        model: ai.model,
+        ollamaBaseUrl: ai.ollamaBaseUrl,
+      },
+    });
+    const businessData = loadBusinessData();
+    const savedItem = businessData?.intelligence.find((entry) => entry.id === intelligenceId);
+    if (savedItem) {
+      Object.assign(savedItem, {
+        facts: result.facts || "",
+        analysis: result.analysis || "",
+        opportunities: result.opportunities || "",
+        risks: result.risks || "",
+        nextAction: result.nextAction || "",
+        sources: (result.sources || []).map((source) => source.url).join("\n"),
+        sourceDetails: Array.isArray(result.sources) ? result.sources : [],
+        researchQueries: Array.isArray(result.queries) ? result.queries : [],
+        researchedAt: new Date().toISOString(),
+        status: "researching",
+        updatedAt: new Date().toISOString(),
+      });
+      localStorage.setItem(BUSINESS_DATA_KEY, JSON.stringify(businessData));
+    }
+    const replyText = formatBusinessResearchReply(savedItem || item, result);
+    replyBubble.textContent = replyText;
+    conversation.push({ role: "assistant", content: replyText });
+    saveConversation();
+    updateReplyActions();
+    businessCaptureText.textContent = `已完成 ${item.subject} 的联网背调并保存，点“查看”可核对来源`;
+    businessCaptureNotice.classList.remove("hidden");
+    clearTimeout(businessCaptureTimer);
+    businessCaptureTimer = setTimeout(() => businessCaptureNotice.classList.add("hidden"), 15000);
+    if (!speakText(replyText)) await emitTo("main", "kardii-state", "happy");
+    return true;
+  } catch (error) {
+    const businessData = loadBusinessData();
+    const savedItem = businessData?.intelligence.find((entry) => entry.id === intelligenceId);
+    if (savedItem) {
+      savedItem.status = "planned";
+      savedItem.nextAction = "补充准确公司名称、国家或官网后重新调查";
+      savedItem.updatedAt = new Date().toISOString();
+      localStorage.setItem(BUSINESS_DATA_KEY, JSON.stringify(businessData));
+    }
+    const replyText = `背调档案已经保存，但这次联网调查没有完成：${String(error)}\n\n你可以点“查看”补充公司国家、官网或更准确的全称，再重新调查。`;
+    replyBubble.textContent = replyText;
+    conversation.push({ role: "assistant", content: replyText });
+    saveConversation();
+    updateReplyActions();
+    await emitTo("main", "kardii-state", "error");
+    return true;
+  } finally {
+    setSending(false);
+    input.focus();
+  }
+}
+
+function undoBusinessCapture() {
+  if (!latestBusinessCaptureId) return;
+  const businessData = loadBusinessData();
+  if (!businessData) return;
+  businessData.captures = businessData.captures.filter((capture) => capture.id !== latestBusinessCaptureId);
+  businessData.activities = businessData.activities.filter((activity) => activity.sourceCaptureId !== latestBusinessCaptureId);
+  businessData.tasks = businessData.tasks.filter((task) => task.sourceCaptureId !== latestBusinessCaptureId);
+  businessData.intelligence = businessData.intelligence.filter((item) => item.sourceCaptureId !== latestBusinessCaptureId);
+  localStorage.setItem(BUSINESS_DATA_KEY, JSON.stringify(businessData));
+  latestBusinessCaptureId = null;
+  businessCaptureText.textContent = "刚才的商务记录已撤销";
+  clearTimeout(businessCaptureTimer);
+  businessCaptureTimer = setTimeout(() => businessCaptureNotice.classList.add("hidden"), 1200);
 }
 
 function showProfile() {
@@ -1300,61 +1687,123 @@ function setSending(nextSending) {
   updateReplyActions();
 }
 
-async function requestReply() {
-  stopSpeaking();
-  setSending(true);
-  await emitTo("main", "kardii-state", "thinking");
-  const usingToolContext = Boolean(pendingToolContext);
-  const usingDesktopCapture = Boolean(pendingDesktopCapture);
+function responseMaxTokens() {
+  const value = responseLengthSelect.value;
+  if (value === "auto") return 8_000;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.min(8_000, Math.max(1_200, parsed)) : 8_000;
+}
 
-  const replyBubble = addMessage("", "kardii");
+function mergeContinuationText(existing, continuation) {
+  const left = String(existing || "");
+  const right = String(continuation || "");
+  const maxOverlap = Math.min(600, left.length, right.length);
+  for (let length = maxOverlap; length >= 12; length -= 1) {
+    if (left.slice(-length) === right.slice(0, length)) {
+      return left + right.slice(length);
+    }
+  }
+  if (!left || !right) return left + right;
+  const separator = /\s$/.test(left) || /^\s/.test(right) ? "" : "\n";
+  return left + separator + right;
+}
+
+async function streamReplySegment({ messages, replyBubble, existingText, desktopImageDataUrl, maxTokens }) {
   activeRequestId = crypto.randomUUID();
-  let replyText = "";
-  let receivedText = false;
+  let segmentText = "";
+  let finishReason = "";
   let stopped = false;
+  let receivedText = false;
   const channel = new Channel();
-
   channel.onmessage = async (event) => {
     if (event.event === "delta" && event.data) {
-      replyText += event.data;
-      replyBubble.textContent = replyText;
+      segmentText += event.data;
+      replyBubble.textContent = existingText + segmentText;
       messagesElement.scrollTop = messagesElement.scrollHeight;
       if (!receivedText) {
         receivedText = true;
         await emitTo("main", "kardii-state", "talking");
       }
-    }
-    if (event.event === "stopped") {
+    } else if (event.event === "finish") {
+      finishReason = String(event.data || "");
+    } else if (event.event === "stopped") {
       stopped = true;
     }
   };
+  const ai = currentAiConfig();
+  await invoke("stream_ai_message", {
+    messages,
+    profile: currentProfile(),
+    provider: ai.provider,
+    model: ai.model,
+    ollamaBaseUrl: ai.ollamaBaseUrl,
+    requestId: activeRequestId,
+    maxTokens,
+    desktopImageDataUrl,
+    onEvent: channel,
+  });
+  activeRequestId = null;
+  return { segmentText, finishReason, stopped };
+}
+
+async function requestReply() {
+  stopSpeaking();
+  setSending(true);
+  await emitTo("main", "kardii-state", "thinking");
+  const usingToolContext = Boolean(pendingToolContext);
+  const usingKnowledgeContext = Boolean(pendingKnowledgeContext);
+  const usingDesktopCapture = Boolean(pendingDesktopCapture);
+  const baseMessages = messagesWithToolContext();
+  const replyBubble = addMessage("", "kardii");
+  const maxTokens = responseMaxTokens();
+  const maxSegments = responseLengthSelect.value === "1200" ? 2 : 5;
+  let replyText = "";
+  let stopped = false;
+  let finishReason = "";
 
   try {
-    const ai = currentAiConfig();
-    await invoke("stream_ai_message", {
-      messages: messagesWithToolContext(),
-      profile: currentProfile(),
-      provider: ai.provider,
-      model: ai.model,
-      ollamaBaseUrl: ai.ollamaBaseUrl,
-      requestId: activeRequestId,
-      maxTokens: Number(responseLengthSelect.value),
-      desktopImageDataUrl: pendingDesktopCapture?.dataUrl || null,
-      onEvent: channel,
-    });
+    let segmentMessages = baseMessages;
+    for (let segmentIndex = 0; segmentIndex < maxSegments; segmentIndex += 1) {
+      const result = await streamReplySegment({
+        messages: segmentMessages,
+        replyBubble,
+        existingText: replyText,
+        desktopImageDataUrl: segmentIndex === 0 ? pendingDesktopCapture?.dataUrl || null : null,
+        maxTokens,
+      });
+      replyText = mergeContinuationText(replyText, result.segmentText);
+      replyBubble.textContent = replyText;
+      stopped = result.stopped;
+      finishReason = result.finishReason;
+      if (stopped || finishReason !== "length") break;
+      chatHint.textContent = `回答较长，Kardii 正在自动续写第 ${segmentIndex + 2} 段…`;
+      segmentMessages = [
+        ...baseMessages.slice(-10),
+        { role: "assistant", content: replyText.slice(-16_000) },
+        {
+          role: "user",
+          content: "继续完成上一条回答。直接从被截断的位置接着写，不要重复已经写过的内容；把问题完整回答完，并以完整句子结束。",
+        },
+      ];
+    }
     if (replyText.trim()) {
+      if (finishReason === "length" && !stopped) {
+        replyText += "\n\n（内容仍超过当前模型的单次连续输出能力；可以回复“继续”接着问。）";
+        replyBubble.textContent = replyText;
+      }
       conversation.push({ role: "assistant", content: replyText.trim() });
       saveConversation();
       if (usingToolContext) {
         pendingToolContext = null;
         setToolStatus("工具资料已用于本次回答，不会在下一次提问中重复发送。", "success");
       }
+      if (usingKnowledgeContext) pendingKnowledgeContext = null;
       if (usingDesktopCapture) {
         pendingDesktopCapture = null;
         awarenessButton.classList.remove("has-capture");
         awarenessButton.title = "选择一个窗口让 Kardii 看看";
-        chatHint.textContent = "Enter 发送 · Shift + Enter 换行 · Esc 收起";
       }
+      chatHint.textContent = "Enter 发送 · Shift + Enter 换行 · Esc 收起";
     } else {
       replyBubble.textContent = stopped ? "已停止回答。" : "这次没有收到回复，请重试。";
     }
@@ -1363,7 +1812,7 @@ async function requestReply() {
       await emitTo("main", "kardii-state", shouldCelebrate ? "happy" : "idle");
     }
   } catch (error) {
-    replyBubble.textContent = String(error);
+    replyBubble.textContent = replyText ? `${replyText}\n\n续写时出错：${String(error)}` : String(error);
     await emitTo("main", "kardii-state", "error");
   } finally {
     activeRequestId = null;
@@ -1395,9 +1844,32 @@ form.addEventListener("submit", async (event) => {
   conversation.push({ role: "user", content: text });
   saveConversation();
   maybeSuggestMemory(text);
+  const captureResult = captureBusinessMessage(text);
+  if (!captureResult?.generatedIntelligence) prepareKnowledgeContext(text);
   input.value = "";
   resizeInput();
-  await requestReply();
+  if (captureResult?.generatedIntelligence) {
+    pendingKnowledgeContext = null;
+    await runBusinessResearchFromChat(captureResult);
+  } else {
+    await requestReply();
+  }
+});
+
+undoBusinessCaptureButton.addEventListener("click", undoBusinessCapture);
+openCapturedWorkbenchButton.addEventListener("click", async () => {
+  const businessData = loadBusinessData();
+  const capture = businessData?.captures.find((item) => item.id === latestBusinessCaptureId);
+  const target = capture?.relationId
+    ? {
+      view: capture.relationType === "customer" ? "customers" : capture.relationType === "intelligence" ? "intelligence" : "projects",
+      type: capture.relationType,
+      id: capture.relationId,
+    }
+    : { view: "dashboard" };
+  localStorage.setItem(WORKBENCH_TARGET_KEY, JSON.stringify(target));
+  businessCaptureNotice.classList.add("hidden");
+  await openWorkbench();
 });
 
 stopButton.addEventListener("click", async () => {
@@ -1643,6 +2115,8 @@ regenerateButton.addEventListener("click", async () => {
   conversation.splice(lastIndex, 1);
   saveConversation();
   renderConversation();
+  const latestUser = [...conversation].reverse().find((message) => message.role === "user");
+  if (latestUser) prepareKnowledgeContext(latestUser.content);
   await requestReply();
 });
 
@@ -1902,7 +2376,8 @@ clearHistoryButton.addEventListener("click", () => {
   setSettingsStatus("聊天记录已清空。", "success");
 });
 
-responseLengthSelect.value = localStorage.getItem(RESPONSE_LENGTH_KEY) || "500";
+const savedResponseLength = localStorage.getItem(RESPONSE_LENGTH_KEY) || "auto";
+responseLengthSelect.value = RESPONSE_LENGTH_VALUES.has(savedResponseLength) ? savedResponseLength : "auto";
 responseLengthSelect.addEventListener("change", () => {
   localStorage.setItem(RESPONSE_LENGTH_KEY, responseLengthSelect.value);
   setSettingsStatus("回答长度已保存。", "success");
@@ -1917,6 +2392,7 @@ input.addEventListener("keydown", (event) => {
 });
 
 settingsButton.addEventListener("click", showSettings);
+workbenchButton.addEventListener("click", openWorkbench);
 settingsCloseButton.addEventListener("click", hideSettings);
 profileButton.addEventListener("click", showProfile);
 profileCloseButton.addEventListener("click", hideProfile);

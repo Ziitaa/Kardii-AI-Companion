@@ -42,6 +42,23 @@
         "skipTaskbar": true,
         "shadow": true,
         "visible": false
+      },
+      {
+        "label": "workbench",
+        "title": "Kardii Business Workbench",
+        "url": "workbench.html",
+        "width": 1080,
+        "height": 720,
+        "minWidth": 820,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": false,
+        "skipTaskbar": false,
+        "shadow": true,
+        "visible": false
       }
     ],
     "security": {

@@ -24,6 +24,20 @@ body {
   background: transparent;
 }
 
+body.menu-open #pet {
+  width: calc(100% - 316px);
+}
+
+body.menu-side-left #pet {
+  right: 0;
+  left: auto;
+}
+
+body.menu-side-right #pet {
+  right: auto;
+  left: 0;
+}
+
 #pet:active {
   cursor: grabbing;
 }
@@ -56,6 +70,16 @@ body {
   border-radius: 14px;
   box-shadow: 0 10px 32px rgba(0, 0, 0, 0.3);
   backdrop-filter: blur(18px);
+}
+
+body.menu-side-left .menu {
+  right: auto;
+  left: 8px;
+}
+
+body.menu-side-right .menu {
+  right: 8px;
+  left: auto;
 }
 
 .menu.hidden {
