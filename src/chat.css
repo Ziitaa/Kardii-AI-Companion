@@ -85,7 +85,9 @@ header strong {
 }
 
 .icon-button:hover { background: rgba(205, 112, 148, 0.12); }
-.workbench-button { margin-left: auto; font-size: 16px; font-weight: 700; }
+.agent-center-button { margin-left: auto; font-size: 16px; font-weight: 700; }
+.agent-center-button + .workbench-button { margin-left: 0; }
+.workbench-button { margin-left: 0; font-size: 16px; font-weight: 700; }
 .workbench-button + .tools-button { margin-left: 0; }
 .tools-button { margin-left: 0; font-size: 15px; font-weight: 700; }
 .tools-button + .profile-button { margin-left: 0; }
@@ -233,7 +235,8 @@ textarea {
 
 #sendButton,
 #stopButton,
-#micButton {
+#micButton,
+#agentModeButton {
   display: grid;
   width: 34px;
   height: 34px;
@@ -256,6 +259,21 @@ textarea {
   font-size: 15px;
   background: #fff3f7;
   border: 1px solid #edcbd8;
+}
+
+#agentModeButton {
+  color: #9a667a;
+  font-size: 11px;
+  font-weight: 800;
+  background: #fff;
+  border: 1px solid #edcbd8;
+}
+
+#agentModeButton.active {
+  color: #fff;
+  background: linear-gradient(145deg, #8a72dd, #6651b8);
+  border-color: transparent;
+  box-shadow: 0 4px 12px rgba(102, 81, 184, 0.24);
 }
 
 #micButton:hover { background: #ffe8f1; }

@@ -11,6 +11,8 @@ const sendButton = document.getElementById("sendButton");
 const stopButton = document.getElementById("stopButton");
 const settingsButton = document.getElementById("settingsButton");
 const workbenchButton = document.getElementById("workbenchButton");
+const agentCenterButton = document.getElementById("agentCenterButton");
+const agentModeButton = document.getElementById("agentModeButton");
 const settingsPanel = document.getElementById("settingsPanel");
 const settingsCloseButton = document.getElementById("settingsCloseButton");
 const providerSelect = document.getElementById("providerSelect");
@@ -126,6 +128,9 @@ const VOICE_SETTINGS_KEY = "kardii-voice-settings-v1";
 const AI_SETTINGS_KEY = "kardii-ai-settings-v1";
 const BUSINESS_DATA_KEY = "kardii-business-data-v1";
 const WORKBENCH_TARGET_KEY = "kardii-workbench-open-target-v1";
+const AGENT_TASKS_KEY = "kardii-agent-tasks-v1";
+const AGENT_TARGET_KEY = "kardii-agent-open-target-v1";
+const AGENT_MODE_KEY = "kardii-chat-agent-mode-v1";
 const MAX_SAVED_MESSAGES = 50;
 const RESPONSE_LENGTH_VALUES = new Set(["auto", "1200", "4000", "8000"]);
 const PERSONALITIES = {
@@ -180,6 +185,7 @@ let systemVoices = [];
 let voiceSettings = loadVoiceSettings();
 let aiSettings = loadAiSettings();
 let ollamaModels = [];
+let agentMode = localStorage.getItem(AGENT_MODE_KEY) === "agent";
 
 async function openWorkbench() {
   const workbenchWindow = (await getAllWindows()).find((item) => item.label === "workbench");
@@ -187,6 +193,74 @@ async function openWorkbench() {
   await workbenchWindow.show();
   await workbenchWindow.unminimize();
   await workbenchWindow.setFocus();
+}
+
+async function openAgentCenter() {
+  const agentWindow = (await getAllWindows()).find((item) => item.label === "agent");
+  if (!agentWindow) return;
+  await agentWindow.show();
+  await agentWindow.unminimize();
+  await agentWindow.setFocus();
+}
+
+function renderAgentMode() {
+  agentModeButton.classList.toggle("active", agentMode);
+  agentModeButton.title = agentMode ? "当前是 Agent 模式，点击切回普通聊天" : "交给 Agent 执行";
+  input.placeholder = agentMode ? "" : "问问 Kardii……";
+  chatHint.textContent = agentMode
+    ? "Agent 模式 · 发送后会在任务中心制定计划并执行"
+    : "Enter 发送 · Shift + Enter 换行 · Esc 收起";
+}
+
+async function createAgentTaskFromChat(goal) {
+  let tasks = [];
+  try {
+    const saved = JSON.parse(localStorage.getItem(AGENT_TASKS_KEY) || "[]");
+    if (Array.isArray(saved)) tasks = saved;
+  } catch {
+    tasks = [];
+  }
+  const createdAt = new Date().toISOString();
+  const task = {
+    id: crypto.randomUUID(),
+    goal: goal.slice(0, 4_000),
+    title: goal.replace(/\s+/g, " ").slice(0, 60) || "Agent 任务",
+    summary: "",
+    status: "draft",
+    plan: [],
+    history: [],
+    activities: [{
+      id: crypto.randomUUID(),
+      kind: "system",
+      title: "任务已从聊天创建",
+      detail: "Kardii 将先制定计划，再逐步执行。涉及高权限工具时会等待你的确认。",
+      createdAt,
+    }],
+    currentAction: null,
+    pendingAction: null,
+    question: "",
+    finalAnswer: "",
+    error: "",
+    maxSteps: 12,
+    stepCount: 0,
+    aiCalls: 0,
+    toolCalls: 0,
+    createdAt,
+    updatedAt: createdAt,
+  };
+  tasks.unshift(task);
+  localStorage.setItem(AGENT_TASKS_KEY, JSON.stringify(tasks.slice(0, 100)));
+  localStorage.setItem(AGENT_TARGET_KEY, JSON.stringify({ taskId: task.id, autoStart: true }));
+  const reply = `已经交给 Kardii Agent：${task.title}\n我会在任务中心先列出计划，再开始执行；需要读取文件、剪贴板、打开网页或运行命令时会停下来问你。`;
+  addMessage(goal, "user");
+  addMessage(reply, "kardii");
+  conversation.push({ role: "user", content: goal });
+  conversation.push({ role: "assistant", content: reply });
+  saveConversation();
+  updateReplyActions();
+  input.value = "";
+  resizeInput();
+  await openAgentCenter();
 }
 
 function loadAiSettings() {
@@ -678,6 +752,7 @@ function applyImportedPersonalization(data) {
 
 function createFullBackup() {
   let businessData = null;
+  let agentTasks = [];
   try {
     const saved = JSON.parse(localStorage.getItem(BUSINESS_DATA_KEY) || "null");
     if (
@@ -690,10 +765,16 @@ function createFullBackup() {
   } catch {
     businessData = null;
   }
+  try {
+    const saved = JSON.parse(localStorage.getItem(AGENT_TASKS_KEY) || "[]");
+    if (Array.isArray(saved)) agentTasks = saved.slice(0, 100);
+  } catch {
+    agentTasks = [];
+  }
   return {
     format: "kardii-backup",
     version: 1,
-    appVersion: "0.8.2",
+    appVersion: "1.0.0",
     createdAt: new Date().toISOString(),
     profile,
     memories,
@@ -701,6 +782,7 @@ function createFullBackup() {
     responseLength: responseLengthSelect.value,
     aiSettings,
     businessData,
+    agentTasks,
   };
 }
 
@@ -743,6 +825,9 @@ function applyFullBackup(data) {
     && Array.isArray(data.businessData.notes)
   ) {
     localStorage.setItem(BUSINESS_DATA_KEY, JSON.stringify(data.businessData));
+  }
+  if (Array.isArray(data.agentTasks)) {
+    localStorage.setItem(AGENT_TASKS_KEY, JSON.stringify(data.agentTasks.slice(0, 100)));
   }
   renderConversation();
 }
@@ -844,6 +929,9 @@ function loadBusinessData() {
       activities: Array.isArray(saved.activities) ? saved.activities : [],
       intelligence: Array.isArray(saved.intelligence) ? saved.intelligence : [],
       knowledge: Array.isArray(saved.knowledge) ? saved.knowledge : [],
+      settings: {
+        autoCaptureEnabled: saved.settings?.autoCaptureEnabled === true,
+      },
     };
   } catch {
     return null;
@@ -962,6 +1050,7 @@ function captureBusinessMessage(text) {
 
   const businessData = loadBusinessData();
   if (!businessData) return null;
+  if (businessData.settings?.autoCaptureEnabled !== true) return null;
   const relationProject = businessData.projects.find((project) => clean.toLowerCase().includes(String(project.name || "").toLowerCase()));
   const relationCustomer = businessData.customers.find((customer) => {
     const company = String(customer.company || "").trim();
@@ -1840,6 +1929,11 @@ form.addEventListener("submit", async (event) => {
     return;
   }
 
+  if (agentMode) {
+    await createAgentTaskFromChat(text);
+    return;
+  }
+
   addMessage(text, "user");
   conversation.push({ role: "user", content: text });
   saveConversation();
@@ -2082,7 +2176,7 @@ importBackupButton.addEventListener("click", async () => {
     const contents = await invoke("import_backup_file");
     if (!contents) return;
     const data = JSON.parse(contents);
-    if (!window.confirm("导入会替换当前个性、记忆和聊天记录，是否继续？")) return;
+    if (!window.confirm("导入会替换当前个性、记忆、聊天记录，以及备份中包含的工作台和 Agent 任务，是否继续？")) return;
     applyFullBackup(data);
     setProfileStatus("完整备份导入成功。API Key 未被修改。", "success");
   } catch (error) {
@@ -2393,6 +2487,13 @@ input.addEventListener("keydown", (event) => {
 
 settingsButton.addEventListener("click", showSettings);
 workbenchButton.addEventListener("click", openWorkbench);
+agentCenterButton.addEventListener("click", openAgentCenter);
+agentModeButton.addEventListener("click", () => {
+  agentMode = !agentMode;
+  localStorage.setItem(AGENT_MODE_KEY, agentMode ? "agent" : "chat");
+  renderAgentMode();
+  input.focus();
+});
 settingsCloseButton.addEventListener("click", hideSettings);
 profileButton.addEventListener("click", showProfile);
 profileCloseButton.addEventListener("click", hideProfile);
@@ -2422,6 +2523,7 @@ checkUpdateButton.addEventListener("click", checkForAppUpdate);
 installUpdateButton.addEventListener("click", installAppUpdate);
 
 renderConversation();
+renderAgentMode();
 renderToolLogs();
 renderProviderSettings();
 void refreshProviderState(true);
