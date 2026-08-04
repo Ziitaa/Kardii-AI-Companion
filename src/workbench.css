@@ -93,6 +93,21 @@ button { cursor: pointer; }
 .nav-icon { color: #d7a0b5; font-size: 17px; }
 .nav-count { min-width: 22px; padding: 2px 6px; color: #d9e0e8; font-size: 10px; text-align: center; background: rgba(255, 255, 255, 0.09); border-radius: 999px; }
 .sidebar-footer { display: grid; gap: 10px; margin-top: auto; }
+.capture-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  color: #d9e0e8;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.035);
+}
+.capture-toggle input { margin: 0; accent-color: #d680a0; }
+.capture-toggle strong, .capture-toggle small { display: block; }
+.capture-toggle strong { font-size: 10px; }
+.capture-toggle small { margin-top: 2px; color: #8190a2; font-size: 8px; }
 .ask-kardii {
   display: flex;
   align-items: center;

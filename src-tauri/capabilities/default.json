@@ -5,7 +5,8 @@
   "windows": [
     "main",
     "chat",
-    "workbench"
+    "workbench",
+    "agent"
   ],
   "permissions": [
     "core:default",

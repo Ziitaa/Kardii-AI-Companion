@@ -14,7 +14,8 @@
           <strong>Kardii</strong>
           <span id="activeModelBadge" class="active-model-badge">DeepSeek</span>
         </div>
-        <button id="workbenchButton" class="icon-button workbench-button" type="button" aria-label="商务工作台" title="打开商务工作台">▦</button>
+        <button id="agentCenterButton" class="icon-button agent-center-button" type="button" aria-label="Agent 任务中心" title="打开 Agent 任务中心">✦</button>
+        <button id="workbenchButton" class="icon-button workbench-button" type="button" aria-label="工作台" title="打开工作台">▦</button>
         <button id="toolsButton" class="icon-button tools-button" type="button" aria-label="桌面工具">⌘</button>
         <button id="profileButton" class="icon-button profile-button" type="button" aria-label="个性与记忆">♡</button>
         <button id="settingsButton" class="icon-button settings-button" type="button" aria-label="AI 设置">⚙</button>
@@ -46,7 +47,8 @@
       </div>
 
       <form id="chatForm">
-        <textarea id="messageInput" rows="1" maxlength="1000" placeholder="问问 Kardii……" aria-label="消息"></textarea>
+        <textarea id="messageInput" rows="1" maxlength="4000" placeholder="问问 Kardii……" aria-label="消息"></textarea>
+        <button id="agentModeButton" type="button" aria-label="切换 Agent 模式" title="交给 Agent 执行">A</button>
        <button id="awarenessButton" type="button" aria-label="查看桌面上下文" title="选择一个窗口让 Kardii 看看">👁</button>
         <button id="micButton" type="button" aria-label="开始语音输入" title="语音输入">🎙</button>
         <button id="stopButton" class="hidden" type="button" aria-label="停止回答">■</button>
@@ -214,7 +216,7 @@
             <button id="exportBackupButton" class="secondary-button" type="button">导出完整备份</button>
             <button id="importBackupButton" class="secondary-button" type="button">导入完整备份</button>
           </div>
-          <p class="backup-note">迁移码只包含个性和长期记忆；完整备份还包含聊天记录。API Key 永远不会导出。</p>
+          <p class="backup-note">迁移码只包含个性和长期记忆；完整备份还包含聊天记录、工作台和 Agent 任务。API Key 永远不会导出。</p>
         </div>
       </section>
 

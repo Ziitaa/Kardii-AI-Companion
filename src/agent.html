@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Kardii Agent</title>
+    <link rel="stylesheet" href="./agent.css">
+  </head>
+  <body>
+    <main class="agent-shell">
+      <header class="titlebar" data-tauri-drag-region>
+        <div class="brand" data-tauri-drag-region>
+          <span class="brand-mark">K</span>
+          <div><strong>Kardii Agent</strong><span>计划、执行、检查，再继续</span></div>
+        </div>
+        <div class="window-actions">
+          <button id="openChatButton" type="button">聊天</button>
+          <button id="minimizeButton" type="button" aria-label="最小化">—</button>
+          <button id="closeButton" type="button" aria-label="关闭">×</button>
+        </div>
+      </header>
+
+      <div class="workspace">
+        <aside class="task-sidebar">
+          <button id="showCreateButton" class="new-task-button" type="button">＋ 新任务</button>
+          <div class="task-filter-row" role="group" aria-label="任务筛选">
+            <button class="task-filter active" type="button" data-filter="active">进行中</button>
+            <button class="task-filter" type="button" data-filter="done">已结束</button>
+            <button class="task-filter" type="button" data-filter="all">全部</button>
+          </div>
+          <div id="taskList" class="task-list"></div>
+        </aside>
+
+        <section class="task-main">
+          <section id="createView" class="create-view">
+            <div class="create-copy">
+              <span class="eyebrow">NEW AGENT TASK</span>
+              <h1>告诉 Kardii 你想完成什么</h1>
+              <p>它会先制定计划，再逐步选择工具。涉及你的文件、剪贴板、浏览器或终端时一定会暂停等待确认。</p>
+            </div>
+            <form id="createTaskForm" class="create-form">
+              <label for="goalInput">任务目标</label>
+              <textarea id="goalInput" rows="7" maxlength="4000" required></textarea>
+              <div class="create-options">
+                <label for="maxStepsInput">最多执行步骤</label>
+                <input id="maxStepsInput" type="number" min="3" max="20" value="12">
+              </div>
+              <button id="startTaskButton" class="primary-button" type="submit">交给 Kardii</button>
+            </form>
+          </section>
+
+          <section id="taskView" class="task-view hidden">
+            <div class="task-heading">
+              <div>
+                <span id="taskStatusBadge" class="status-badge">准备中</span>
+                <h1 id="taskTitle">Agent 任务</h1>
+                <p id="taskGoal"></p>
+              </div>
+              <button id="deleteTaskButton" class="danger-text-button" type="button">删除</button>
+            </div>
+
+            <div class="metric-row">
+              <div><span>执行步数</span><strong id="stepMetric">0 / 12</strong></div>
+              <div><span>AI 判断</span><strong id="aiMetric">0</strong></div>
+              <div><span>工具调用</span><strong id="toolMetric">0</strong></div>
+              <div><span>更新时间</span><strong id="updatedMetric">—</strong></div>
+            </div>
+
+            <section class="panel plan-panel">
+              <div class="panel-heading"><div><span class="eyebrow">PLAN</span><h2>执行计划</h2></div><span id="planSummary"></span></div>
+              <div id="planList" class="plan-list"></div>
+            </section>
+
+            <section id="currentActionPanel" class="panel current-action hidden">
+              <span class="eyebrow">CURRENT ACTION</span>
+              <h2 id="currentActionTitle"></h2>
+              <p id="currentActionExplanation"></p>
+            </section>
+
+            <section id="questionPanel" class="panel question-panel hidden">
+              <span class="eyebrow">NEED YOUR INPUT</span>
+              <h2 id="questionText"></h2>
+              <textarea id="questionAnswer" rows="4" maxlength="4000"></textarea>
+              <button id="submitAnswerButton" class="primary-button" type="button">提交并继续</button>
+            </section>
+
+            <section id="resultPanel" class="panel result-panel hidden">
+              <div class="panel-heading"><div><span class="eyebrow">RESULT</span><h2>完成结果</h2></div><button id="copyResultButton" type="button">复制</button></div>
+              <div id="finalAnswer" class="final-answer"></div>
+            </section>
+
+            <section class="panel log-panel">
+              <div class="panel-heading"><div><span class="eyebrow">ACTIVITY</span><h2>执行记录</h2></div><button id="toggleLogsButton" type="button">收起</button></div>
+              <div id="activityList" class="activity-list"></div>
+            </section>
+
+            <div class="task-controls">
+              <button id="pauseButton" class="secondary-button" type="button">暂停</button>
+              <button id="resumeButton" class="primary-button hidden" type="button">继续</button>
+              <button id="retryButton" class="primary-button hidden" type="button">重试</button>
+              <button id="cancelButton" class="secondary-button" type="button">取消任务</button>
+            </div>
+          </section>
+        </section>
+      </div>
+
+      <section id="permissionPanel" class="permission-overlay hidden" aria-label="Agent 操作确认">
+        <div class="permission-card">
+          <span id="permissionBadge" class="permission-badge">需要你的允许</span>
+          <h2 id="permissionTitle">确认操作</h2>
+          <p id="permissionDescription"></p>
+          <pre id="permissionDetail"></pre>
+          <div class="permission-actions">
+            <button id="denyPermissionButton" class="secondary-button" type="button">拒绝</button>
+            <button id="allowPermissionButton" class="primary-button" type="button">允许这一次</button>
+          </div>
+        </div>
+      </section>
+
+      <div id="toast" class="toast hidden"></div>
+    </main>
+    <script src="./agent.js"></script>
+  </body>
+</html>

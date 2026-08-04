@@ -61,49 +61,10 @@ const viewMeta = {
 
 const seedData = {
   version: 1,
+  settings: { autoCaptureEnabled: false },
   customers: [],
-  projects: [
-    {
-      id: crypto.randomUUID(),
-      name: "Target 入驻",
-      goal: "完成美国地址、资料审核与平台入驻验证。",
-      status: "active",
-      progress: 68,
-      nextAction: "确认预审表与地址材料最终清单",
-      dueDate: "",
-      createdAt: new Date().toISOString(),
-    },
-    {
-      id: crypto.randomUUID(),
-      name: "欧洲市场启动",
-      goal: "建立欧洲渠道网络，筛选分销商与长期合作伙伴。",
-      status: "active",
-      progress: 24,
-      nextAction: "建立首批目标渠道名单",
-      dueDate: "",
-      createdAt: new Date().toISOString(),
-    },
-    {
-      id: crypto.randomUUID(),
-      name: "分销合作体系",
-      goal: "明确采购、分销与深度合作的分层对接机制。",
-      status: "active",
-      progress: 42,
-      nextAction: "整理合作分级与跟进话术",
-      dueDate: "",
-      createdAt: new Date().toISOString(),
-    },
-  ],
-  tasks: [
-    {
-      id: crypto.randomUUID(),
-      title: "整理本周最优先的 BD 下一步",
-      relation: "Kardii v0.9",
-      dueDate: dateInputValue(new Date()),
-      completed: false,
-      createdAt: new Date().toISOString(),
-    },
-  ],
+  projects: [],
+  tasks: [],
   notes: [],
   captures: [],
   activities: [],
@@ -142,6 +103,7 @@ const knowledgeQuestion = document.getElementById("knowledgeQuestion");
 const knowledgeQaStatus = document.getElementById("knowledgeQaStatus");
 const knowledgeAnswer = document.getElementById("knowledgeAnswer");
 const knowledgeAnswerSources = document.getElementById("knowledgeAnswerSources");
+const autoCaptureToggle = document.getElementById("autoCaptureToggle");
 const taskList = document.getElementById("taskList");
 const dashboardProjects = document.getElementById("dashboardProjects");
 const dashboardFollowups = document.getElementById("dashboardFollowups");
@@ -181,6 +143,9 @@ function loadData() {
     }
     const normalized = {
       version: 1,
+      settings: {
+        autoCaptureEnabled: saved.settings?.autoCaptureEnabled === true,
+      },
       customers: Array.isArray(saved.customers) ? saved.customers.map((customer) => ({
         priority: "medium",
         tags: "",
@@ -618,6 +583,7 @@ function renderKnowledge() {
 }
 
 function renderAll() {
+  autoCaptureToggle.checked = data.settings?.autoCaptureEnabled === true;
   customerNavCount.textContent = String(data.customers.length);
   projectNavCount.textContent = String(data.projects.length);
   intelligenceNavCount.textContent = String(data.intelligence.length);
@@ -629,12 +595,12 @@ function renderAll() {
   renderKnowledge();
 }
 
-function fieldMarkup({ name, label, type = "text", required = false, full = false, options = [], placeholder = "", value = "" }) {
+function fieldMarkup({ name, label, type = "text", required = false, full = false, options = [], value = "" }) {
   const control = type === "textarea"
-    ? `<textarea name="${name}" placeholder="${escapeHtml(placeholder)}">${escapeHtml(value)}</textarea>`
+    ? `<textarea name="${name}">${escapeHtml(value)}</textarea>`
     : type === "select"
       ? `<select name="${name}">${options.map(([optionValue, optionLabel]) => `<option value="${escapeHtml(optionValue)}" ${optionValue === value ? "selected" : ""}>${escapeHtml(optionLabel)}</option>`).join("")}</select>`
-      : `<input name="${name}" type="${type}" value="${escapeHtml(value)}" placeholder="${escapeHtml(placeholder)}" ${required ? "required" : ""} ${type === "number" ? 'min="0" max="100"' : ""}>`;
+      : `<input name="${name}" type="${type}" value="${escapeHtml(value)}" ${required ? "required" : ""} ${type === "number" ? 'min="0" max="100"' : ""}>`;
   return `<div class="form-field ${full ? "full" : ""}"><label>${label}${required ? " *" : ""}</label>${control}</div>`;
 }
 
@@ -1712,6 +1678,11 @@ document.getElementById("globalSearchButton").addEventListener("click", () => {
   customerSearch.focus();
 });
 document.getElementById("openChatButton").addEventListener("click", openChat);
+autoCaptureToggle.addEventListener("change", () => {
+  data.settings = { ...data.settings, autoCaptureEnabled: autoCaptureToggle.checked };
+  saveData();
+  showToast(autoCaptureToggle.checked ? "聊天自动记录已开启" : "聊天自动记录已关闭");
+});
 document.getElementById("minimizeButton").addEventListener("click", () => appWindow.minimize());
 document.getElementById("closeButton").addEventListener("click", () => appWindow.hide());
 document.getElementById("modalCloseButton").addEventListener("click", closeModal);

@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Kardii Business Workbench</title>
+    <title>Kardii Workspace</title>
     <link rel="stylesheet" href="./workbench.css">
   </head>
   <body>
@@ -13,7 +13,7 @@
           <div class="brand-mark">K</div>
           <div>
             <strong>Kardii</strong>
-            <span>Business Companion</span>
+            <span>Workspace</span>
           </div>
         </div>
 
@@ -40,9 +40,13 @@
         </nav>
 
         <div class="sidebar-footer">
+          <label class="capture-toggle" for="autoCaptureToggle">
+            <input id="autoCaptureToggle" type="checkbox">
+            <span><strong>聊天自动记录</strong><small>需要时手动开启</small></span>
+          </label>
           <button id="openChatButton" class="ask-kardii" type="button">
             <span class="kardii-dot"></span>
-            <span><strong>问问 Kardii</strong><small>随时讨论客户与项目</small></span>
+            <span><strong>问问 Kardii</strong><small>随时讨论已有资料</small></span>
           </button>
           <span class="local-note">数据仅保存在这台电脑</span>
         </div>
@@ -240,7 +244,7 @@
                   <h3>问知识库</h3>
                   <p>先在本机检索相关片段，再交给当前 AI 回答并标注来源。</p>
                 </div>
-                <textarea id="knowledgeQuestion" rows="4" maxlength="1000" placeholder="例如：这几份 Target 地址合同里，付款条件和电话核验责任分别是什么？"></textarea>
+                <textarea id="knowledgeQuestion" rows="4" maxlength="1000"></textarea>
                 <button id="askKnowledgeButton" class="primary-button" type="button">开始分析</button>
                 <p id="knowledgeQaStatus" class="knowledge-qa-status">知识库资料不会发送给搜索引擎；只有相关片段会交给你当前选择的 AI。</p>
                 <div id="knowledgeAnswer" class="knowledge-answer hidden"></div>
