@@ -14,6 +14,8 @@
           <strong>Kardii</strong>
           <span id="activeModelBadge" class="active-model-badge">DeepSeek</span>
         </div>
+        <button id="agentCenterButton" class="icon-button agent-center-button" type="button" aria-label="Agent 任务中心" title="打开 Agent 任务中心">✦</button>
+        <button id="workbenchButton" class="icon-button workbench-button" type="button" aria-label="工作台" title="打开工作台">▦</button>
         <button id="toolsButton" class="icon-button tools-button" type="button" aria-label="桌面工具">⌘</button>
         <button id="profileButton" class="icon-button profile-button" type="button" aria-label="个性与记忆">♡</button>
         <button id="settingsButton" class="icon-button settings-button" type="button" aria-label="AI 设置">⚙</button>
@@ -36,8 +38,17 @@
         </div>
       </div>
 
+      <div id="businessCaptureNotice" class="business-capture-notice hidden">
+        <span id="businessCaptureText"></span>
+        <div>
+          <button id="undoBusinessCaptureButton" type="button">撤销</button>
+          <button id="openCapturedWorkbenchButton" type="button">查看</button>
+        </div>
+      </div>
+
       <form id="chatForm">
-        <textarea id="messageInput" rows="1" maxlength="1000" placeholder="问问 Kardii……" aria-label="消息"></textarea>
+        <textarea id="messageInput" rows="1" maxlength="4000" placeholder="问问 Kardii……" aria-label="消息"></textarea>
+        <button id="agentModeButton" type="button" aria-label="切换 Agent 模式" title="交给 Agent 执行">A</button>
        <button id="awarenessButton" type="button" aria-label="查看桌面上下文" title="选择一个窗口让 Kardii 看看">👁</button>
         <button id="micButton" type="button" aria-label="开始语音输入" title="语音输入">🎙</button>
         <button id="stopButton" class="hidden" type="button" aria-label="停止回答">■</button>
@@ -53,13 +64,14 @@
           </div>
           <div class="settings-section-title ai-section-title">
             <strong>聊天模型</strong>
-            <span>v0.7</span>
+            <span>v1.1</span>
           </div>
           <label for="providerSelect">AI 服务</label>
           <select id="providerSelect" class="settings-input">
             <option value="deepseek">DeepSeek · 当前默认</option>
             <option value="gemini">Google Gemini · 低成本云端</option>
             <option value="ollama">Ollama · 完全本机</option>
+            <option value="codex">Codex · 使用 ChatGPT 登录</option>
           </select>
           <p id="providerDescription" class="provider-description"></p>
 
@@ -77,10 +89,12 @@
 
           <label for="responseLengthSelect">回答长度</label>
           <select id="responseLengthSelect">
-            <option value="250">简短 · 更省费用</option>
-            <option value="500">标准</option>
-            <option value="900">详细</option>
+            <option value="auto">自动完整 · 推荐</option>
+            <option value="1200">简短 · 更省费用</option>
+            <option value="4000">详细</option>
+            <option value="8000">超长 · 费用更高</option>
           </select>
+          <p class="provider-description">“自动完整”会在模型因长度停止时自动续写并拼接，避免回答停在半句话。</p>
 
           <div id="apiKeySection">
             <label id="apiKeyLabel" for="apiKeyInput">API Key</label>
@@ -95,6 +109,17 @@
           <div id="ollamaStatusRow" class="ollama-status-row hidden">
             <p id="ollamaStatus" class="settings-status">Ollama 不需要 API Key。</p>
             <button id="testOllamaButton" class="primary-button" type="button">测试本机连接</button>
+          </div>
+          <div id="codexStatusRow" class="ollama-status-row codex-status-row hidden">
+            <p id="codexStatus" class="settings-status">正在检查 Codex……</p>
+            <div class="codex-actions">
+              <button id="codexInstallButton" class="secondary-button" type="button">安装说明</button>
+              <button id="codexRefreshButton" class="secondary-button" type="button">刷新状态</button>
+              <button id="codexLogoutButton" class="secondary-button hidden" type="button">退出登录</button>
+              <button id="codexTestButton" class="secondary-button hidden" type="button">测试连接</button>
+              <button id="codexLoginButton" class="primary-button" type="button">使用 ChatGPT 登录</button>
+            </div>
+            <p class="ollama-note">登录由官方 Codex 在浏览器中完成。Kardii 不读取账号密码或登录令牌，使用量计入你的 ChatGPT/Codex 额度。</p>
           </div>
           <button id="clearHistoryButton" class="clear-history-button" type="button">清空聊天记录</button>
           <div class="settings-section-title">
@@ -203,7 +228,7 @@
             <button id="exportBackupButton" class="secondary-button" type="button">导出完整备份</button>
             <button id="importBackupButton" class="secondary-button" type="button">导入完整备份</button>
           </div>
-          <p class="backup-note">迁移码只包含个性和长期记忆；完整备份还包含聊天记录。API Key 永远不会导出。</p>
+          <p class="backup-note">迁移码只包含个性和长期记忆；完整备份还包含聊天记录、工作台、Agent 任务、技能和自动化。API Key 与 Codex 登录永远不会导出。</p>
         </div>
       </section>
 

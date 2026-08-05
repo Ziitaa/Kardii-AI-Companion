@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Kardii Workspace</title>
+    <link rel="stylesheet" href="./workbench.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="sidebar">
+        <div class="brand" data-tauri-drag-region>
+          <div class="brand-mark">K</div>
+          <div>
+            <strong>Kardii</strong>
+            <span>Workspace</span>
+          </div>
+        </div>
+
+        <nav class="primary-nav" aria-label="Kardii 工作台导航">
+          <button class="nav-item active" type="button" data-view="dashboard">
+            <span class="nav-icon">⌂</span><span>今日工作台</span>
+          </button>
+          <button class="nav-item" type="button" data-view="customers">
+            <span class="nav-icon">♧</span><span>关系库</span>
+            <span id="customerNavCount" class="nav-count">0</span>
+          </button>
+          <button class="nav-item" type="button" data-view="projects">
+            <span class="nav-icon">◇</span><span>项目库</span>
+            <span id="projectNavCount" class="nav-count">0</span>
+          </button>
+          <button class="nav-item" type="button" data-view="intelligence">
+            <span class="nav-icon">◎</span><span>商业情报</span>
+            <span id="intelligenceNavCount" class="nav-count">0</span>
+          </button>
+          <button class="nav-item" type="button" data-view="knowledge">
+            <span class="nav-icon">▤</span><span>知识库</span>
+            <span id="knowledgeNavCount" class="nav-count">0</span>
+          </button>
+          <button class="nav-item" type="button" data-view="connections">
+            <span class="nav-icon">⌁</span><span>外部连接</span>
+            <span id="connectionNavStatus" class="nav-count">0</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <label class="capture-toggle" for="autoCaptureToggle">
+            <input id="autoCaptureToggle" type="checkbox">
+            <span><strong>聊天自动记录</strong><small>需要时手动开启</small></span>
+          </label>
+          <button id="openChatButton" class="ask-kardii" type="button">
+            <span class="kardii-dot"></span>
+            <span><strong>问问 Kardii</strong><small>随时讨论已有资料</small></span>
+          </button>
+          <span class="local-note">数据仅保存在这台电脑</span>
+        </div>
+      </aside>
+
+      <section class="workspace">
+        <header class="topbar" data-tauri-drag-region>
+          <div>
+            <span id="viewEyebrow" class="eyebrow">BUSINESS WORKBENCH</span>
+            <h1 id="viewTitle">今日工作台</h1>
+          </div>
+          <div class="topbar-actions">
+            <button id="globalSearchButton" class="ghost-button" type="button" title="搜索">⌕</button>
+            <button id="quickAddButton" class="primary-button" type="button">＋ 快速记录</button>
+            <button id="minimizeButton" class="window-button" type="button" aria-label="最小化">−</button>
+            <button id="closeButton" class="window-button" type="button" aria-label="关闭">×</button>
+          </div>
+        </header>
+
+        <div class="content">
+          <section id="dashboardView" class="view active" data-view-panel="dashboard">
+            <div class="welcome-row">
+              <div>
+                <p id="todayLabel" class="date-label"></p>
+                <h2 id="welcomeTitle">今天先推进最重要的一步。</h2>
+            <p class="muted">Kardii 已为你整理关系、项目、文件与下一步行动。</p>
+              </div>
+              <button class="outline-button" type="button" data-action="add-task">添加今日任务</button>
+            </div>
+
+            <div class="metric-grid">
+              <article class="metric-card rose">
+                <span>今日待办</span><strong id="todayTaskCount">0</strong><small id="overdueTaskCount">0 项已逾期</small>
+              </article>
+              <article class="metric-card blue">
+                <span>待跟进关系</span><strong id="followupCount">0</strong><small>按下次行动时间排序</small>
+              </article>
+              <article class="metric-card amber">
+                <span>进行中项目</span><strong id="activeProjectCount">0</strong><small>需要持续推进</small>
+              </article>
+              <article class="metric-card green">
+                <span>本周新记录</span><strong id="weeklyNoteCount">0</strong><small>快速记录与沟通纪要</small>
+              </article>
+            </div>
+
+            <article class="capture-inbox">
+              <div class="panel-heading">
+                <div>
+                  <span class="section-kicker">AUTO CAPTURE</span>
+                  <h3>聊天自动记录</h3>
+                  <p>关系动态、项目进展、重要决定和待办会先进入这里，保留原话供你整理。</p>
+                </div>
+                <div class="capture-heading-actions">
+                  <select id="captureStatusFilter" class="mini-filter" aria-label="自动记录状态">
+                    <option value="inbox">待整理</option>
+                    <option value="archived">已归档</option>
+                    <option value="">全部记录</option>
+                  </select>
+                  <span id="captureInboxCount" class="capture-count">0 条待整理</span>
+                </div>
+              </div>
+              <div id="captureInbox" class="capture-list"></div>
+            </article>
+
+            <div class="dashboard-grid">
+              <article class="panel task-panel">
+                <div class="panel-heading">
+                  <div><span class="section-kicker">NEXT ACTIONS</span><h3>今天要做</h3></div>
+                  <button class="text-button" type="button" data-action="add-task">＋ 添加</button>
+                </div>
+                <div id="taskList" class="task-list"></div>
+              </article>
+
+              <article class="panel project-panel">
+                <div class="panel-heading">
+                  <div><span class="section-kicker">ACTIVE PROJECTS</span><h3>重点项目</h3></div>
+                  <button class="text-button" type="button" data-navigate="projects">查看全部</button>
+                </div>
+                <div id="dashboardProjects" class="compact-list"></div>
+              </article>
+
+              <article class="panel followup-panel">
+                <div class="panel-heading">
+                  <div><span class="section-kicker">FOLLOW UPS</span><h3>关系跟进</h3></div>
+                  <button class="text-button" type="button" data-navigate="customers">关系库</button>
+                </div>
+                <div id="dashboardFollowups" class="compact-list"></div>
+              </article>
+
+              <article class="panel notes-panel">
+                <div class="panel-heading">
+                  <div><span class="section-kicker">QUICK CAPTURE</span><h3>最近记录</h3></div>
+                  <button class="text-button" type="button" data-action="add-note">＋ 记录</button>
+                </div>
+                <div id="recentNotes" class="compact-list"></div>
+              </article>
+            </div>
+          </section>
+
+          <section id="customersView" class="view" data-view-panel="customers">
+            <div class="toolbar">
+              <label class="search-box">
+                <span>⌕</span>
+                  <input id="customerSearch" type="search" placeholder="搜索公司、机构、联系人、国家或标签">
+              </label>
+              <select id="relationshipTypeFilter" class="filter-select" aria-label="按关系类型筛选">
+                <option value="">全部类型</option>
+                <option value="partner">合作伙伴</option>
+                <option value="service_provider">服务商</option>
+                <option value="logistics">海外仓 / 物流</option>
+                <option value="customer">客户 / 买家</option>
+                <option value="distributor">分销商</option>
+                <option value="platform">平台 / 渠道</option>
+                <option value="supplier">供应商 / 工厂</option>
+                <option value="institution">机构 / 学校</option>
+                <option value="other">其他关系</option>
+              </select>
+              <select id="customerStageFilter" class="filter-select" aria-label="按阶段筛选">
+                <option value="">全部阶段</option>
+                <option value="lead">潜在线索</option>
+                <option value="contacted">已联系</option>
+                <option value="negotiating">洽谈中</option>
+                <option value="partner">合作中</option>
+                <option value="paused">暂缓</option>
+              </select>
+              <button class="primary-button" type="button" data-action="add-customer">＋ 新建关系</button>
+            </div>
+            <div id="customerGrid" class="customer-grid"></div>
+          </section>
+
+          <section id="projectsView" class="view" data-view-panel="projects">
+            <div class="toolbar">
+              <label class="search-box">
+                <span>⌕</span>
+                <input id="projectSearch" type="search" placeholder="搜索项目、目标、关系或下一步">
+              </label>
+              <select id="projectStatusFilter" class="filter-select" aria-label="按状态筛选">
+                <option value="">全部状态</option>
+                <option value="planned">计划中</option>
+                <option value="active">进行中</option>
+                <option value="on_hold">暂缓</option>
+                <option value="completed">已完成</option>
+                <option value="archived">已归档</option>
+              </select>
+              <div class="view-summary"><strong id="projectSummary">0 个项目</strong><span>目标、关系、资料与下一步行动</span></div>
+              <button class="primary-button" type="button" data-action="add-project">＋ 新建项目</button>
+            </div>
+            <div id="projectGrid" class="project-grid"></div>
+          </section>
+
+          <section id="intelligenceView" class="view" data-view-panel="intelligence">
+            <div class="intelligence-intro">
+              <div>
+                <span class="section-kicker">BUSINESS INTELLIGENCE</span>
+                <h2>把公开事实和 AI 判断分开保存。</h2>
+                <p>每份背调都保留来源、风险、机会和下一步，可关联到关系对象或项目。</p>
+              </div>
+              <button class="primary-button" type="button" data-action="add-intelligence">＋ 新建背调</button>
+            </div>
+            <div class="toolbar intelligence-toolbar">
+              <label class="search-box">
+                <span>⌕</span>
+                <input id="intelligenceSearch" type="search" placeholder="搜索公司、品牌、联系人或市场">
+              </label>
+              <select id="intelligenceStatusFilter" class="filter-select" aria-label="按背调状态筛选">
+                <option value="">全部状态</option>
+                <option value="planned">待调查</option>
+                <option value="researching">调查中</option>
+                <option value="reviewed">已核验</option>
+                <option value="archived">已归档</option>
+              </select>
+              <div class="view-summary"><strong id="intelligenceSummary">0 份背调</strong><span>公司、品牌与联系人</span></div>
+            </div>
+            <div id="intelligenceGrid" class="intelligence-grid"></div>
+          </section>
+
+          <section id="knowledgeView" class="view" data-view-panel="knowledge">
+            <div class="knowledge-intro">
+              <div>
+                <span class="section-kicker">KNOWLEDGE & FILE ANALYSIS</span>
+                <h2>让文件、聊天记录与项目资料真正参与工作。</h2>
+                <p>支持 PDF、Word、PPT、Excel、图片与常见文本；先预览和编辑 AI 结论，再确认保存。</p>
+              </div>
+              <button id="importKnowledgeButton" class="primary-button" type="button">＋ 导入文件</button>
+            </div>
+            <div class="toolbar knowledge-toolbar">
+              <label class="search-box">
+                <span>⌕</span>
+                <input id="knowledgeSearch" type="search" placeholder="搜索文件、分析成果、摘要、标签或内容">
+              </label>
+              <select id="knowledgeTypeFilter" class="filter-select" aria-label="按文件类型筛选">
+                <option value="">全部类型</option>
+                <option value="pdf">PDF</option>
+                <option value="docx">Word</option>
+                <option value="pptx">PPT</option>
+                <option value="xlsx">Excel</option>
+                <option value="image">图片</option>
+                <option value="text">文本 / 代码</option>
+                <option value="archived">已归档</option>
+              </select>
+              <div class="view-summary"><strong id="knowledgeSummary">0 份资料</strong><span>本机解析并保存</span></div>
+            </div>
+            <div class="knowledge-layout">
+              <div class="knowledge-main">
+                <section class="report-library">
+                  <div class="report-library-heading">
+                    <div><span class="section-kicker">EDITABLE RESULTS</span><h3>分析成果</h3></div>
+                    <span id="reportSummary">0 份成果</span>
+                  </div>
+                  <div id="reportGrid" class="report-grid"></div>
+                </section>
+                <div id="knowledgeGrid" class="knowledge-grid"></div>
+              </div>
+              <aside class="knowledge-qa">
+                <div class="knowledge-qa-heading">
+                  <span class="section-kicker">ASK YOUR FILES</span>
+                  <h3>问知识库</h3>
+                  <p>先在本机检索相关片段，再交给当前 AI 回答并标注来源。</p>
+                </div>
+                <textarea id="knowledgeQuestion" rows="4" maxlength="1000"></textarea>
+                <button id="askKnowledgeButton" class="primary-button" type="button">开始分析</button>
+                <p id="knowledgeQaStatus" class="knowledge-qa-status">知识库资料不会发送给搜索引擎；只有相关片段会交给你当前选择的 AI。</p>
+                <div id="knowledgeAnswer" class="knowledge-answer hidden"></div>
+                <div id="knowledgeAnswerSources" class="knowledge-answer-sources hidden"></div>
+              </aside>
+            </div>
+          </section>
+
+          <section id="connectionsView" class="view" data-view-panel="connections">
+            <div class="connections-intro">
+              <div>
+                <span class="section-kicker">EXTERNAL CONNECTIONS</span>
+                <h2>先把邮箱变成 Kardii 的只读资料入口。</h2>
+                <p>手动同步收件箱，检查邮件和附件后再交给现有多文件分析。当前版本不会发送、删除、移动或标记邮件。</p>
+              </div>
+              <span class="read-only-badge">只读连接</span>
+            </div>
+
+            <div class="connections-layout">
+              <article class="connection-card email-connection-card">
+                <div class="connection-card-heading">
+                  <div><span class="connection-icon">✉</span><span><strong>邮箱 · IMAP</strong><small id="emailConnectionSummary">尚未连接</small></span></div>
+                  <span id="emailConnectionBadge" class="connection-state disconnected">未连接</span>
+                </div>
+                <form id="emailConnectionForm" class="connection-form">
+                  <label class="form-field full">
+                    <span>邮箱类型</span>
+                    <select id="emailPresetSelect">
+                      <option value="wecom">企业微信邮箱 / 腾讯企业邮箱</option>
+                      <option value="qq">QQ 邮箱</option>
+                      <option value="custom">其他支持 IMAP 的邮箱</option>
+                    </select>
+                  </label>
+                  <label class="form-field full">
+                    <span>连接名称</span>
+                    <input id="emailLabelInput" maxlength="60" value="工作邮箱" placeholder="例如：工作邮箱">
+                  </label>
+                  <label class="form-field full">
+                    <span>邮箱地址</span>
+                    <input id="emailAddressInput" type="email" maxlength="320" autocomplete="username" placeholder="name@company.com">
+                  </label>
+                  <label class="form-field">
+                    <span>IMAP 服务器</span>
+                    <input id="emailServerInput" maxlength="253" value="imap.exmail.qq.com" spellcheck="false">
+                  </label>
+                  <label class="form-field">
+                    <span>SSL/TLS 端口</span>
+                    <input id="emailPortInput" type="number" min="993" max="993" value="993">
+                  </label>
+                  <label class="form-field full">
+                    <span>登录账号</span>
+                    <input id="emailUsernameInput" maxlength="320" autocomplete="username" placeholder="通常与完整邮箱地址相同">
+                  </label>
+                  <label class="form-field full">
+                    <span>客户端专用密码 / 授权码</span>
+                    <input id="emailPasswordInput" type="password" maxlength="512" autocomplete="new-password" placeholder="只保存到 Windows 凭据管理器或 macOS 钥匙串">
+                  </label>
+                  <p class="connection-help full">不要填写企业微信登录密码。请先在邮箱后台开启 IMAP，并生成客户端专用密码或授权码；若后台给出的服务器地址不同，以后台为准。Kardii 的 JSON 备份不会包含它。</p>
+                  <div class="connection-actions full">
+                    <button id="disconnectEmailButton" class="delete-action" type="button">断开连接</button>
+                    <span class="modal-action-spacer"></span>
+                    <button id="testEmailButton" class="outline-button" type="button">测试连接</button>
+                    <button id="saveEmailButton" class="primary-button" type="submit">保存并连接</button>
+                  </div>
+                  <p id="emailConnectionStatus" class="connection-status full">第一阶段仅连接一个邮箱；账号信息保存在本机，密码进入系统安全凭据库。</p>
+                </form>
+              </article>
+
+              <article class="connection-card email-inbox-card">
+                <div class="connection-card-heading">
+                  <div><span class="connection-icon">⇣</span><span><strong>同步收件箱</strong><small id="emailLastSyncLabel">连接后可手动同步</small></span></div>
+                  <button id="syncEmailButton" class="primary-button" type="button" disabled>同步新邮件</button>
+                </div>
+                <div class="email-sync-note">
+                  <strong>同步不会改变邮箱里的任何内容</strong>
+                  <span>首次读取最近 20 封；以后只读取新 UID。邮件正文和支持的附件先进入本地缓存，仍需你确认后才保存到工作台。</span>
+                </div>
+                <div id="emailInboxList" class="email-inbox-list"></div>
+              </article>
+            </div>
+
+            <div class="future-connections-grid">
+              <article><span>日历</span><strong>下一阶段</strong><p>读取日程并建立内部跟进提醒。</p></article>
+              <article><span>在线表格 / 网盘</span><strong>后续开放</strong><p>按项目选择资料，不默认上传全部企业文件。</p></article>
+              <article><span>对外发送</span><strong>保持关闭</strong><p>以后即使开放，也会逐次显示收件人、正文和附件让你确认。</p></article>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <div id="modalBackdrop" class="modal-backdrop hidden">
+      <section class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <div class="modal-heading">
+          <div><span id="modalEyebrow" class="section-kicker"></span><h2 id="modalTitle"></h2></div>
+          <button id="modalCloseButton" class="window-button" type="button" aria-label="关闭">×</button>
+        </div>
+        <form id="entityForm">
+          <div id="formFields" class="form-fields"></div>
+          <div id="entityResearch" class="entity-research hidden"></div>
+          <div id="entityKnowledge" class="entity-knowledge hidden"></div>
+          <div id="entityRelations" class="entity-relations hidden"></div>
+          <div id="entityTimeline" class="entity-timeline hidden"></div>
+          <div class="modal-actions">
+            <button id="modalDeleteButton" class="delete-action hidden" type="button">永久删除</button>
+            <button id="modalArchiveButton" class="archive-action hidden" type="button">归档</button>
+            <span class="modal-action-spacer"></span>
+            <button id="modalCancelButton" class="ghost-action" type="button">取消</button>
+            <button id="modalSubmitButton" class="primary-button" type="submit">保存</button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <div id="toast" class="toast hidden" role="status"></div>
+
+    <div id="bundleBackdrop" class="modal-backdrop hidden">
+      <section class="modal bundle-modal" role="dialog" aria-modal="true" aria-labelledby="bundleTitle">
+        <div class="modal-heading">
+          <div><span class="section-kicker">MULTI-FILE ANALYSIS</span><h2 id="bundleTitle">多文件分析预览</h2></div>
+          <button id="bundleCloseButton" class="window-button" type="button" aria-label="关闭">×</button>
+        </div>
+        <div id="bundleFileList" class="bundle-file-list"></div>
+        <div class="form-fields bundle-settings">
+          <div class="form-field full"><label for="bundleObjective">这批资料要解决什么问题</label><textarea id="bundleObjective" rows="3" placeholder="例如：整理三家欧洲海外仓的服务、报价、风险和下一步"></textarea></div>
+          <div class="form-field"><label for="bundleRelationSelect">关联关系</label><select id="bundleRelationSelect"></select></div>
+          <div class="form-field"><label for="bundleProjectSelect">关联项目</label><select id="bundleProjectSelect"></select></div>
+          <label class="bundle-chat-option full"><input id="bundleIncludeChat" type="checkbox"><span><strong>同时分析当前 Kardii 聊天记录</strong><small id="bundleChatSummary">没有可加入的聊天记录</small></span></label>
+          <label id="bundleEmailFollowup" class="bundle-chat-option bundle-followup-option full hidden">
+            <input id="bundleCreateFollowup" type="checkbox" checked>
+            <span><strong>保存邮件时同时建立内部跟进提醒</strong><small>只写入 Kardii 待办，不会向邮箱或日历发送任何内容</small></span>
+            <input id="bundleFollowupDate" class="bundle-followup-date" type="date" aria-label="跟进日期">
+          </label>
+        </div>
+        <div class="bundle-analysis-actions">
+          <p id="bundleStatus">文件尚未保存。可以先让 AI 综合分析，也可以直接确认保存原件。</p>
+          <button id="analyzeBundleButton" class="outline-button" type="button">AI 综合分析</button>
+        </div>
+        <div id="bundleDraftFields" class="form-fields bundle-draft-fields hidden">
+          <div class="form-field full"><label for="bundleDraftTitle">成果标题</label><input id="bundleDraftTitle" maxlength="160"></div>
+          <div class="form-field full"><label for="bundleDraftSummary">综合摘要</label><textarea id="bundleDraftSummary" rows="4"></textarea></div>
+          <div class="form-field"><label for="bundleDraftKeyPoints">关键事实与数据</label><textarea id="bundleDraftKeyPoints" rows="6"></textarea></div>
+          <div class="form-field"><label for="bundleDraftCommitments">承诺、约定与日期</label><textarea id="bundleDraftCommitments" rows="6"></textarea></div>
+          <div class="form-field"><label for="bundleDraftQuestions">待确认问题</label><textarea id="bundleDraftQuestions" rows="6"></textarea></div>
+          <div class="form-field"><label for="bundleDraftRisks">风险</label><textarea id="bundleDraftRisks" rows="6"></textarea></div>
+          <div class="form-field full"><label for="bundleDraftActions">下一步行动</label><textarea id="bundleDraftActions" rows="5"></textarea></div>
+        </div>
+        <div class="modal-actions">
+          <button id="bundleCancelButton" class="ghost-action" type="button">取消</button>
+          <span class="modal-action-spacer"></span>
+          <button id="saveBundleButton" class="primary-button" type="button">确认保存到工作台</button>
+        </div>
+      </section>
+    </div>
+    <script src="./workbench.js"></script>
+  </body>
+</html>
