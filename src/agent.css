@@ -93,7 +93,7 @@ h1, h2, p { margin-top: 0; }
 .status-badge { display: inline-block; padding: 4px 9px; color: #9d5470; font-size: 9px; font-weight: 800; background: #fde7ef; border-radius: 99px; }
 .status-badge.completed { color: #3f7d62; background: #e4f4eb; }
 .status-badge.failed, .status-badge.cancelled { color: #a44e59; background: #fde6e8; }
-.status-badge.paused, .status-badge.waiting_permission, .status-badge.waiting_input { color: #8c6a31; background: #fff0ce; }
+.status-badge.paused, .status-badge.waiting_authorization, .status-badge.waiting_permission, .status-badge.waiting_input { color: #8c6a31; background: #fff0ce; }
 .skill-badge { margin-left: 5px; color: #5b6692; background: #e9edff; }
 .danger-text-button { padding: 6px; color: #bd5f6b; font-size: 10px; border: 0; background: transparent; }
 

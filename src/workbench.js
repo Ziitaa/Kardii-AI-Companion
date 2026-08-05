@@ -5,12 +5,24 @@ const appWindow = getCurrentWindow();
 const BUSINESS_DATA_KEY = "kardii-business-data-v1";
 const WORKBENCH_TARGET_KEY = "kardii-workbench-open-target-v1";
 const AI_SETTINGS_KEY = "kardii-ai-settings-v1";
+const CHAT_HISTORY_KEY = "kardii-chat-history-v1";
 const STAGES = {
   lead: "潜在线索",
   contacted: "已联系",
   negotiating: "洽谈中",
   partner: "合作中",
   paused: "暂缓",
+};
+const RELATIONSHIP_TYPES = {
+  partner: "合作伙伴",
+  service_provider: "服务商",
+  logistics: "海外仓 / 物流",
+  customer: "客户 / 买家",
+  distributor: "分销商",
+  platform: "平台 / 渠道",
+  supplier: "供应商 / 工厂",
+  institution: "机构 / 学校",
+  other: "其他关系",
 };
 const PRIORITIES = {
   high: "高优先级",
@@ -30,7 +42,7 @@ const ACTIVITY_TYPES = {
   meeting: "会议",
   message: "消息",
   note: "备注",
-  customer: "客户记录",
+  customer: "关系记录",
   project: "项目进展",
   decision: "重要决定",
   task: "待办线索",
@@ -52,17 +64,18 @@ const KNOWLEDGE_TEXT_TYPES = new Set([
 ]);
 
 const viewMeta = {
-  dashboard: ["BUSINESS WORKBENCH", "今日工作台"],
-  customers: ["CUSTOMER MANAGEMENT", "客户库"],
+  dashboard: ["KARDII WORKBENCH", "今日工作台"],
+  customers: ["RELATIONSHIP MANAGEMENT", "关系库"],
   projects: ["PROJECT MANAGEMENT", "项目库"],
   intelligence: ["BUSINESS INTELLIGENCE", "商业情报"],
   knowledge: ["KNOWLEDGE & MEMORY", "知识库"],
 };
 
 const seedData = {
-  version: 1,
+  version: 2,
   settings: { autoCaptureEnabled: false },
   customers: [],
+  contacts: [],
   projects: [],
   tasks: [],
   notes: [],
@@ -70,6 +83,7 @@ const seedData = {
   activities: [],
   intelligence: [],
   knowledge: [],
+  reports: [],
 };
 
 let data = loadData();
@@ -80,6 +94,8 @@ let toastTimer;
 let activeResearchId = "";
 let activeKnowledgeAnalysisId = "";
 let latestKnowledgeSources = [];
+let pendingBundleFiles = [];
+let pendingBundleAnalysis = null;
 
 const navItems = [...document.querySelectorAll(".nav-item")];
 const viewPanels = [...document.querySelectorAll("[data-view-panel]")];
@@ -97,6 +113,8 @@ const intelligenceGrid = document.getElementById("intelligenceGrid");
 const intelligenceSearch = document.getElementById("intelligenceSearch");
 const intelligenceStatusFilter = document.getElementById("intelligenceStatusFilter");
 const knowledgeGrid = document.getElementById("knowledgeGrid");
+const reportGrid = document.getElementById("reportGrid");
+const reportSummary = document.getElementById("reportSummary");
 const knowledgeSearch = document.getElementById("knowledgeSearch");
 const knowledgeTypeFilter = document.getElementById("knowledgeTypeFilter");
 const knowledgeQuestion = document.getElementById("knowledgeQuestion");
@@ -113,6 +131,7 @@ const captureInboxCount = document.getElementById("captureInboxCount");
 const captureStatusFilter = document.getElementById("captureStatusFilter");
 const customerSearch = document.getElementById("customerSearch");
 const customerStageFilter = document.getElementById("customerStageFilter");
+const relationshipTypeFilter = document.getElementById("relationshipTypeFilter");
 const modalBackdrop = document.getElementById("modalBackdrop");
 const modalEyebrow = document.getElementById("modalEyebrow");
 const modalTitle = document.getElementById("modalTitle");
@@ -126,6 +145,17 @@ const entityTimeline = document.getElementById("entityTimeline");
 const modalArchiveButton = document.getElementById("modalArchiveButton");
 const modalDeleteButton = document.getElementById("modalDeleteButton");
 const toast = document.getElementById("toast");
+const bundleBackdrop = document.getElementById("bundleBackdrop");
+const bundleFileList = document.getElementById("bundleFileList");
+const bundleObjective = document.getElementById("bundleObjective");
+const bundleRelationSelect = document.getElementById("bundleRelationSelect");
+const bundleProjectSelect = document.getElementById("bundleProjectSelect");
+const bundleStatus = document.getElementById("bundleStatus");
+const bundleDraftFields = document.getElementById("bundleDraftFields");
+const analyzeBundleButton = document.getElementById("analyzeBundleButton");
+const saveBundleButton = document.getElementById("saveBundleButton");
+const bundleIncludeChat = document.getElementById("bundleIncludeChat");
+const bundleChatSummary = document.getElementById("bundleChatSummary");
 
 function dateInputValue(date) {
   const value = new Date(date);
@@ -136,29 +166,62 @@ function dateInputValue(date) {
 function loadData() {
   try {
     const saved = JSON.parse(localStorage.getItem(BUSINESS_DATA_KEY) || "null");
-    if (!saved || saved.version !== 1) {
+    if (!saved || ![1, 2].includes(saved.version)) {
       const initialData = structuredClone(seedData);
       localStorage.setItem(BUSINESS_DATA_KEY, JSON.stringify(initialData));
       return initialData;
     }
+    const contacts = Array.isArray(saved.contacts) ? saved.contacts.map((contact) => ({
+      id: String(contact.id || crypto.randomUUID()),
+      relationshipId: String(contact.relationshipId || contact.customerId || ""),
+      name: String(contact.name || ""),
+      title: String(contact.title || ""),
+      email: String(contact.email || ""),
+      phone: String(contact.phone || ""),
+      notes: String(contact.notes || ""),
+      isPrimary: contact.isPrimary === true,
+      createdAt: String(contact.createdAt || new Date().toISOString()),
+      updatedAt: String(contact.updatedAt || contact.createdAt || new Date().toISOString()),
+    })) : [];
+    const customers = Array.isArray(saved.customers) ? saved.customers.map((customer) => ({
+      priority: "medium",
+      relationshipType: "customer",
+      tags: "",
+      website: "",
+      email: "",
+      phone: "",
+      title: "",
+      source: "",
+      notes: "",
+      linkedProjectIds: [],
+      ...customer,
+      relationshipType: Object.hasOwn(RELATIONSHIP_TYPES, customer.relationshipType) ? customer.relationshipType : "customer",
+      linkedProjectIds: Array.isArray(customer.linkedProjectIds) ? customer.linkedProjectIds : [],
+    })) : [];
+    customers.forEach((relationship) => {
+      const hasContact = contacts.some((contact) => contact.relationshipId === relationship.id);
+      if (!hasContact && [relationship.contact, relationship.title, relationship.email, relationship.phone].some(Boolean)) {
+        contacts.push({
+          id: `legacy-contact-${relationship.id}`,
+          relationshipId: relationship.id,
+          name: String(relationship.contact || ""),
+          title: String(relationship.title || ""),
+          email: String(relationship.email || ""),
+          phone: String(relationship.phone || ""),
+          notes: "",
+          isPrimary: true,
+          createdAt: String(relationship.createdAt || new Date().toISOString()),
+          updatedAt: String(relationship.updatedAt || relationship.createdAt || new Date().toISOString()),
+        });
+      }
+    });
     const normalized = {
-      version: 1,
+      version: 2,
       settings: {
         autoCaptureEnabled: saved.settings?.autoCaptureEnabled === true,
       },
-      customers: Array.isArray(saved.customers) ? saved.customers.map((customer) => ({
-        priority: "medium",
-        tags: "",
-        website: "",
-        email: "",
-        phone: "",
-        title: "",
-        source: "",
-        notes: "",
-        linkedProjectIds: [],
-        ...customer,
-        linkedProjectIds: Array.isArray(customer.linkedProjectIds) ? customer.linkedProjectIds : [],
-      })) : [],
+      customers,
+      contacts,
       projects: Array.isArray(saved.projects) ? saved.projects.map((project) => ({
         priority: "medium",
         owner: "",
@@ -195,6 +258,8 @@ function loadData() {
         title: "",
         fileName: "",
         filePath: "",
+        sourcePath: "",
+        storedInKardii: false,
         fileType: "txt",
         fileSize: 0,
         content: "",
@@ -210,10 +275,28 @@ function loadData() {
         analyzedAt: "",
         linkedCustomerId: "",
         linkedProjectId: "",
+        reportId: "",
         ...item,
+      })) : [],
+      reports: Array.isArray(saved.reports) ? saved.reports.map((item) => ({
+        id: String(item.id || crypto.randomUUID()),
+        title: String(item.title || "多文件分析"),
+        summary: String(item.summary || ""),
+        keyPoints: String(item.keyPoints || ""),
+        commitments: String(item.commitments || ""),
+        openQuestions: String(item.openQuestions || ""),
+        risks: String(item.risks || ""),
+        actions: String(item.actions || ""),
+        linkedCustomerId: String(item.linkedCustomerId || ""),
+        linkedProjectId: String(item.linkedProjectId || ""),
+        knowledgeIds: Array.isArray(item.knowledgeIds) ? item.knowledgeIds.map(String) : [],
+        includedChat: item.includedChat === true,
+        createdAt: String(item.createdAt || new Date().toISOString()),
+        updatedAt: String(item.updatedAt || item.createdAt || new Date().toISOString()),
       })) : [],
     };
     syncRelations(normalized);
+    if (saved.version !== 2) localStorage.setItem(BUSINESS_DATA_KEY, JSON.stringify(normalized));
     return normalized;
   } catch {
     const initialData = structuredClone(seedData);
@@ -225,8 +308,15 @@ function loadData() {
 function syncRelations(target = data) {
   const customerIds = new Set(target.customers.map((customer) => customer.id));
   const projectIds = new Set(target.projects.map((project) => project.id));
+  target.contacts = (target.contacts || []).filter((contact) => customerIds.has(contact.relationshipId));
   target.customers.forEach((customer) => {
     customer.linkedProjectIds = [...new Set((customer.linkedProjectIds || []).filter((id) => projectIds.has(id)))];
+    const contacts = target.contacts.filter((contact) => contact.relationshipId === customer.id);
+    const primary = contacts.find((contact) => contact.isPrimary) || contacts[0];
+    customer.contact = primary?.name || "";
+    customer.title = primary?.title || "";
+    customer.email = primary?.email || "";
+    customer.phone = primary?.phone || "";
   });
   target.projects.forEach((project) => {
     project.linkedCustomerIds = [...new Set((project.linkedCustomerIds || []).filter((id) => customerIds.has(id)))];
@@ -249,6 +339,12 @@ function syncRelations(target = data) {
     if (item.linkedCustomerId && !customerIds.has(item.linkedCustomerId)) item.linkedCustomerId = "";
     if (item.linkedProjectId && !projectIds.has(item.linkedProjectId)) item.linkedProjectId = "";
   });
+  target.reports = (target.reports || []).map((report) => ({
+    ...report,
+    linkedCustomerId: customerIds.has(report.linkedCustomerId) ? report.linkedCustomerId : "",
+    linkedProjectId: projectIds.has(report.linkedProjectId) ? report.linkedProjectId : "",
+    knowledgeIds: (report.knowledgeIds || []).filter((id) => target.knowledge.some((item) => item.id === id)),
+  }));
 }
 
 function saveData() {
@@ -311,7 +407,10 @@ function renderDashboard() {
   const overdueTasks = openTasks.filter((task) => task.dueDate && task.dueDate < today);
   const followups = data.customers.filter((customer) => customer.nextAction);
   const activeProjects = data.projects.filter((project) => project.status === "active");
-  const weeklyNotes = data.notes.filter((note) => new Date(note.createdAt) >= startOfWeek());
+  const weeklyNotes = [
+    ...data.notes.filter((note) => new Date(note.createdAt) >= startOfWeek()),
+    ...(data.reports || []).filter((report) => new Date(report.createdAt) >= startOfWeek()),
+  ];
 
   document.getElementById("todayLabel").textContent = new Intl.DateTimeFormat("zh-CN", {
     year: "numeric", month: "long", day: "numeric", weekday: "long",
@@ -346,14 +445,18 @@ function renderDashboard() {
     .sort((a, b) => String(a.followupDate || "9999").localeCompare(String(b.followupDate || "9999")))
     .slice(0, 4)
     .map((customer) => compactMarkup(customer.company, customer.nextAction, formatDate(customer.followupDate)))
-    .join("") || emptyMarkup("添加客户后，下一步行动会出现在这里。");
+    .join("") || emptyMarkup("在关系库添加对象后，下一步行动会出现在这里。");
 
-  recentNotes.innerHTML = [...data.notes].reverse()
+  const recentItems = [
+    ...data.notes.map((note) => ({ ...note, itemType: "note" })),
+    ...(data.reports || []).map((report) => ({ ...report, content: report.summary, itemType: "report" })),
+  ].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  recentNotes.innerHTML = recentItems
     .map((note) => compactMarkup(
-      note.title || "快速记录",
+      note.title || (note.itemType === "report" ? "分析成果" : "快速记录"),
       note.content,
       new Date(note.createdAt).toLocaleDateString("zh-CN"),
-      { action: "delete-note", id: note.id, label: "删除记录" },
+      note.itemType === "note" ? { action: "delete-note", id: note.id, label: "删除记录" } : null,
     ))
     .join("") || emptyMarkup("随手记录电话要点、客户反馈或灵感。");
 
@@ -364,7 +467,7 @@ function captureTypeLabel(type) {
   return {
     decision: "重要决定",
     task: "待办线索",
-    customer: "客户信息",
+    customer: "关系信息",
     project: "项目动态",
     intelligence: "背调任务",
   }[type] || "商务记录";
@@ -395,7 +498,7 @@ function renderCaptureInbox() {
         <button class="danger-link" type="button" data-capture-action="delete" data-capture-id="${capture.id}">删除</button>
       </div>
     </div>
-  `).join("") || `<div class="capture-empty">${status === "archived" ? "还没有已归档记录。" : "聊天里出现新的客户、项目、决定或下一步时，Kardii 会自动记录在这里。"}</div>`;
+  `).join("") || `<div class="capture-empty">${status === "archived" ? "还没有已归档记录。" : "聊天里出现新的关系对象、项目、决定或下一步时，Kardii 会自动记录在这里。"}</div>`;
 }
 
 function compactMarkup(title, detail, meta, deleteConfig = null) {
@@ -412,25 +515,34 @@ function emptyMarkup(message) {
 function renderCustomers() {
   const query = customerSearch.value.trim().toLowerCase();
   const stage = customerStageFilter.value;
+  const relationshipType = relationshipTypeFilter.value;
   const customers = data.customers.filter((customer) => {
+    const contacts = data.contacts.filter((contact) => contact.relationshipId === customer.id);
     const haystack = [
       customer.company, customer.contact, customer.title, customer.country, customer.channel,
       customer.email, customer.source, customer.tags,
+      ...contacts.flatMap((contact) => [contact.name, contact.title, contact.email, contact.phone, contact.notes]),
     ].join(" ").toLowerCase();
-    return (!query || haystack.includes(query)) && (!stage || customer.stage === stage);
+    return (!query || haystack.includes(query))
+      && (!stage || customer.stage === stage)
+      && (!relationshipType || customer.relationshipType === relationshipType);
   });
 
-  customerGrid.innerHTML = customers.map((customer) => `
+  customerGrid.innerHTML = customers.map((customer) => {
+    const contacts = data.contacts.filter((contact) => contact.relationshipId === customer.id);
+    const primary = contacts.find((contact) => contact.isPrimary) || contacts[0];
+    return `
     <article class="customer-card" data-action="edit-customer" data-entity-id="${customer.id}">
       <div class="card-top">
         <div class="company-avatar">${escapeHtml((customer.company || "?").slice(0, 1).toUpperCase())}</div>
         <div class="card-badges">
           <span class="priority-badge ${escapeHtml(customer.priority || "medium")}">${PRIORITIES[customer.priority] || "中优先级"}</span>
+          <span class="stage-badge">${RELATIONSHIP_TYPES[customer.relationshipType] || "其他关系"}</span>
           <span class="stage-badge">${STAGES[customer.stage] || "潜在线索"}</span>
         </div>
       </div>
       <h3>${escapeHtml(customer.company)}</h3>
-      <p class="contact">${escapeHtml(customer.contact || "未填写联系人")}${customer.title ? ` · ${escapeHtml(customer.title)}` : ""}</p>
+      <p class="contact">${escapeHtml(primary?.name || "未填写联系人")}${primary?.title ? ` · ${escapeHtml(primary.title)}` : ""}${contacts.length > 1 ? ` · 共 ${contacts.length} 人` : ""}</p>
       <div class="card-facts">
         ${customer.country ? `<span>${escapeHtml(customer.country)}</span>` : ""}
         ${customer.channel ? `<span>${escapeHtml(customer.channel)}</span>` : ""}
@@ -442,7 +554,8 @@ function renderCustomers() {
         <time>${formatDate(customer.followupDate)}</time>
       </div>
     </article>
-  `).join("") || emptyMarkup(query || stage ? "没有符合筛选条件的客户。" : "客户库还是空的。点击“新建客户”建立第一张客户卡片。");
+  `;
+  }).join("") || emptyMarkup(query || stage || relationshipType ? "没有符合筛选条件的关系对象。" : "关系库还是空的。点击“新建关系”建立第一张关系卡片。");
 }
 
 function renderProjects() {
@@ -473,7 +586,7 @@ function renderProjects() {
         <div class="linked-preview">
           ${linkedCustomers.length
             ? linkedCustomers.slice(0, 3).map((customer) => `<span>${escapeHtml(customer.company)}</span>`).join("")
-            : "<span>暂未关联客户</span>"}
+            : "<span>暂未关联关系对象</span>"}
           ${linkedCustomers.length > 3 ? `<span>＋${linkedCustomers.length - 3}</span>` : ""}
         </div>
         <div class="progress-track"><div class="progress-bar" style="width:${progress}%"></div></div>
@@ -486,7 +599,7 @@ function renderProjects() {
 function intelligenceRelationLabel(item) {
   const customer = data.customers.find((entry) => entry.id === item.linkedCustomerId);
   const project = data.projects.find((entry) => entry.id === item.linkedProjectId);
-  return [customer?.company, project?.name].filter(Boolean).join(" · ") || "未关联客户或项目";
+  return [customer?.company, project?.name].filter(Boolean).join(" · ") || "未关联关系对象或项目";
 }
 
 function sourceCount(value) {
@@ -534,6 +647,7 @@ function formatFileSize(size) {
 }
 
 function knowledgeTypeGroup(fileType) {
+  if (["png", "jpg", "jpeg", "webp"].includes(fileType)) return "image";
   return KNOWLEDGE_TEXT_TYPES.has(fileType) ? "text" : fileType;
 }
 
@@ -541,6 +655,33 @@ function knowledgeRelationLabels(item) {
   const customer = data.customers.find((entry) => entry.id === item.linkedCustomerId);
   const project = data.projects.find((entry) => entry.id === item.linkedProjectId);
   return [customer?.company, project?.name].filter(Boolean);
+}
+
+function renderReports() {
+  const query = knowledgeSearch.value.trim().toLowerCase();
+  const reports = (data.reports || [])
+    .filter((report) => {
+      const relationship = data.customers.find((item) => item.id === report.linkedCustomerId);
+      const project = data.projects.find((item) => item.id === report.linkedProjectId);
+      const haystack = [
+        report.title, report.summary, report.keyPoints, report.commitments,
+        report.openQuestions, report.risks, report.actions, relationship?.company, project?.name,
+      ].join(" ").toLowerCase();
+      return !query || haystack.includes(query);
+    })
+    .sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)));
+  reportSummary.textContent = `${reports.length} / ${(data.reports || []).length} 份成果`;
+  reportGrid.innerHTML = reports.map((report) => {
+    const relationship = data.customers.find((item) => item.id === report.linkedCustomerId);
+    const project = data.projects.find((item) => item.id === report.linkedProjectId);
+    return `
+      <button class="report-card" type="button" data-action="edit-report" data-entity-id="${escapeHtml(report.id)}">
+        <strong>${escapeHtml(report.title || "未命名分析成果")}</strong>
+        <p>${escapeHtml(report.summary || report.actions || "点击补充综合摘要与下一步行动。")}</p>
+        <span>${escapeHtml([relationship?.company, project?.name].filter(Boolean).join(" · ") || "未关联关系或项目")}</span>
+      </button>
+    `;
+  }).join("") || emptyMarkup(query ? "没有符合搜索条件的分析成果。" : "多文件分析确认保存后，可编辑成果会集中显示在这里。");
 }
 
 function renderKnowledge() {
@@ -592,6 +733,7 @@ function renderAll() {
   renderCustomers();
   renderProjects();
   renderIntelligence();
+  renderReports();
   renderKnowledge();
 }
 
@@ -692,6 +834,25 @@ function knowledgePanelMarkup(item) {
   `;
 }
 
+function projectWorkspacePanelMarkup(project) {
+  const files = data.knowledge.filter((item) => item.linkedProjectId === project.id && item.status !== "archived");
+  const reports = (data.reports || []).filter((item) => item.linkedProjectId === project.id);
+  const relationships = (project.linkedCustomerIds || [])
+    .map((id) => data.customers.find((item) => item.id === id))
+    .filter(Boolean);
+  return `
+    <div class="knowledge-analysis-heading">
+      <div><strong>项目工作台</strong><span>项目关联的关系、资料和 AI 分析成果会集中显示在这里</span></div>
+    </div>
+    <div class="project-workspace-grid">
+      <div class="project-workspace-card"><strong>${relationships.length} 个关系对象</strong><p>${escapeHtml(relationships.map((item) => item.company).join("、") || "尚未关联")}</p></div>
+      <div class="project-workspace-card"><strong>${files.length} 份项目资料 · ${reports.length} 份成果</strong><p>点击下方条目可直接查看或继续编辑</p></div>
+      ${files.slice(0, 4).map((file) => `<button class="project-workspace-card" type="button" data-action="edit-knowledge" data-entity-id="${escapeHtml(file.id)}"><strong>资料 · ${escapeHtml(file.title || file.fileName)}</strong><p>${escapeHtml(file.summary || file.warning || "打开查看原文和文件分析")}</p></button>`).join("")}
+      ${reports.slice(0, 4).map((report) => `<button class="project-workspace-card" type="button" data-action="edit-report" data-entity-id="${escapeHtml(report.id)}"><strong>${escapeHtml(report.title)}</strong><p>${escapeHtml(report.summary || report.actions || "已保存分析成果")}</p></button>`).join("")}
+    </div>
+  `;
+}
+
 function showKnowledgeAnalysisError(message) {
   const element = document.getElementById("knowledgeAnalysisError");
   if (!element) return;
@@ -760,8 +921,8 @@ function relationPickerMarkup(type, entity) {
     : data.customers.map((customer) => ({ id: customer.id, label: customer.company }));
   const selected = new Set(type === "customer" ? entity?.linkedProjectIds || [] : entity?.linkedCustomerIds || []);
   const name = type === "customer" ? "linkedProjectIds" : "linkedCustomerIds";
-  const title = type === "customer" ? "关联项目" : "关联客户";
-  const empty = type === "customer" ? "还没有项目可关联" : "还没有客户可关联";
+  const title = type === "customer" ? "关联项目" : "关联关系对象";
+  const empty = type === "customer" ? "还没有项目可关联" : "关系库里还没有对象可关联";
   return `
     <div class="relation-heading">
       <div><strong>${title}</strong><span>保存后两边会自动同步</span></div>
@@ -781,6 +942,37 @@ function relationPickerMarkup(type, entity) {
   `;
 }
 
+function contactManagerMarkup(relationship) {
+  const contacts = relationship
+    ? data.contacts.filter((contact) => contact.relationshipId === relationship.id)
+    : [];
+  return `
+    <div class="contact-manager">
+      <div class="relation-heading"><div><strong>联系人</strong><span>联系人独立保存，一家公司可以记录多人</span></div><span>${contacts.length} 人</span></div>
+      <div class="contact-list">
+        ${contacts.map((contact) => `
+          <div class="contact-row">
+            <div class="contact-edit-grid">
+              <input name="contactName:${escapeHtml(contact.id)}" value="${escapeHtml(contact.name)}" placeholder="姓名">
+              <input name="contactTitle:${escapeHtml(contact.id)}" value="${escapeHtml(contact.title)}" placeholder="职位">
+              <input name="contactEmail:${escapeHtml(contact.id)}" type="email" value="${escapeHtml(contact.email)}" placeholder="邮箱">
+              <input name="contactPhone:${escapeHtml(contact.id)}" value="${escapeHtml(contact.phone)}" placeholder="电话 / WhatsApp">
+              <label class="primary-contact-option"><input name="primaryContactId" type="radio" value="${escapeHtml(contact.id)}" ${contact.isPrimary ? "checked" : ""}>主要联系人</label>
+            </div>
+            <button type="button" data-action="delete-contact" data-entity-id="${escapeHtml(contact.id)}">删除</button>
+          </div>
+        `).join("") || '<div class="relation-empty">还没有联系人，可在下方添加</div>'}
+      </div>
+      <div class="contact-add-grid">
+        <input name="newContactName" placeholder="新增联系人姓名">
+        <input name="newContactTitle" placeholder="职位">
+        <input name="newContactEmail" type="email" placeholder="邮箱">
+        <input name="newContactPhone" placeholder="电话 / WhatsApp">
+      </div>
+    </div>
+  `;
+}
+
 function openModal(type, entityId = "") {
   modalType = type;
   editingId = entityId;
@@ -788,39 +980,37 @@ function openModal(type, entityId = "") {
   const project = type === "project" && entityId ? data.projects.find((item) => item.id === entityId) : null;
   const intelligence = type === "intelligence" && entityId ? data.intelligence.find((item) => item.id === entityId) : null;
   const knowledge = type === "knowledge" && entityId ? data.knowledge.find((item) => item.id === entityId) : null;
+  const report = type === "report" && entityId ? data.reports.find((item) => item.id === entityId) : null;
   const taskRelations = [
     ["", "不关联"],
     ...data.projects.map((item) => [`project:${item.id}`, `项目 · ${item.name}`]),
-    ...data.customers.map((item) => [`customer:${item.id}`, `客户 · ${item.company}`]),
+    ...data.customers.map((item) => [`customer:${item.id}`, `关系 · ${item.company}`]),
   ];
-  const intelligenceCustomerOptions = [["", "不关联客户"], ...data.customers.map((item) => [item.id, item.company])];
+  const intelligenceCustomerOptions = [["", "不关联关系对象"], ...data.customers.map((item) => [item.id, item.company])];
   const intelligenceProjectOptions = [["", "不关联项目"], ...data.projects.map((item) => [item.id, item.name])];
-  const knowledgeCustomerOptions = [["", "不关联客户"], ...data.customers.map((item) => [item.id, item.company])];
+  const knowledgeCustomerOptions = [["", "不关联关系对象"], ...data.customers.map((item) => [item.id, item.company])];
   const knowledgeProjectOptions = [["", "不关联项目"], ...data.projects.map((item) => [item.id, item.name])];
   const configs = {
     customer: {
-      eyebrow: "CUSTOMER MANAGEMENT",
-      title: customer ? customer.company : "新建客户",
-      button: customer ? "保存修改" : "保存客户",
+      eyebrow: "RELATIONSHIP MANAGEMENT",
+      title: customer ? customer.company : "新建关系",
+      button: customer ? "保存修改" : "保存关系",
       fields: [
-        { name: "company", label: "公司名称", required: true, placeholder: "例如：ABC Outdoor", value: customer?.company || "" },
+        { name: "company", label: "公司 / 机构名称", required: true, placeholder: "例如：QLS、某平台或合作机构", value: customer?.company || "" },
+        { name: "relationshipType", label: "关系类型", type: "select", options: Object.entries(RELATIONSHIP_TYPES), value: customer?.relationshipType || "customer" },
         { name: "priority", label: "优先级", type: "select", options: Object.entries(PRIORITIES), value: customer?.priority || "medium" },
-        { name: "contact", label: "联系人", placeholder: "姓名", value: customer?.contact || "" },
-        { name: "title", label: "职位", placeholder: "例如：采购总监", value: customer?.title || "" },
-        { name: "email", label: "邮箱", type: "email", placeholder: "name@company.com", value: customer?.email || "" },
-        { name: "phone", label: "电话 / WhatsApp", placeholder: "含国家区号", value: customer?.phone || "" },
         { name: "website", label: "官网", type: "url", placeholder: "https://", value: customer?.website || "" },
         { name: "country", label: "国家 / 地区", placeholder: "例如：德国", value: customer?.country || "" },
-        { name: "channel", label: "渠道 / 主营业务", placeholder: "例如：花园家具分销", value: customer?.channel || "" },
-        { name: "source", label: "客户来源", placeholder: "例如：展会 / LinkedIn / 转介绍", value: customer?.source || "" },
-        { name: "stage", label: "合作阶段", type: "select", options: Object.entries(STAGES), value: customer?.stage || "lead" },
+        { name: "channel", label: "业务 / 能提供的资源", placeholder: "例如：欧洲海外仓、花园家具分销", value: customer?.channel || "" },
+        { name: "source", label: "认识方式", placeholder: "例如：展会 / LinkedIn / 转介绍", value: customer?.source || "" },
+        { name: "stage", label: "关系阶段", type: "select", options: Object.entries(STAGES), value: customer?.stage || "lead" },
         { name: "followupDate", label: "下次跟进", type: "date", value: customer?.followupDate || "" },
         { name: "tags", label: "标签", placeholder: "多个标签用逗号分隔", value: customer?.tags || "" },
         { name: "nextAction", label: "下一步行动", full: true, placeholder: "下一次要做什么", value: customer?.nextAction || "" },
-        { name: "notes", label: "客户备注", type: "textarea", full: true, placeholder: "客户偏好、合作机会、风险或其他长期信息", value: customer?.notes || "" },
+        { name: "notes", label: "关系备注", type: "textarea", full: true, placeholder: "合作机会、能提供的资源、风险或其他长期信息", value: customer?.notes || "" },
         ...(customer ? [
           { name: "activityKind", label: "本次沟通方式", type: "select", options: [["call", "电话"], ["email", "邮件"], ["meeting", "会议"], ["message", "消息"], ["note", "备注"]], value: "message" },
-          { name: "activity", label: "新增沟通记录", type: "textarea", full: true, placeholder: "例如：今天电话确认了样品需求，客户希望周五前收到报价。" },
+          { name: "activity", label: "新增沟通记录", type: "textarea", full: true, placeholder: "例如：今天电话确认了服务范围，对方希望周五前收到资料。" },
         ] : []),
       ],
     },
@@ -849,7 +1039,7 @@ function openModal(type, entityId = "") {
       button: "添加任务",
       fields: [
         { name: "title", label: "任务", required: true, full: true, placeholder: "只写一个清晰、可执行的动作" },
-        { name: "relationKey", label: "关联客户 / 项目", type: "select", options: taskRelations, value: "" },
+        { name: "relationKey", label: "关联关系 / 项目", type: "select", options: taskRelations, value: "" },
         { name: "dueDate", label: "截止日期", type: "date", value: dateInputValue(new Date()) },
       ],
     },
@@ -872,7 +1062,7 @@ function openModal(type, entityId = "") {
         { name: "country", label: "国家 / 地区", placeholder: "例如：美国", value: intelligence?.country || "" },
         { name: "website", label: "官网 / 主页", type: "url", placeholder: "https://", value: intelligence?.website || "" },
         { name: "status", label: "调查状态", type: "select", options: Object.entries(INTELLIGENCE_STATUSES), value: intelligence?.status || "planned" },
-        { name: "linkedCustomerId", label: "关联客户", type: "select", options: intelligenceCustomerOptions, value: intelligence?.linkedCustomerId || "" },
+        { name: "linkedCustomerId", label: "关联关系", type: "select", options: intelligenceCustomerOptions, value: intelligence?.linkedCustomerId || "" },
         { name: "linkedProjectId", label: "关联项目", type: "select", options: intelligenceProjectOptions, value: intelligence?.linkedProjectId || "" },
         { name: "nextAction", label: "下一步行动", placeholder: "例如：核验公司注册信息", value: intelligence?.nextAction || "" },
         { name: "objective", label: "本次调查目的", type: "textarea", required: true, full: true, placeholder: "例如：判断是否适合作为欧洲分销合作伙伴", value: intelligence?.objective || "" },
@@ -891,9 +1081,25 @@ function openModal(type, entityId = "") {
         { name: "title", label: "资料名称", required: true, full: true, value: knowledge?.title || knowledge?.fileName || "" },
         { name: "tags", label: "标签", placeholder: "例如：Target、合同、地址材料", value: knowledge?.tags || "" },
         { name: "status", label: "资料状态", type: "select", options: [["active", "可检索"], ["archived", "已归档"]], value: knowledge?.status || "active" },
-        { name: "linkedCustomerId", label: "关联客户", type: "select", options: knowledgeCustomerOptions, value: knowledge?.linkedCustomerId || "" },
+        { name: "linkedCustomerId", label: "关联关系", type: "select", options: knowledgeCustomerOptions, value: knowledge?.linkedCustomerId || "" },
         { name: "linkedProjectId", label: "关联项目", type: "select", options: knowledgeProjectOptions, value: knowledge?.linkedProjectId || "" },
         { name: "manualNotes", label: "人工备注", type: "textarea", full: true, placeholder: "补充文件用途、版本差异或需要长期记住的内容", value: knowledge?.manualNotes || "" },
+      ],
+    },
+    report: {
+      eyebrow: "WORKBENCH RESULT",
+      title: report?.title || "分析成果",
+      button: "保存成果",
+      fields: [
+        { name: "title", label: "成果标题", required: true, full: true, value: report?.title || "" },
+        { name: "linkedCustomerId", label: "关联关系", type: "select", options: knowledgeCustomerOptions, value: report?.linkedCustomerId || "" },
+        { name: "linkedProjectId", label: "关联项目", type: "select", options: knowledgeProjectOptions, value: report?.linkedProjectId || "" },
+        { name: "summary", label: "综合摘要", type: "textarea", full: true, value: report?.summary || "" },
+        { name: "keyPoints", label: "关键事实与数据", type: "textarea", value: report?.keyPoints || "" },
+        { name: "commitments", label: "承诺、约定与日期", type: "textarea", value: report?.commitments || "" },
+        { name: "openQuestions", label: "待确认问题", type: "textarea", value: report?.openQuestions || "" },
+        { name: "risks", label: "风险", type: "textarea", value: report?.risks || "" },
+        { name: "actions", label: "下一步行动", type: "textarea", full: true, value: report?.actions || "" },
       ],
     },
   };
@@ -913,21 +1119,24 @@ function openModal(type, entityId = "") {
   if (knowledge) {
     entityKnowledge.innerHTML = knowledgePanelMarkup(knowledge);
     entityKnowledge.classList.remove("hidden");
+  } else if (project) {
+    entityKnowledge.innerHTML = projectWorkspacePanelMarkup(project);
+    entityKnowledge.classList.remove("hidden");
   } else {
     entityKnowledge.classList.add("hidden");
     entityKnowledge.innerHTML = "";
   }
   if (type === "customer" || type === "project") {
-    entityRelations.innerHTML = relationPickerMarkup(type, customer || project);
+    entityRelations.innerHTML = `${relationPickerMarkup(type, customer || project)}${type === "customer" ? contactManagerMarkup(customer) : ""}`;
     entityRelations.classList.remove("hidden");
   } else {
     entityRelations.classList.add("hidden");
     entityRelations.innerHTML = "";
   }
   modalArchiveButton.classList.toggle("hidden", !customer && !project && !intelligence && !knowledge);
-  modalDeleteButton.classList.toggle("hidden", !customer && !project && !intelligence && !knowledge);
+  modalDeleteButton.classList.toggle("hidden", !customer && !project && !intelligence && !knowledge && !report);
   modalArchiveButton.textContent = customer
-    ? (customer.stage === "paused" ? "恢复为潜在线索" : "暂缓客户")
+    ? (customer.stage === "paused" ? "恢复为潜在线索" : "暂缓关系")
     : project
       ? (project.status === "archived" ? "恢复项目" : "归档项目")
       : intelligence
@@ -935,7 +1144,7 @@ function openModal(type, entityId = "") {
         : (knowledge?.status === "archived" ? "恢复资料" : "归档资料");
   if (customer || project) {
     const relationType = customer ? "customer" : "project";
-    entityTimeline.innerHTML = `<div class="timeline-heading"><strong>${customer ? "沟通时间线" : "项目进展"}</strong><span>聊天自动记录与手动记录都会保留在这里</span></div>${timelineMarkup(relationType, entityId)}`;
+    entityTimeline.innerHTML = `<div class="timeline-heading"><strong>${customer ? "关系时间线" : "项目进展"}</strong><span>聊天自动记录与手动记录都会保留在这里</span></div>${timelineMarkup(relationType, entityId)}`;
     entityTimeline.classList.remove("hidden");
   } else {
     entityTimeline.classList.add("hidden");
@@ -1083,10 +1292,7 @@ function submitEntity(event) {
   if (modalType === "customer") {
     const values = {
       company: formValue(formData, "company"),
-      contact: formValue(formData, "contact"),
-      title: formValue(formData, "title"),
-      email: formValue(formData, "email"),
-      phone: formValue(formData, "phone"),
+      relationshipType: formValue(formData, "relationshipType") || "other",
       website: formValue(formData, "website"),
       country: formValue(formData, "country"),
       channel: formValue(formData, "channel"),
@@ -1103,11 +1309,41 @@ function submitEntity(event) {
       const customer = data.customers.find((item) => item.id === editingId);
       if (customer) Object.assign(customer, values, { updatedAt: now });
       addManualActivity("customer", editingId, formValue(formData, "activity"), now, formValue(formData, "activityKind"));
-      showToast("客户卡片已更新");
+      showToast("关系卡片已更新");
     } else {
       customerId = crypto.randomUUID();
       data.customers.unshift({ id: customerId, ...values, linkedProjectIds: [], createdAt: now });
-      showToast("客户卡片已创建");
+      showToast("关系卡片已创建");
+    }
+    const primaryContactId = formValue(formData, "primaryContactId");
+    const existingContacts = data.contacts.filter((contact) => contact.relationshipId === customerId);
+    existingContacts.forEach((contact, index) => {
+      Object.assign(contact, {
+        name: formValue(formData, `contactName:${contact.id}`),
+        title: formValue(formData, `contactTitle:${contact.id}`),
+        email: formValue(formData, `contactEmail:${contact.id}`),
+        phone: formValue(formData, `contactPhone:${contact.id}`),
+        isPrimary: primaryContactId ? contact.id === primaryContactId : index === 0,
+        updatedAt: now,
+      });
+    });
+    const newContactName = formValue(formData, "newContactName");
+    const newContactTitle = formValue(formData, "newContactTitle");
+    const newContactEmail = formValue(formData, "newContactEmail");
+    const newContactPhone = formValue(formData, "newContactPhone");
+    if ([newContactName, newContactTitle, newContactEmail, newContactPhone].some(Boolean)) {
+      data.contacts.push({
+        id: crypto.randomUUID(),
+        relationshipId: customerId,
+        name: newContactName,
+        title: newContactTitle,
+        email: newContactEmail,
+        phone: newContactPhone,
+        notes: "",
+        isPrimary: existingContacts.length === 0,
+        createdAt: now,
+        updatedAt: now,
+      });
     }
     updateEntityLinks("customer", customerId, formData.getAll("linkedProjectIds").map(String));
   } else if (modalType === "project") {
@@ -1181,6 +1417,23 @@ function submitEntity(event) {
       });
       showToast("知识库资料已更新");
     }
+  } else if (modalType === "report") {
+    const report = data.reports.find((entry) => entry.id === editingId);
+    if (report) {
+      Object.assign(report, {
+        title: formValue(formData, "title"),
+        linkedCustomerId: formValue(formData, "linkedCustomerId"),
+        linkedProjectId: formValue(formData, "linkedProjectId"),
+        summary: formValue(formData, "summary"),
+        keyPoints: formValue(formData, "keyPoints"),
+        commitments: formValue(formData, "commitments"),
+        openQuestions: formValue(formData, "openQuestions"),
+        risks: formValue(formData, "risks"),
+        actions: formValue(formData, "actions"),
+        updatedAt: now,
+      });
+      showToast("工作台成果已更新");
+    }
   }
   closeModal();
   saveData();
@@ -1242,7 +1495,7 @@ function toggleEntityArchive() {
     if (!customer) return;
     customer.stage = customer.stage === "paused" ? "lead" : "paused";
     customer.updatedAt = new Date().toISOString();
-    showToast(customer.stage === "paused" ? "客户已暂缓" : "客户已恢复");
+    showToast(customer.stage === "paused" ? "关系已暂缓" : "关系已恢复");
   } else if (modalType === "project") {
     const project = data.projects.find((item) => item.id === editingId);
     if (!project) return;
@@ -1266,18 +1519,20 @@ function toggleEntityArchive() {
   saveData();
 }
 
-function deleteCurrentEntity() {
+async function deleteCurrentEntity() {
   if (!editingId) return;
   const labels = {
-    customer: "客户及其沟通时间线",
+    customer: "关系对象、联系人及其沟通时间线",
     project: "项目及其进展时间线",
     intelligence: "背调档案与调查结果",
     knowledge: "知识库资料与已提取文字",
+    report: "工作台分析成果",
   };
   if (!labels[modalType]) return;
-  if (!window.confirm(`确定永久删除这份${labels[modalType]}吗？关联的其他客户、项目不会被删除，此操作无法撤销。`)) return;
+  if (!window.confirm(`确定永久删除这份${labels[modalType]}吗？关联的其他关系对象、项目不会被删除，此操作无法撤销。`)) return;
   if (modalType === "customer") {
     data.customers = data.customers.filter((item) => item.id !== editingId);
+    data.contacts = data.contacts.filter((item) => item.relationshipId !== editingId);
     data.projects.forEach((project) => {
       project.linkedCustomerIds = (project.linkedCustomerIds || []).filter((id) => id !== editingId);
     });
@@ -1293,6 +1548,9 @@ function deleteCurrentEntity() {
       if (item.linkedCustomerId === editingId) item.linkedCustomerId = "";
     });
     data.knowledge.forEach((item) => {
+      if (item.linkedCustomerId === editingId) item.linkedCustomerId = "";
+    });
+    data.reports.forEach((item) => {
       if (item.linkedCustomerId === editingId) item.linkedCustomerId = "";
     });
   } else if (modalType === "project") {
@@ -1314,6 +1572,9 @@ function deleteCurrentEntity() {
     data.knowledge.forEach((item) => {
       if (item.linkedProjectId === editingId) item.linkedProjectId = "";
     });
+    data.reports.forEach((item) => {
+      if (item.linkedProjectId === editingId) item.linkedProjectId = "";
+    });
   } else if (modalType === "intelligence") {
     data.intelligence = data.intelligence.filter((item) => item.id !== editingId);
     data.captures.forEach((capture) => {
@@ -1324,11 +1585,40 @@ function deleteCurrentEntity() {
       }
     });
   } else if (modalType === "knowledge") {
+    const item = data.knowledge.find((entry) => entry.id === editingId);
+    if (item?.storedInKardii && item.filePath) {
+      try {
+        await invoke("delete_persisted_knowledge_file", { path: item.filePath });
+      } catch (error) {
+        showToast(String(error));
+        return;
+      }
+    }
     data.knowledge = data.knowledge.filter((item) => item.id !== editingId);
+    data.reports.forEach((report) => {
+      report.knowledgeIds = (report.knowledgeIds || []).filter((id) => id !== editingId);
+    });
+  } else if (modalType === "report") {
+    data.reports = data.reports.filter((item) => item.id !== editingId);
+    data.knowledge.forEach((item) => {
+      if (item.reportId === editingId) item.reportId = "";
+    });
   }
   closeModal();
   saveData();
   showToast("已永久删除");
+}
+
+function deleteContact(contactId) {
+  const contact = data.contacts.find((item) => item.id === contactId);
+  if (!contact || !window.confirm(`确定删除联系人“${contact.name || "未命名联系人"}”吗？`)) return;
+  const relationshipId = contact.relationshipId;
+  data.contacts = data.contacts.filter((item) => item.id !== contactId);
+  const remaining = data.contacts.filter((item) => item.relationshipId === relationshipId);
+  if (remaining.length && !remaining.some((item) => item.isPrimary)) remaining[0].isPrimary = true;
+  saveData();
+  if (modalType === "customer" && editingId === relationshipId) openModal("customer", relationshipId);
+  showToast("联系人已删除");
 }
 
 function deleteTask(taskId) {
@@ -1497,83 +1787,223 @@ async function importKnowledgeFiles() {
   try {
     const files = await invoke("import_knowledge_files");
     if (!Array.isArray(files) || !files.length) return;
-    const previous = structuredClone(data.knowledge);
-    let imported = 0;
-    let replaced = 0;
-    const warnings = [];
-    files.forEach((file) => {
-      const existing = data.knowledge.find((item) => item.filePath === file.path);
-      if (existing) {
-        Object.assign(existing, {
-          fileName: file.name,
-          fileType: file.fileType,
-          fileSize: file.size,
-          content: file.content,
-          charCount: file.charCount,
-          pageCount: file.pageCount,
-          warning: file.warning,
-          summary: "",
-          keyPoints: "",
-          risks: "",
-          actions: "",
-          analyzedAt: "",
-          updatedAt: new Date().toISOString(),
-        });
-        replaced += 1;
-      } else {
-        const searchable = `${file.name} ${String(file.content || "").slice(0, 30_000)}`.toLowerCase();
-        const matchedCustomer = data.customers.find((customer) => {
-          const company = String(customer.company || "").trim().toLowerCase();
-          return company.length >= 2 && searchable.includes(company);
-        });
-        const matchedProject = data.projects.find((project) => {
-          const name = String(project.name || "").trim().toLowerCase();
-          return name.length >= 2 && searchable.includes(name);
-        });
-        data.knowledge.unshift({
-          id: crypto.randomUUID(),
-          title: file.name.replace(/\.[^.]+$/, ""),
-          fileName: file.name,
-          filePath: file.path,
-          fileType: file.fileType,
-          fileSize: file.size,
-          content: file.content,
-          charCount: file.charCount,
-          pageCount: file.pageCount,
-          warning: file.warning,
-          status: "active",
-          tags: "",
-          manualNotes: "",
-          summary: "",
-          keyPoints: "",
-          risks: "",
-          actions: "",
-          analyzedAt: "",
-          linkedCustomerId: matchedCustomer?.id || "",
-          linkedProjectId: matchedProject?.id || "",
-          createdAt: new Date().toISOString(),
-        });
-        imported += 1;
-      }
-      if (file.warning) warnings.push(`${file.name}：${file.warning}`);
-    });
-    const totalChars = data.knowledge.reduce((sum, item) => sum + String(item.content || "").length, 0);
-    if (totalChars > 2_500_000) {
-      data.knowledge = previous;
-      throw new Error("知识库已超过约 250 万字的本机安全容量。请先删除或归档并删除不再需要的资料，再分批导入。");
-    }
-    if (!saveData()) {
-      data.knowledge = previous;
-      renderAll();
-      return;
-    }
-    const summary = [imported ? `新增 ${imported} 份` : "", replaced ? `更新 ${replaced} 份` : ""].filter(Boolean).join("，");
-    showToast(`${summary || "文件"}已进入知识库${warnings.length ? "，部分长文件已截取" : ""}`);
+    openBundlePreview(files);
   } catch (error) {
     showToast(String(error));
   } finally {
     button.disabled = false;
     button.textContent = "＋ 导入文件";
+  }
+}
+
+function openBundlePreview(files) {
+  pendingBundleFiles = [...new Map(files.map((file) => {
+    const normalized = { ...file, sourcePath: file.sourcePath || file.path };
+    return [normalized.sourcePath, normalized];
+  })).values()];
+  pendingBundleAnalysis = null;
+  bundleObjective.value = "";
+  const conversation = currentConversationDocument();
+  bundleIncludeChat.checked = false;
+  bundleIncludeChat.disabled = !conversation;
+  bundleChatSummary.textContent = conversation
+    ? `可加入当前会话的 ${conversation.messageCount} 条消息（不会复制或删除原聊天）`
+    : "没有可加入的聊天记录";
+  bundleRelationSelect.replaceChildren(new Option("不关联关系对象", ""));
+  data.customers.forEach((item) => bundleRelationSelect.add(new Option(`${RELATIONSHIP_TYPES[item.relationshipType] || "关系"} · ${item.company}`, item.id)));
+  bundleProjectSelect.replaceChildren(new Option("不关联项目", ""));
+  data.projects.forEach((item) => bundleProjectSelect.add(new Option(item.name, item.id)));
+  const searchable = pendingBundleFiles.map((file) => `${file.name} ${String(file.content || "").slice(0, 20_000)}`).join(" ").toLowerCase();
+  const matchedRelationship = data.customers.find((item) => String(item.company || "").trim().length >= 2 && searchable.includes(String(item.company).trim().toLowerCase()));
+  const matchedProject = data.projects.find((item) => String(item.name || "").trim().length >= 2 && searchable.includes(String(item.name).trim().toLowerCase()));
+  bundleRelationSelect.value = matchedRelationship?.id || "";
+  bundleProjectSelect.value = matchedProject?.id || "";
+  bundleFileList.innerHTML = pendingBundleFiles.map((file) => `
+    <div class="bundle-file">
+      <span class="bundle-file-badge">${escapeHtml(file.fileType || "file")}</span>
+      <div><strong>${escapeHtml(file.name)}</strong><span>${formatFileSize(file.size)} · ${(Number(file.charCount) || 0).toLocaleString("zh-CN")} 字</span></div>
+      <small>${escapeHtml(file.warning || "已在本机读取，尚未保存")}</small>
+    </div>
+  `).join("");
+  bundleStatus.textContent = `已读取 ${pendingBundleFiles.length} 份资料。原件尚未复制进 Kardii，先检查文件和关联对象。`;
+  bundleStatus.className = "";
+  bundleDraftFields.classList.add("hidden");
+  ["bundleDraftTitle", "bundleDraftSummary", "bundleDraftKeyPoints", "bundleDraftCommitments", "bundleDraftQuestions", "bundleDraftRisks", "bundleDraftActions"]
+    .forEach((id) => { document.getElementById(id).value = ""; });
+  analyzeBundleButton.disabled = false;
+  analyzeBundleButton.textContent = "AI 综合分析";
+  saveBundleButton.disabled = false;
+  bundleBackdrop.classList.remove("hidden");
+}
+
+function currentConversationDocument() {
+  try {
+    const messages = JSON.parse(localStorage.getItem(CHAT_HISTORY_KEY) || "[]");
+    if (!Array.isArray(messages)) return null;
+    const clean = messages
+      .filter((message) => ["user", "assistant"].includes(message?.role) && typeof message?.content === "string" && message.content.trim())
+      .slice(-100);
+    if (!clean.length) return null;
+    const content = clean
+      .map((message) => `${message.role === "user" ? "用户" : "Kardii"}：${message.content.trim()}`)
+      .join("\n\n");
+    return {
+      title: "当前 Kardii 聊天记录",
+      content: content.slice(-80_000),
+      messageCount: clean.length,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function closeBundlePreview() {
+  bundleBackdrop.classList.add("hidden");
+  pendingBundleFiles = [];
+  pendingBundleAnalysis = null;
+}
+
+async function analyzePendingBundle() {
+  if (!pendingBundleFiles.length) return;
+  const ai = currentResearchAiConfig();
+  if (!ai.model) {
+    bundleStatus.textContent = "当前 Ollama 还没有选择模型，请先到聊天设置中选择模型。";
+    return;
+  }
+  analyzeBundleButton.disabled = true;
+  analyzeBundleButton.textContent = "正在综合分析…";
+  bundleStatus.textContent = `正在比较 ${pendingBundleFiles.length} 份文件${bundleIncludeChat.checked ? "和当前聊天" : ""}；分析结果只会作为草稿，保存前仍可修改。`;
+  try {
+    const conversation = bundleIncludeChat.checked ? currentConversationDocument() : null;
+    const result = await invoke("analyze_knowledge_bundle", {
+      request: {
+        documents: [
+          ...pendingBundleFiles.map((file) => ({ title: file.name, content: file.content })),
+          ...(conversation ? [{ title: conversation.title, content: conversation.content }] : []),
+        ],
+        objective: bundleObjective.value.trim(),
+        provider: ai.provider,
+        model: ai.model,
+        ollamaBaseUrl: ai.ollamaBaseUrl,
+      },
+    });
+    pendingBundleAnalysis = { ...result, includedChat: Boolean(conversation) };
+    document.getElementById("bundleDraftTitle").value = result.title || "多文件分析";
+    document.getElementById("bundleDraftSummary").value = result.summary || "";
+    document.getElementById("bundleDraftKeyPoints").value = result.keyPoints || "";
+    document.getElementById("bundleDraftCommitments").value = result.commitments || "";
+    document.getElementById("bundleDraftQuestions").value = result.openQuestions || "";
+    document.getElementById("bundleDraftRisks").value = result.risks || "";
+    document.getElementById("bundleDraftActions").value = result.actions || "";
+    bundleDraftFields.classList.remove("hidden");
+    bundleStatus.textContent = "分析草稿已生成。请检查、修改，再确认保存到工作台。";
+  } catch (error) {
+    bundleStatus.textContent = String(error);
+  } finally {
+    analyzeBundleButton.disabled = false;
+    analyzeBundleButton.textContent = pendingBundleAnalysis ? "重新分析" : "AI 综合分析";
+  }
+}
+
+function bundleDraftValue(id) {
+  return String(document.getElementById(id)?.value || "").trim();
+}
+
+async function savePendingBundle() {
+  if (!pendingBundleFiles.length) return;
+  saveBundleButton.disabled = true;
+  analyzeBundleButton.disabled = true;
+  bundleStatus.textContent = "正在把确认过的原件复制进 Kardii 本地文件库…";
+  const previousKnowledge = structuredClone(data.knowledge);
+  const previousReports = structuredClone(data.reports);
+  const pathsToPersist = pendingBundleFiles
+    .filter((file) => !data.knowledge.some((item) => item.sourcePath && item.sourcePath === file.sourcePath && item.storedInKardii))
+    .map((file) => file.sourcePath);
+  let persisted = [];
+  try {
+    if (pathsToPersist.length) persisted = await invoke("persist_knowledge_files", { sourcePaths: pathsToPersist });
+    const persistedBySource = new Map((persisted || []).map((item) => [item.sourcePath, item.storedPath]));
+    const now = new Date().toISOString();
+    const reportTitle = bundleDraftValue("bundleDraftTitle");
+    const shouldCreateReport = Boolean(reportTitle || pendingBundleAnalysis);
+    const reportId = shouldCreateReport ? crypto.randomUUID() : "";
+    const knowledgeIds = [];
+    pendingBundleFiles.forEach((file) => {
+      const existing = data.knowledge.find((item) => item.sourcePath === file.sourcePath || (!item.sourcePath && item.filePath === file.sourcePath));
+      const storedPath = persistedBySource.get(file.sourcePath) || existing?.filePath || file.sourcePath;
+      const values = {
+        title: existing?.title || file.name.replace(/\.[^.]+$/, ""),
+        fileName: file.name,
+        filePath: storedPath,
+        sourcePath: file.sourcePath,
+        storedInKardii: persistedBySource.has(file.sourcePath) || existing?.storedInKardii === true,
+        fileType: file.fileType,
+        fileSize: file.size,
+        content: file.content,
+        charCount: file.charCount,
+        pageCount: file.pageCount,
+        warning: file.warning,
+        status: "active",
+        tags: existing?.tags || "",
+        manualNotes: existing?.manualNotes || "",
+        linkedCustomerId: bundleRelationSelect.value,
+        linkedProjectId: bundleProjectSelect.value,
+        reportId,
+        updatedAt: now,
+      };
+      if (existing) {
+        Object.assign(existing, values);
+        knowledgeIds.push(existing.id);
+      } else {
+        const item = {
+          id: crypto.randomUUID(),
+          ...values,
+          summary: "",
+          keyPoints: "",
+          risks: "",
+          actions: "",
+          analyzedAt: "",
+          createdAt: now,
+        };
+        data.knowledge.unshift(item);
+        knowledgeIds.push(item.id);
+      }
+    });
+    if (shouldCreateReport) {
+      data.reports.unshift({
+        id: reportId,
+        title: reportTitle || "多文件分析",
+        summary: bundleDraftValue("bundleDraftSummary"),
+        keyPoints: bundleDraftValue("bundleDraftKeyPoints"),
+        commitments: bundleDraftValue("bundleDraftCommitments"),
+        openQuestions: bundleDraftValue("bundleDraftQuestions"),
+        risks: bundleDraftValue("bundleDraftRisks"),
+        actions: bundleDraftValue("bundleDraftActions"),
+        linkedCustomerId: bundleRelationSelect.value,
+        linkedProjectId: bundleProjectSelect.value,
+        knowledgeIds,
+        includedChat: pendingBundleAnalysis?.includedChat === true,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+    const totalChars = data.knowledge.reduce((sum, item) => sum + String(item.content || "").length, 0);
+    if (totalChars > 2_500_000) throw new Error("知识库已超过约 250 万字的本机安全容量。请先删除不再需要的资料，再分批导入。");
+    if (!saveData()) throw new Error("本机存储空间不足，资料未能写入工作台。");
+    const savedCount = pendingBundleFiles.length;
+    closeBundlePreview();
+    showToast(`已保存 ${savedCount} 份原件${shouldCreateReport ? "和 1 份可编辑分析成果" : ""}`);
+  } catch (error) {
+    data.knowledge = previousKnowledge;
+    data.reports = previousReports;
+    for (const item of persisted || []) {
+      await invoke("delete_persisted_knowledge_file", { path: item.storedPath }).catch(() => {});
+    }
+    renderAll();
+    bundleStatus.textContent = String(error);
+  } finally {
+    saveBundleButton.disabled = false;
+    analyzeBundleButton.disabled = false;
   }
 }
 
@@ -1629,6 +2059,7 @@ document.addEventListener("click", (event) => {
   if (action === "edit-project") openModal("project", actionTarget.dataset.entityId);
   if (action === "edit-intelligence") openModal("intelligence", actionTarget.dataset.entityId);
   if (action === "edit-knowledge") openModal("knowledge", actionTarget.dataset.entityId);
+  if (action === "edit-report") openModal("report", actionTarget.dataset.entityId);
   if (action === "run-intelligence-research") runIntelligenceResearch();
   if (action === "run-knowledge-analysis") runKnowledgeAnalysis();
   if (action === "open-knowledge-file") {
@@ -1642,6 +2073,7 @@ document.addEventListener("click", (event) => {
   if (action === "delete-task") deleteTask(actionTarget.dataset.entityId);
   if (action === "delete-note") deleteNote(actionTarget.dataset.entityId);
   if (action === "delete-activity") deleteActivity(actionTarget.dataset.entityId);
+  if (action === "delete-contact") deleteContact(actionTarget.dataset.entityId);
   if (action === "open-research-source") {
     const url = actionTarget.dataset.sourceUrl;
     if (url) invoke("open_external_url", { url }).catch((error) => showResearchError(String(error)));
@@ -1662,15 +2094,26 @@ taskList.addEventListener("change", (event) => {
 
 customerSearch.addEventListener("input", renderCustomers);
 customerStageFilter.addEventListener("change", renderCustomers);
+relationshipTypeFilter.addEventListener("change", renderCustomers);
 projectSearch.addEventListener("input", renderProjects);
 projectStatusFilter.addEventListener("change", renderProjects);
 intelligenceSearch.addEventListener("input", renderIntelligence);
 intelligenceStatusFilter.addEventListener("change", renderIntelligence);
-knowledgeSearch.addEventListener("input", renderKnowledge);
+knowledgeSearch.addEventListener("input", () => {
+  renderReports();
+  renderKnowledge();
+});
 knowledgeTypeFilter.addEventListener("change", renderKnowledge);
 captureStatusFilter.addEventListener("change", renderCaptureInbox);
 document.getElementById("importKnowledgeButton").addEventListener("click", importKnowledgeFiles);
 document.getElementById("askKnowledgeButton").addEventListener("click", askKnowledgeBase);
+document.getElementById("bundleCloseButton").addEventListener("click", closeBundlePreview);
+document.getElementById("bundleCancelButton").addEventListener("click", closeBundlePreview);
+analyzeBundleButton.addEventListener("click", analyzePendingBundle);
+saveBundleButton.addEventListener("click", savePendingBundle);
+bundleBackdrop.addEventListener("mousedown", (event) => {
+  if (event.target === bundleBackdrop) closeBundlePreview();
+});
 knowledgeQuestion.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) askKnowledgeBase();
 });
@@ -1696,6 +2139,10 @@ modalBackdrop.addEventListener("mousedown", (event) => {
 });
 entityForm.addEventListener("submit", submitEntity);
 window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !bundleBackdrop.classList.contains("hidden")) {
+    closeBundlePreview();
+    return;
+  }
   if (event.key === "Escape" && !modalBackdrop.classList.contains("hidden")) closeModal();
   else if (event.key === "Escape") appWindow.hide();
 });
