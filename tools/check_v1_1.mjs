@@ -27,6 +27,9 @@ assert(chatHtml.includes('<option value="codex">'), "Codex provider option is mi
 assert(chatHtml.includes('id="codexStatusRow"'), "Codex status panel is missing");
 assert(rust.includes('"--sandbox".to_string()') && rust.includes('"read-only".to_string()'), "Codex is not constrained to read-only sandbox");
 assert(rust.includes('"--ignore-user-config".to_string()') && rust.includes('"--ignore-rules".to_string()'), "Codex provider does not isolate user config and rules");
+const codexArgs = rust.slice(rust.indexOf("let mut args = vec!["), rust.indexOf("if !model.trim().is_empty()"));
+assert(codexArgs.indexOf('"--ask-for-approval".to_string()') < codexArgs.indexOf('"exec".to_string()'), "Codex global approval flag must appear before the exec subcommand");
+assert(!rust.includes("Codex CLI 版本过旧"), "Codex argument errors must not be mislabeled as an outdated CLI");
 for (const control of [
   'web_search=\\"disabled\\"',
   'agents.enabled=false',

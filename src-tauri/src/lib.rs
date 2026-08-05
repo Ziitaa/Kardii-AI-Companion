@@ -688,7 +688,10 @@ fn codex_failure_message(output: &CodexProcessOutput) -> String {
         return "当前 ChatGPT/Codex 使用额度已达到限制，请稍后再试或切换其他 AI。".into();
     }
     if lower.contains("unexpected argument") || lower.contains("unknown argument") {
-        return "这台电脑上的 Codex CLI 版本过旧，请先更新官方 Codex 后再试。".into();
+        return format!(
+            "Kardii 调用 Codex 时使用了当前版本不接受的参数：{}。请把这条完整提示发给开发者。",
+            truncate_chars(detail, 600)
+        );
     }
     if detail.is_empty() {
         format!("Codex 运行失败（退出码 {}）。", output.exit_code)
@@ -709,6 +712,8 @@ async fn run_codex_prompt(
         return Err("Codex 尚未登录。请到 AI 设置中点击“使用 ChatGPT 登录”。".into());
     }
     let mut args = vec![
+        "--ask-for-approval".to_string(),
+        "never".to_string(),
         "exec".to_string(),
         "--ephemeral".to_string(),
         "--sandbox".to_string(),
@@ -716,8 +721,6 @@ async fn run_codex_prompt(
         "--skip-git-repo-check".to_string(),
         "--ignore-user-config".to_string(),
         "--ignore-rules".to_string(),
-        "--ask-for-approval".to_string(),
-        "never".to_string(),
         "--config".to_string(),
         "web_search=\"disabled\"".to_string(),
         "--config".to_string(),
