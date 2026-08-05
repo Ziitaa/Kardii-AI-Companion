@@ -85,7 +85,11 @@ header strong {
 }
 
 .icon-button:hover { background: rgba(205, 112, 148, 0.12); }
-.tools-button { margin-left: auto; font-size: 15px; font-weight: 700; }
+.agent-center-button { margin-left: auto; font-size: 16px; font-weight: 700; }
+.agent-center-button + .workbench-button { margin-left: 0; }
+.workbench-button { margin-left: 0; font-size: 16px; font-weight: 700; }
+.workbench-button + .tools-button { margin-left: 0; }
+.tools-button { margin-left: 0; font-size: 15px; font-weight: 700; }
 .tools-button + .profile-button { margin-left: 0; }
 .profile-button { margin-left: 0; font-size: 20px; }
 .profile-button + .settings-button { margin-left: 0; }
@@ -159,6 +163,37 @@ header strong {
   border-radius: 11px;
 }
 
+.business-capture-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 10px 7px;
+  padding: 8px 10px;
+  color: #425466;
+  font-size: 10px;
+  background: #eef7f2;
+  border: 1px solid #cfe7da;
+  border-radius: 10px;
+  box-shadow: 0 5px 14px rgba(47, 94, 70, 0.08);
+}
+
+.business-capture-notice > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.business-capture-notice > div { display: flex; gap: 5px; }
+.business-capture-notice button {
+  padding: 4px 7px;
+  color: #52705f;
+  font-size: 9px;
+  background: #fff;
+  border: 1px solid #c8ddd1;
+  border-radius: 7px;
+}
+
 .memory-suggestion > span { flex: 1; min-width: 0; }
 .memory-suggestion > div { display: flex; flex: 0 0 auto; gap: 4px; }
 .memory-suggestion button {
@@ -200,7 +235,8 @@ textarea {
 
 #sendButton,
 #stopButton,
-#micButton {
+#micButton,
+#agentModeButton {
   display: grid;
   width: 34px;
   height: 34px;
@@ -223,6 +259,21 @@ textarea {
   font-size: 15px;
   background: #fff3f7;
   border: 1px solid #edcbd8;
+}
+
+#agentModeButton {
+  color: #9a667a;
+  font-size: 11px;
+  font-weight: 800;
+  background: #fff;
+  border: 1px solid #edcbd8;
+}
+
+#agentModeButton.active {
+  color: #fff;
+  background: linear-gradient(145deg, #8a72dd, #6651b8);
+  border-color: transparent;
+  box-shadow: 0 4px 12px rgba(102, 81, 184, 0.24);
 }
 
 #micButton:hover { background: #ffe8f1; }
@@ -396,7 +447,8 @@ textarea {
 }
 
 .ollama-address-row button,
-.ollama-status-row button {
+.ollama-status-row button,
+.codex-actions button {
   padding: 7px 9px;
   font: inherit;
   font-size: 10px;
@@ -420,6 +472,22 @@ textarea {
 }
 
 .ollama-status-row .settings-status { flex: 1; margin: 0; }
+
+.codex-status-row {
+  align-items: stretch;
+  flex-direction: column;
+  padding: 10px;
+  background: #fff;
+  border: 1px solid #edd8e0;
+  border-radius: 11px;
+}
+
+.codex-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
 
 .voice-privacy {
   margin: 6px 0 9px;

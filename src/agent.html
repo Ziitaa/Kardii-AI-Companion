@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Kardii Agent</title>
+    <link rel="stylesheet" href="./agent.css">
+  </head>
+  <body>
+    <main class="agent-shell">
+      <header class="titlebar" data-tauri-drag-region>
+        <div class="brand" data-tauri-drag-region>
+          <span class="brand-mark">K</span>
+          <div><strong>Kardii Agent</strong><span>计划、执行、检查，再继续</span></div>
+        </div>
+        <div class="window-actions">
+          <button id="automationsButton" type="button">自动化</button>
+          <button id="skillsButton" type="button">技能</button>
+          <button id="openChatButton" type="button">聊天</button>
+          <button id="minimizeButton" type="button" aria-label="最小化">—</button>
+          <button id="closeButton" type="button" aria-label="关闭">×</button>
+        </div>
+      </header>
+
+      <div class="workspace">
+        <aside class="task-sidebar">
+          <button id="showCreateButton" class="new-task-button" type="button">＋ 新任务</button>
+          <div class="task-filter-row" role="group" aria-label="任务筛选">
+            <button class="task-filter active" type="button" data-filter="active">进行中</button>
+            <button class="task-filter" type="button" data-filter="done">已结束</button>
+            <button class="task-filter" type="button" data-filter="all">全部</button>
+          </div>
+          <div id="taskList" class="task-list"></div>
+        </aside>
+
+        <section class="task-main">
+          <section id="createView" class="create-view">
+            <div class="create-copy">
+              <span class="eyebrow">NEW AGENT TASK</span>
+              <h1>告诉 Kardii 你想完成什么</h1>
+              <p>它会先制定计划，再逐步选择工具。涉及你的文件、剪贴板、浏览器或终端时一定会暂停等待确认。</p>
+            </div>
+            <form id="createTaskForm" class="create-form">
+              <label for="goalInput">任务目标</label>
+              <textarea id="goalInput" rows="7" maxlength="4000" required></textarea>
+              <div class="create-options">
+                <label for="maxStepsInput">最多执行步骤</label>
+                <input id="maxStepsInput" type="number" min="3" max="20" value="12">
+              </div>
+              <div class="create-options skill-option-row">
+                <label for="taskSkillSelect">执行技能</label>
+                <select id="taskSkillSelect"><option value="">自动匹配或不使用</option></select>
+              </div>
+              <button id="startTaskButton" class="primary-button" type="submit">交给 Kardii</button>
+            </form>
+          </section>
+
+          <section id="skillsView" class="skills-view hidden">
+            <div class="skills-heading">
+              <div><span class="eyebrow">SKILLS</span><h1>技能库</h1><p>把成熟的做事方法保存下来。新增、修改和恢复都由你决定。</p></div>
+              <button id="newSkillButton" class="primary-button" type="button">＋ 新技能</button>
+            </div>
+            <div class="skills-layout">
+              <div id="skillList" class="skill-list"></div>
+              <form id="skillForm" class="skill-form">
+                <input id="skillIdInput" type="hidden">
+                <label for="skillNameInput">技能名称</label>
+                <input id="skillNameInput" maxlength="80" required>
+                <label for="skillDescriptionInput">用途说明</label>
+                <textarea id="skillDescriptionInput" rows="3" maxlength="500"></textarea>
+                <label for="skillTriggersInput">触发词</label>
+                <input id="skillTriggersInput" maxlength="300">
+                <p class="skill-help">多个触发词用逗号分开。只有匹配时才自动建议，也可以在新任务中手动选择。</p>
+                <label for="skillInstructionsInput">执行规则</label>
+                <textarea id="skillInstructionsInput" rows="10" maxlength="12000" required></textarea>
+                <label class="skill-enabled-row" for="skillEnabledInput"><input id="skillEnabledInput" type="checkbox" checked><span>启用这个技能</span></label>
+                <div class="skill-form-actions">
+                  <button id="restoreSkillButton" class="secondary-button hidden" type="button">恢复上一版</button>
+                  <button id="deleteSkillButton" class="danger-text-button hidden" type="button">删除</button>
+                  <button id="saveSkillButton" class="primary-button" type="submit">保存技能</button>
+                </div>
+              </form>
+            </div>
+          </section>
+
+          <section id="automationsView" class="skills-view hidden">
+            <div class="skills-heading">
+              <div><span class="eyebrow">AUTOMATIONS</span><h1>本地自动化</h1><p>到达设定时间后创建 Agent 任务。电脑关机或 Kardii 未运行时不会执行。</p></div>
+              <button id="newAutomationButton" class="primary-button" type="button">＋ 新自动化</button>
+            </div>
+            <div class="skills-layout">
+              <div id="automationList" class="skill-list"></div>
+              <form id="automationForm" class="skill-form">
+                <input id="automationIdInput" type="hidden">
+                <label for="automationNameInput">自动化名称</label>
+                <input id="automationNameInput" maxlength="80" required>
+                <label for="automationGoalInput">Agent 任务目标</label>
+                <textarea id="automationGoalInput" rows="7" maxlength="4000" required></textarea>
+                <label for="automationScheduleSelect">执行周期</label>
+                <select id="automationScheduleSelect">
+                  <option value="once">仅一次</option>
+                  <option value="daily">每天</option>
+                  <option value="weekly">每周</option>
+                </select>
+                <div id="automationOnceRow" class="automation-schedule-row">
+                  <label for="automationDateInput">日期</label><input id="automationDateInput" type="date">
+                  <label for="automationOnceTimeInput">时间</label><input id="automationOnceTimeInput" type="time" value="09:00">
+                </div>
+                <div id="automationDailyRow" class="automation-schedule-row hidden">
+                  <label for="automationDailyTimeInput">每天时间</label><input id="automationDailyTimeInput" type="time" value="09:00">
+                </div>
+                <div id="automationWeeklyRow" class="automation-schedule-row hidden">
+                  <label for="automationWeekdaySelect">星期</label>
+                  <select id="automationWeekdaySelect"><option value="1">星期一</option><option value="2">星期二</option><option value="3">星期三</option><option value="4">星期四</option><option value="5">星期五</option><option value="6">星期六</option><option value="0">星期日</option></select>
+                  <label for="automationWeeklyTimeInput">时间</label><input id="automationWeeklyTimeInput" type="time" value="09:00">
+                </div>
+                <label for="automationSkillSelect">执行技能</label>
+                <select id="automationSkillSelect"><option value="">自动匹配或不使用</option></select>
+                <label class="skill-enabled-row" for="automationAutoStartInput"><input id="automationAutoStartInput" type="checkbox" checked><span>到时自动开始；需要高权限时仍会暂停</span></label>
+                <label class="skill-enabled-row" for="automationEnabledInput"><input id="automationEnabledInput" type="checkbox" checked><span>启用这个自动化</span></label>
+                <p id="automationNextRun" class="skill-help"></p>
+                <div class="skill-form-actions">
+                  <button id="deleteAutomationButton" class="danger-text-button hidden" type="button">删除</button>
+                  <button id="runAutomationNowButton" class="secondary-button hidden" type="button">立即运行一次</button>
+                  <button id="saveAutomationButton" class="primary-button" type="submit">保存自动化</button>
+                </div>
+              </form>
+            </div>
+          </section>
+
+          <section id="taskView" class="task-view hidden">
+            <div class="task-heading">
+              <div>
+                <span id="taskStatusBadge" class="status-badge">准备中</span>
+                <span id="taskSkillBadge" class="status-badge skill-badge hidden"></span>
+                <h1 id="taskTitle">Agent 任务</h1>
+                <p id="taskGoal"></p>
+              </div>
+              <button id="deleteTaskButton" class="danger-text-button" type="button">删除</button>
+            </div>
+
+            <div class="metric-row">
+              <div><span>执行步数</span><strong id="stepMetric">0 / 12</strong></div>
+              <div><span>AI 判断</span><strong id="aiMetric">0</strong></div>
+              <div><span>工具调用</span><strong id="toolMetric">0</strong></div>
+              <div><span>更新时间</span><strong id="updatedMetric">—</strong></div>
+            </div>
+
+            <section class="panel plan-panel">
+              <div class="panel-heading"><div><span class="eyebrow">PLAN</span><h2>执行计划</h2></div><span id="planSummary"></span></div>
+              <div id="planList" class="plan-list"></div>
+            </section>
+
+            <section id="currentActionPanel" class="panel current-action hidden">
+              <span class="eyebrow">CURRENT ACTION</span>
+              <h2 id="currentActionTitle"></h2>
+              <p id="currentActionExplanation"></p>
+            </section>
+
+            <section id="questionPanel" class="panel question-panel hidden">
+              <span class="eyebrow">NEED YOUR INPUT</span>
+              <h2 id="questionText"></h2>
+              <textarea id="questionAnswer" rows="4" maxlength="4000"></textarea>
+              <button id="submitAnswerButton" class="primary-button" type="button">提交并继续</button>
+            </section>
+
+            <section id="resultPanel" class="panel result-panel hidden">
+              <div class="panel-heading"><div><span class="eyebrow">RESULT</span><h2>完成结果</h2></div><div class="result-actions"><button id="saveAsSkillButton" type="button">保存为技能</button><button id="copyResultButton" type="button">复制</button></div></div>
+              <div id="finalAnswer" class="final-answer"></div>
+            </section>
+
+            <section class="panel log-panel">
+              <div class="panel-heading"><div><span class="eyebrow">ACTIVITY</span><h2>执行记录</h2></div><button id="toggleLogsButton" type="button">收起</button></div>
+              <div id="activityList" class="activity-list"></div>
+            </section>
+
+            <div class="task-controls">
+              <button id="pauseButton" class="secondary-button" type="button">暂停</button>
+              <button id="resumeButton" class="primary-button hidden" type="button">继续</button>
+              <button id="retryButton" class="primary-button hidden" type="button">重试</button>
+              <button id="cancelButton" class="secondary-button" type="button">取消任务</button>
+            </div>
+          </section>
+        </section>
+      </div>
+
+      <section id="permissionPanel" class="permission-overlay hidden" aria-label="Agent 操作确认">
+        <div class="permission-card">
+          <span id="permissionBadge" class="permission-badge">需要你的允许</span>
+          <h2 id="permissionTitle">确认操作</h2>
+          <p id="permissionDescription"></p>
+          <pre id="permissionDetail"></pre>
+          <div class="permission-actions">
+            <button id="denyPermissionButton" class="secondary-button" type="button">拒绝</button>
+            <button id="allowPermissionButton" class="primary-button" type="button">允许这一次</button>
+          </div>
+        </div>
+      </section>
+
+      <div id="toast" class="toast hidden"></div>
+    </main>
+    <script src="./agent.js"></script>
+  </body>
+</html>
