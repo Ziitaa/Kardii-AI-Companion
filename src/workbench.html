@@ -37,6 +37,10 @@
             <span class="nav-icon">▤</span><span>知识库</span>
             <span id="knowledgeNavCount" class="nav-count">0</span>
           </button>
+          <button class="nav-item" type="button" data-view="connections">
+            <span class="nav-icon">⌁</span><span>外部连接</span>
+            <span id="connectionNavStatus" class="nav-count">0</span>
+          </button>
         </nav>
 
         <div class="sidebar-footer">
@@ -274,6 +278,86 @@
               </aside>
             </div>
           </section>
+
+          <section id="connectionsView" class="view" data-view-panel="connections">
+            <div class="connections-intro">
+              <div>
+                <span class="section-kicker">EXTERNAL CONNECTIONS</span>
+                <h2>先把邮箱变成 Kardii 的只读资料入口。</h2>
+                <p>手动同步收件箱，检查邮件和附件后再交给现有多文件分析。当前版本不会发送、删除、移动或标记邮件。</p>
+              </div>
+              <span class="read-only-badge">只读连接</span>
+            </div>
+
+            <div class="connections-layout">
+              <article class="connection-card email-connection-card">
+                <div class="connection-card-heading">
+                  <div><span class="connection-icon">✉</span><span><strong>邮箱 · IMAP</strong><small id="emailConnectionSummary">尚未连接</small></span></div>
+                  <span id="emailConnectionBadge" class="connection-state disconnected">未连接</span>
+                </div>
+                <form id="emailConnectionForm" class="connection-form">
+                  <label class="form-field full">
+                    <span>邮箱类型</span>
+                    <select id="emailPresetSelect">
+                      <option value="wecom">企业微信邮箱 / 腾讯企业邮箱</option>
+                      <option value="qq">QQ 邮箱</option>
+                      <option value="custom">其他支持 IMAP 的邮箱</option>
+                    </select>
+                  </label>
+                  <label class="form-field full">
+                    <span>连接名称</span>
+                    <input id="emailLabelInput" maxlength="60" value="工作邮箱" placeholder="例如：工作邮箱">
+                  </label>
+                  <label class="form-field full">
+                    <span>邮箱地址</span>
+                    <input id="emailAddressInput" type="email" maxlength="320" autocomplete="username" placeholder="name@company.com">
+                  </label>
+                  <label class="form-field">
+                    <span>IMAP 服务器</span>
+                    <input id="emailServerInput" maxlength="253" value="imap.exmail.qq.com" spellcheck="false">
+                  </label>
+                  <label class="form-field">
+                    <span>SSL/TLS 端口</span>
+                    <input id="emailPortInput" type="number" min="993" max="993" value="993">
+                  </label>
+                  <label class="form-field full">
+                    <span>登录账号</span>
+                    <input id="emailUsernameInput" maxlength="320" autocomplete="username" placeholder="通常与完整邮箱地址相同">
+                  </label>
+                  <label class="form-field full">
+                    <span>客户端专用密码 / 授权码</span>
+                    <input id="emailPasswordInput" type="password" maxlength="512" autocomplete="new-password" placeholder="只保存到 Windows 凭据管理器或 macOS 钥匙串">
+                  </label>
+                  <p class="connection-help full">不要填写企业微信登录密码。请先在邮箱后台开启 IMAP，并生成客户端专用密码或授权码；若后台给出的服务器地址不同，以后台为准。Kardii 的 JSON 备份不会包含它。</p>
+                  <div class="connection-actions full">
+                    <button id="disconnectEmailButton" class="delete-action" type="button">断开连接</button>
+                    <span class="modal-action-spacer"></span>
+                    <button id="testEmailButton" class="outline-button" type="button">测试连接</button>
+                    <button id="saveEmailButton" class="primary-button" type="submit">保存并连接</button>
+                  </div>
+                  <p id="emailConnectionStatus" class="connection-status full">第一阶段仅连接一个邮箱；账号信息保存在本机，密码进入系统安全凭据库。</p>
+                </form>
+              </article>
+
+              <article class="connection-card email-inbox-card">
+                <div class="connection-card-heading">
+                  <div><span class="connection-icon">⇣</span><span><strong>同步收件箱</strong><small id="emailLastSyncLabel">连接后可手动同步</small></span></div>
+                  <button id="syncEmailButton" class="primary-button" type="button" disabled>同步新邮件</button>
+                </div>
+                <div class="email-sync-note">
+                  <strong>同步不会改变邮箱里的任何内容</strong>
+                  <span>首次读取最近 20 封；以后只读取新 UID。邮件正文和支持的附件先进入本地缓存，仍需你确认后才保存到工作台。</span>
+                </div>
+                <div id="emailInboxList" class="email-inbox-list"></div>
+              </article>
+            </div>
+
+            <div class="future-connections-grid">
+              <article><span>日历</span><strong>下一阶段</strong><p>读取日程并建立内部跟进提醒。</p></article>
+              <article><span>在线表格 / 网盘</span><strong>后续开放</strong><p>按项目选择资料，不默认上传全部企业文件。</p></article>
+              <article><span>对外发送</span><strong>保持关闭</strong><p>以后即使开放，也会逐次显示收件人、正文和附件让你确认。</p></article>
+            </div>
+          </section>
         </div>
       </section>
     </main>
@@ -315,6 +399,11 @@
           <div class="form-field"><label for="bundleRelationSelect">关联关系</label><select id="bundleRelationSelect"></select></div>
           <div class="form-field"><label for="bundleProjectSelect">关联项目</label><select id="bundleProjectSelect"></select></div>
           <label class="bundle-chat-option full"><input id="bundleIncludeChat" type="checkbox"><span><strong>同时分析当前 Kardii 聊天记录</strong><small id="bundleChatSummary">没有可加入的聊天记录</small></span></label>
+          <label id="bundleEmailFollowup" class="bundle-chat-option bundle-followup-option full hidden">
+            <input id="bundleCreateFollowup" type="checkbox" checked>
+            <span><strong>保存邮件时同时建立内部跟进提醒</strong><small>只写入 Kardii 待办，不会向邮箱或日历发送任何内容</small></span>
+            <input id="bundleFollowupDate" class="bundle-followup-date" type="date" aria-label="跟进日期">
+          </label>
         </div>
         <div class="bundle-analysis-actions">
           <p id="bundleStatus">文件尚未保存。可以先让 AI 综合分析，也可以直接确认保存原件。</p>

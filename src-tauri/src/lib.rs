@@ -1,6 +1,7 @@
 mod voice;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use image::{DynamicImage, ImageFormat};
+use mailparse::MailHeaderMap;
 use std::io::{Cursor, Read};
 use tauri::{
     menu::{Menu, MenuItem},
@@ -18,6 +19,7 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
     process::Stdio,
+    net::TcpStream,
     sync::{Mutex, OnceLock},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -274,6 +276,56 @@ struct KnowledgeBundleAnalysisResult {
 struct PersistedKnowledgeFile {
     source_path: String,
     stored_path: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EmailConnectionRequest {
+    account_id: String,
+    server: String,
+    port: u16,
+    username: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EmailSyncRequest {
+    account_id: String,
+    server: String,
+    port: u16,
+    username: String,
+    since_uid: u32,
+    uid_validity: u32,
+    max_messages: usize,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EmailConnectionStatus {
+    inbox_count: u32,
+    read_only: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EmailMessageResult {
+    uid: u32,
+    subject: String,
+    sender: String,
+    received_at: String,
+    preview: String,
+    attachment_names: Vec<String>,
+    attachment_count: usize,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EmailSyncResult {
+    messages: Vec<EmailMessageResult>,
+    last_uid: u32,
+    inbox_count: u32,
+    uid_validity: u32,
+    has_more: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -833,7 +885,7 @@ impl CodexAppServer {
             "clientInfo": {
                 "name": "kardii_ai_companion",
                 "title": "Kardii AI Companion",
-                "version": "1.2.0"
+                "version": "1.3.0"
             }
         })).await?;
         server.wait_for_response(initialize_id, Duration::from_secs(12)).await?;
@@ -1454,14 +1506,19 @@ fn extract_sse_event(buffer: &mut Vec<u8>) -> Option<Vec<u8>> {
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
+fn credential_account_entry(account: &str) -> Result<keyring::Entry, String> {
+    keyring::Entry::new(KEYRING_SERVICE, account)
+        .map_err(|error| format!("无法打开系统安全凭据库：{error}"))
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn credential_entry(provider: &str) -> Result<keyring::Entry, String> {
     let account = match provider {
         "deepseek" => "deepseek-api-key",
         "gemini" => "gemini-api-key",
         _ => return Err("这个 AI 服务不需要或不支持保存 API Key。".into()),
     };
-    keyring::Entry::new(KEYRING_SERVICE, account)
-        .map_err(|error| format!("无法打开系统安全凭据库：{error}"))
+    credential_account_entry(account)
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
@@ -1518,6 +1575,67 @@ fn delete_provider_key(provider: String) -> Result<(), String> {
 
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     Err("当前测试版仅支持 Windows 和 macOS".into())
+}
+
+fn validate_email_account_id(value: &str) -> Result<String, String> {
+    let clean = value.trim();
+    if clean.is_empty()
+        || clean.len() > 48
+        || !clean.chars().all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+    {
+        return Err("邮箱连接标识无效。".into());
+    }
+    Ok(clean.to_string())
+}
+
+fn email_credential_account(account_id: &str) -> Result<String, String> {
+    Ok(format!("email-imap-password-{}", validate_email_account_id(account_id)?))
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn get_email_password(account_id: &str) -> Result<String, String> {
+    credential_account_entry(&email_credential_account(account_id)?)?
+        .get_password()
+        .map_err(|_| "尚未保存邮箱客户端专用密码或授权码。".to_string())
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+fn get_email_password(_account_id: &str) -> Result<String, String> {
+    Err("当前测试版仅支持在 Windows 和 macOS 保存邮箱凭据。".into())
+}
+
+#[tauri::command]
+fn save_email_password(account_id: String, password: String) -> Result<(), String> {
+    if password.len() < 4 || password.len() > 512 {
+        return Err("客户端专用密码或授权码看起来不完整。".into());
+    }
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    {
+        return credential_account_entry(&email_credential_account(&account_id)?)?
+            .set_password(&password)
+            .map_err(|error| format!("保存邮箱凭据失败：{error}"));
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    Err("当前测试版仅支持 Windows 和 macOS。".into())
+}
+
+#[tauri::command]
+fn has_email_password(account_id: String) -> bool {
+    get_email_password(&account_id)
+        .map(|password| !password.is_empty())
+        .unwrap_or(false)
+}
+
+#[tauri::command]
+fn delete_email_password(account_id: String) -> Result<(), String> {
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    {
+        return credential_account_entry(&email_credential_account(&account_id)?)?
+            .delete_credential()
+            .map_err(|error| format!("删除邮箱凭据失败：{error}"));
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    Err("当前测试版仅支持 Windows 和 macOS。".into())
 }
 
 fn normalize_ollama_base_url(value: &str) -> Result<String, String> {
@@ -2897,6 +3015,393 @@ fn extract_xlsx_text(bytes: &[u8]) -> Result<(String, usize), String> {
     }
 }
 
+type ImapTlsSession = imap::Session<native_tls::TlsStream<TcpStream>>;
+
+fn validated_email_connection(
+    request: &EmailConnectionRequest,
+) -> Result<(String, u16, String, String), String> {
+    let account_id = validate_email_account_id(&request.account_id)?;
+    let server = request.server.trim().to_ascii_lowercase();
+    if server.is_empty()
+        || server.len() > 253
+        || server.starts_with('.')
+        || server.ends_with('.')
+        || !server
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '.' | '-'))
+    {
+        return Err("IMAP 服务器地址无效，请填写域名，不要包含 https://。".into());
+    }
+    if request.port != 993 {
+        return Err("首版只允许使用 IMAP SSL/TLS 端口 993，避免明文传输邮箱凭据。".into());
+    }
+    let username = request.username.trim().to_string();
+    if username.is_empty() || username.len() > 320 || username.chars().any(char::is_whitespace) {
+        return Err("邮箱登录账号无效。通常应填写完整邮箱地址。".into());
+    }
+    Ok((server, request.port, username, account_id))
+}
+
+fn open_imap_read_only(request: &EmailConnectionRequest) -> Result<ImapTlsSession, String> {
+    let (server, port, username, account_id) = validated_email_connection(request)?;
+    let password = get_email_password(&account_id)?;
+    let tls = native_tls::TlsConnector::builder()
+        .build()
+        .map_err(|error| format!("无法初始化邮箱加密连接：{error}"))?;
+    let client = imap::connect((server.as_str(), port), &server, &tls)
+        .map_err(|error| format!("无法连接 IMAP 服务器，请检查地址、端口和网络：{error}"))?;
+    let mut session = client.login(&username, password).map_err(|(error, _)| {
+        format!("邮箱登录失败。请确认已开启 IMAP，并使用客户端专用密码或授权码：{error}")
+    })?;
+    session
+        .examine("INBOX")
+        .map_err(|error| format!("已登录，但无法以只读方式打开收件箱：{error}"))?;
+    Ok(session)
+}
+
+#[tauri::command]
+async fn test_email_connection(
+    request: EmailConnectionRequest,
+) -> Result<EmailConnectionStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut session = open_imap_read_only(&request)?;
+        let mailbox = session
+            .examine("INBOX")
+            .map_err(|error| format!("无法读取收件箱状态：{error}"))?;
+        let result = EmailConnectionStatus {
+            inbox_count: mailbox.exists,
+            read_only: true,
+        };
+        let _ = session.logout();
+        Ok(result)
+    })
+    .await
+    .map_err(|error| format!("邮箱连接任务异常结束：{error}"))?
+}
+
+fn strip_html_text(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    let mut in_tag = false;
+    let mut previous_space = false;
+    for character in value.chars() {
+        match character {
+            '<' => in_tag = true,
+            '>' => {
+                in_tag = false;
+                if !previous_space {
+                    output.push(' ');
+                    previous_space = true;
+                }
+            }
+            _ if in_tag => {}
+            _ if character.is_whitespace() => {
+                if !previous_space {
+                    output.push(' ');
+                    previous_space = true;
+                }
+            }
+            _ => {
+                output.push(character);
+                previous_space = false;
+            }
+        }
+    }
+    output
+        .replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .trim()
+        .to_string()
+}
+
+fn collect_email_parts(
+    part: &mailparse::ParsedMail<'_>,
+    plain_bodies: &mut Vec<String>,
+    html_bodies: &mut Vec<String>,
+    attachments: &mut Vec<(String, Vec<u8>)>,
+    total_attachment_bytes: &mut usize,
+) -> Result<(), String> {
+    if !part.subparts.is_empty() {
+        for child in &part.subparts {
+            collect_email_parts(
+                child,
+                plain_bodies,
+                html_bodies,
+                attachments,
+                total_attachment_bytes,
+            )?;
+        }
+        return Ok(());
+    }
+
+    let disposition = part.get_content_disposition();
+    let file_name = disposition
+        .params
+        .get("filename")
+        .or_else(|| part.ctype.params.get("name"))
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let mime = part.ctype.mimetype.to_ascii_lowercase();
+    if let Some(file_name) = file_name {
+        if attachments.len() >= 9 {
+            return Ok(());
+        }
+        let bytes = part
+            .get_body_raw()
+            .map_err(|error| format!("无法读取邮件附件 {file_name}：{error}"))?;
+        if bytes.len() > 20_000_000 {
+            return Ok(());
+        }
+        if total_attachment_bytes.saturating_add(bytes.len()) > 40_000_000 {
+            return Ok(());
+        }
+        *total_attachment_bytes += bytes.len();
+        attachments.push((file_name, bytes));
+    } else if mime == "text/plain" {
+        let body = part
+            .get_body()
+            .map_err(|error| format!("无法读取邮件正文：{error}"))?;
+        if !body.trim().is_empty() {
+            plain_bodies.push(body);
+        }
+    } else if mime == "text/html" {
+        let body = part
+            .get_body()
+            .map_err(|error| format!("无法读取 HTML 邮件正文：{error}"))?;
+        let text = strip_html_text(&body);
+        if !text.is_empty() {
+            html_bodies.push(text);
+        }
+    }
+    Ok(())
+}
+
+fn cache_email_message(
+    cache_root: &Path,
+    uid: u32,
+    raw_message: &[u8],
+) -> Result<EmailMessageResult, String> {
+    let parsed = mailparse::parse_mail(raw_message)
+        .map_err(|error| format!("无法解析 UID {uid} 的邮件：{error}"))?;
+    let subject = parsed
+        .headers
+        .get_first_value("Subject")
+        .unwrap_or_else(|| "（无主题）".into());
+    let sender = parsed
+        .headers
+        .get_first_value("From")
+        .unwrap_or_else(|| "未知发件人".into());
+    let received_at = parsed.headers.get_first_value("Date").unwrap_or_default();
+    let mut plain_bodies = Vec::new();
+    let mut html_bodies = Vec::new();
+    let mut attachments = Vec::new();
+    let mut total_attachment_bytes = 0;
+    collect_email_parts(
+        &parsed,
+        &mut plain_bodies,
+        &mut html_bodies,
+        &mut attachments,
+        &mut total_attachment_bytes,
+    )?;
+    let raw_body = if plain_bodies.is_empty() {
+        html_bodies.join("\n\n")
+    } else {
+        plain_bodies.join("\n\n")
+    };
+    let body = truncate_chars(
+        if raw_body.trim().is_empty() {
+            "[这封邮件没有可提取的文字正文，请查看附件。]"
+        } else {
+            raw_body.trim()
+        },
+        400_000,
+    );
+    let message_dir = cache_root.join(uid.to_string());
+    std::fs::create_dir_all(&message_dir)
+        .map_err(|error| format!("无法创建邮件本地缓存：{error}"))?;
+    let body_path = message_dir.join(format!("00-email-{uid}.txt"));
+    let body_document = format!(
+        "邮件主题：{subject}\n发件人：{sender}\n收件时间：{received_at}\nUID：{uid}\n\n{body}"
+    );
+    std::fs::write(&body_path, body_document.as_bytes())
+        .map_err(|error| format!("无法保存邮件正文缓存：{error}"))?;
+    let mut attachment_names = Vec::new();
+    for (index, (name, bytes)) in attachments.into_iter().enumerate() {
+        let safe_name = safe_workbench_file_name(&name);
+        let path = message_dir.join(format!("{:02}-{safe_name}", index + 1));
+        std::fs::write(path, bytes)
+            .map_err(|error| format!("无法保存邮件附件 {name}：{error}"))?;
+        attachment_names.push(name);
+    }
+    Ok(EmailMessageResult {
+        uid,
+        subject,
+        sender,
+        received_at,
+        preview: truncate_chars(body.trim(), 240),
+        attachment_count: attachment_names.len(),
+        attachment_names,
+    })
+}
+
+#[tauri::command]
+async fn sync_email_inbox(
+    app: tauri::AppHandle,
+    request: EmailSyncRequest,
+) -> Result<EmailSyncResult, String> {
+    let cache_root = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("无法打开 Kardii 数据文件夹：{error}"))?
+        .join("email-cache")
+        .join(validate_email_account_id(&request.account_id)?);
+    let connection = EmailConnectionRequest {
+        account_id: request.account_id.clone(),
+        server: request.server.clone(),
+        port: request.port,
+        username: request.username.clone(),
+    };
+    let requested_since_uid = request.since_uid;
+    let requested_uid_validity = request.uid_validity;
+    let max_messages = request.max_messages.clamp(1, 30);
+    tauri::async_runtime::spawn_blocking(move || {
+        std::fs::create_dir_all(&cache_root)
+            .map_err(|error| format!("无法创建邮件缓存目录：{error}"))?;
+        let mut session = open_imap_read_only(&connection)?;
+        let mailbox = session
+            .examine("INBOX")
+            .map_err(|error| format!("无法读取收件箱：{error}"))?;
+        let uid_validity = mailbox.uid_validity.unwrap_or_default();
+        let since_uid = if requested_uid_validity != 0
+            && uid_validity != 0
+            && requested_uid_validity != uid_validity
+        {
+            0
+        } else {
+            requested_since_uid
+        };
+        let mut all_uids: Vec<u32> = session
+            .uid_search("ALL")
+            .map_err(|error| format!("无法读取邮件索引：{error}"))?
+            .into_iter()
+            .collect();
+        all_uids.sort_unstable();
+        let candidates: Vec<u32> = all_uids
+            .into_iter()
+            .filter(|uid| since_uid == 0 || *uid > since_uid)
+            .collect();
+        let selected: Vec<u32> = if since_uid == 0 {
+            candidates
+                .iter()
+                .rev()
+                .take(max_messages)
+                .copied()
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect()
+        } else {
+            candidates.iter().take(max_messages).copied().collect()
+        };
+        let has_more = since_uid > 0 && candidates.len() > selected.len();
+        if selected.is_empty() {
+            let _ = session.logout();
+            return Ok(EmailSyncResult {
+                messages: Vec::new(),
+                last_uid: since_uid,
+                inbox_count: mailbox.exists,
+                uid_validity,
+                has_more: false,
+            });
+        }
+        let sequence = selected
+            .iter()
+            .map(u32::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
+        let fetches = session
+            .uid_fetch(sequence, "(UID BODY.PEEK[])")
+            .map_err(|error| format!("无法以只读方式下载邮件：{error}"))?;
+        let mut messages = Vec::new();
+        for fetch in fetches.iter() {
+            let Some(uid) = fetch.uid else { continue };
+            let Some(raw_message) = fetch.body() else { continue };
+            messages.push(cache_email_message(&cache_root, uid, raw_message)?);
+        }
+        messages.sort_by(|left, right| right.uid.cmp(&left.uid));
+        let last_uid = messages
+            .iter()
+            .map(|message| message.uid)
+            .max()
+            .unwrap_or(since_uid);
+        let _ = session.logout();
+        Ok(EmailSyncResult {
+            messages,
+            last_uid,
+            inbox_count: mailbox.exists,
+            uid_validity,
+            has_more,
+        })
+    })
+    .await
+    .map_err(|error| format!("邮箱同步任务异常结束：{error}"))?
+}
+
+#[tauri::command]
+fn prepare_email_bundle(
+    app: tauri::AppHandle,
+    account_id: String,
+    uid: u32,
+) -> Result<Vec<KnowledgeFileResult>, String> {
+    if uid == 0 {
+        return Err("邮件 UID 无效。".into());
+    }
+    let root = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("无法打开 Kardii 数据文件夹：{error}"))?
+        .join("email-cache")
+        .join(validate_email_account_id(&account_id)?);
+    let root = root
+        .canonicalize()
+        .map_err(|_| "邮箱本地缓存不存在，请先重新同步。".to_string())?;
+    let message_dir = root.join(uid.to_string());
+    let message_dir = message_dir
+        .canonicalize()
+        .map_err(|_| "这封邮件的本地缓存不存在，请重新同步。".to_string())?;
+    if !message_dir.starts_with(&root) || !message_dir.is_dir() {
+        return Err("邮箱缓存路径无效。".into());
+    }
+    let supported = [
+        "pdf", "docx", "pptx", "xlsx", "txt", "md", "json", "csv", "log", "toml",
+        "yaml", "yml", "js", "ts", "html", "css", "rs", "py", "png", "jpg", "jpeg",
+        "webp",
+    ];
+    let mut paths: Vec<PathBuf> = std::fs::read_dir(&message_dir)
+        .map_err(|error| format!("无法读取邮件缓存：{error}"))?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_file()
+                && path
+                    .extension()
+                    .and_then(|value| value.to_str())
+                    .map(|value| supported.contains(&value.to_ascii_lowercase().as_str()))
+                    .unwrap_or(false)
+        })
+        .collect();
+    paths.sort();
+    if paths.is_empty() {
+        return Err("这封邮件没有可整理的正文或支持的附件。".into());
+    }
+    paths
+        .iter()
+        .take(10)
+        .map(|path| extract_knowledge_file(path))
+        .collect()
+}
+
 fn extract_knowledge_file(path: &Path) -> Result<KnowledgeFileResult, String> {
     let metadata = std::fs::metadata(path)
         .map_err(|error| format!("无法读取文件信息：{error}"))?;
@@ -3341,6 +3846,12 @@ pub fn run() {
             save_provider_key,
             has_provider_key,
             delete_provider_key,
+            save_email_password,
+            has_email_password,
+            delete_email_password,
+            test_email_connection,
+            sync_email_inbox,
+            prepare_email_bundle,
             get_codex_status,
             start_codex_login,
             logout_codex,
