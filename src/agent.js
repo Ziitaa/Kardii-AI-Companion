@@ -4,6 +4,8 @@ const { invoke } = window.__TAURI__.core;
 const appWindow = getCurrentWindow();
 const AGENT_TASKS_KEY = "kardii-agent-tasks-v1";
 const AGENT_TARGET_KEY = "kardii-agent-open-target-v1";
+const AGENT_SKILLS_KEY = "kardii-agent-skills-v1";
+const AUTOMATIONS_KEY = "kardii-automations-v1";
 const AI_SETTINGS_KEY = "kardii-ai-settings-v1";
 const BUSINESS_DATA_KEY = "kardii-business-data-v1";
 const MEMORIES_KEY = "kardii-memories-v1";
@@ -33,6 +35,7 @@ const taskList = document.getElementById("taskList");
 const taskStatusBadge = document.getElementById("taskStatusBadge");
 const taskTitle = document.getElementById("taskTitle");
 const taskGoal = document.getElementById("taskGoal");
+const taskSkillBadge = document.getElementById("taskSkillBadge");
 const stepMetric = document.getElementById("stepMetric");
 const aiMetric = document.getElementById("aiMetric");
 const toolMetric = document.getElementById("toolMetric");
@@ -61,9 +64,53 @@ const permissionDetail = document.getElementById("permissionDetail");
 const allowPermissionButton = document.getElementById("allowPermissionButton");
 const denyPermissionButton = document.getElementById("denyPermissionButton");
 const toast = document.getElementById("toast");
+const skillsButton = document.getElementById("skillsButton");
+const skillsView = document.getElementById("skillsView");
+const taskSkillSelect = document.getElementById("taskSkillSelect");
+const skillList = document.getElementById("skillList");
+const skillForm = document.getElementById("skillForm");
+const skillIdInput = document.getElementById("skillIdInput");
+const skillNameInput = document.getElementById("skillNameInput");
+const skillDescriptionInput = document.getElementById("skillDescriptionInput");
+const skillTriggersInput = document.getElementById("skillTriggersInput");
+const skillInstructionsInput = document.getElementById("skillInstructionsInput");
+const skillEnabledInput = document.getElementById("skillEnabledInput");
+const newSkillButton = document.getElementById("newSkillButton");
+const restoreSkillButton = document.getElementById("restoreSkillButton");
+const deleteSkillButton = document.getElementById("deleteSkillButton");
+const saveAsSkillButton = document.getElementById("saveAsSkillButton");
+const automationsButton = document.getElementById("automationsButton");
+const automationsView = document.getElementById("automationsView");
+const automationList = document.getElementById("automationList");
+const automationForm = document.getElementById("automationForm");
+const automationIdInput = document.getElementById("automationIdInput");
+const automationNameInput = document.getElementById("automationNameInput");
+const automationGoalInput = document.getElementById("automationGoalInput");
+const automationScheduleSelect = document.getElementById("automationScheduleSelect");
+const automationOnceRow = document.getElementById("automationOnceRow");
+const automationDailyRow = document.getElementById("automationDailyRow");
+const automationWeeklyRow = document.getElementById("automationWeeklyRow");
+const automationDateInput = document.getElementById("automationDateInput");
+const automationOnceTimeInput = document.getElementById("automationOnceTimeInput");
+const automationDailyTimeInput = document.getElementById("automationDailyTimeInput");
+const automationWeekdaySelect = document.getElementById("automationWeekdaySelect");
+const automationWeeklyTimeInput = document.getElementById("automationWeeklyTimeInput");
+const automationSkillSelect = document.getElementById("automationSkillSelect");
+const automationAutoStartInput = document.getElementById("automationAutoStartInput");
+const automationEnabledInput = document.getElementById("automationEnabledInput");
+const automationNextRun = document.getElementById("automationNextRun");
+const newAutomationButton = document.getElementById("newAutomationButton");
+const deleteAutomationButton = document.getElementById("deleteAutomationButton");
+const runAutomationNowButton = document.getElementById("runAutomationNowButton");
 
 let tasks = loadTasks();
+let skills = loadSkills();
+let automations = loadAutomations();
 let selectedTaskId = "";
+let selectedSkillId = "";
+let showingSkills = false;
+let showingAutomations = false;
+let selectedAutomationId = "";
 let activeFilter = "active";
 let runningTaskId = "";
 let toastTimer;
@@ -83,6 +130,134 @@ function clipText(value, limit = 10_000) {
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function normalizeSkill(value) {
+  return {
+    id: String(value?.id || crypto.randomUUID()),
+    name: String(value?.name || "未命名技能").trim().slice(0, 80) || "未命名技能",
+    description: String(value?.description || "").trim().slice(0, 500),
+    triggers: String(value?.triggers || "").trim().slice(0, 300),
+    instructions: String(value?.instructions || "").trim().slice(0, 12_000),
+    enabled: value?.enabled !== false,
+    runCount: Math.max(0, Number(value?.runCount) || 0),
+    lastUsedAt: String(value?.lastUsedAt || ""),
+    versions: Array.isArray(value?.versions) ? value.versions.slice(-10).map((version) => ({
+      name: String(version?.name || "").slice(0, 80),
+      description: String(version?.description || "").slice(0, 500),
+      triggers: String(version?.triggers || "").slice(0, 300),
+      instructions: String(version?.instructions || "").slice(0, 12_000),
+      enabled: version?.enabled !== false,
+      savedAt: String(version?.savedAt || nowIso()),
+    })) : [],
+    createdAt: String(value?.createdAt || nowIso()),
+    updatedAt: String(value?.updatedAt || nowIso()),
+  };
+}
+
+function loadSkills() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(AGENT_SKILLS_KEY) || "[]");
+    return Array.isArray(saved) ? saved.map(normalizeSkill).slice(0, 100) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveSkills() {
+  skills = skills.map(normalizeSkill).slice(0, 100);
+  localStorage.setItem(AGENT_SKILLS_KEY, JSON.stringify(skills));
+  renderSkillOptions();
+  renderSkills();
+}
+
+function localDateValue(date) {
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 10);
+}
+
+function nextAutomationRun(value, after = new Date()) {
+  const schedule = ["once", "daily", "weekly"].includes(value?.schedule) ? value.schedule : "once";
+  if (schedule === "once") {
+    const date = String(value?.date || "");
+    const time = String(value?.time || "09:00");
+    const result = new Date(`${date}T${time}:00`);
+    return Number.isNaN(result.getTime()) ? "" : result.toISOString();
+  }
+  const [hours, minutes] = String(value?.time || "09:00").split(":").map(Number);
+  const next = new Date(after);
+  next.setSeconds(0, 0);
+  next.setHours(Number.isFinite(hours) ? hours : 9, Number.isFinite(minutes) ? minutes : 0, 0, 0);
+  if (schedule === "daily") {
+    if (next <= after) next.setDate(next.getDate() + 1);
+    return next.toISOString();
+  }
+  const weekday = Math.min(6, Math.max(0, Number(value?.weekday) || 0));
+  let daysAhead = (weekday - next.getDay() + 7) % 7;
+  if (daysAhead === 0 && next <= after) daysAhead = 7;
+  next.setDate(next.getDate() + daysAhead);
+  return next.toISOString();
+}
+
+function normalizeAutomation(value) {
+  const schedule = ["once", "daily", "weekly"].includes(value?.schedule) ? value.schedule : "once";
+  const date = String(value?.date || localDateValue(new Date(Date.now() + 86_400_000))).slice(0, 10);
+  const time = /^\d{2}:\d{2}$/.test(String(value?.time || "")) ? String(value.time) : "09:00";
+  const normalized = {
+    id: String(value?.id || crypto.randomUUID()),
+    name: String(value?.name || "未命名自动化").trim().slice(0, 80) || "未命名自动化",
+    goal: String(value?.goal || "").trim().slice(0, 4_000),
+    schedule,
+    date,
+    time,
+    weekday: Math.min(6, Math.max(0, Number(value?.weekday) || 0)),
+    skillId: String(value?.skillId || ""),
+    autoStart: value?.autoStart !== false,
+    enabled: value?.enabled !== false,
+    lastRunAt: String(value?.lastRunAt || ""),
+    nextRunAt: String(value?.nextRunAt || ""),
+    runCount: Math.max(0, Number(value?.runCount) || 0),
+    createdAt: String(value?.createdAt || nowIso()),
+    updatedAt: String(value?.updatedAt || nowIso()),
+  };
+  if (!normalized.nextRunAt) normalized.nextRunAt = nextAutomationRun(normalized);
+  return normalized;
+}
+
+function loadAutomations() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(AUTOMATIONS_KEY) || "[]");
+    return Array.isArray(saved) ? saved.map(normalizeAutomation).slice(0, 100) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveAutomations() {
+  automations = automations.map(normalizeAutomation).slice(0, 100);
+  localStorage.setItem(AUTOMATIONS_KEY, JSON.stringify(automations));
+  renderAutomations();
+}
+
+function skillTriggerTerms(skill) {
+  return String(skill?.triggers || "")
+    .split(/[，,、\n]/)
+    .map((item) => item.trim().toLowerCase())
+    .filter((item) => item.length >= 2);
+}
+
+function matchedSkill(goal) {
+  const text = String(goal || "").toLowerCase();
+  let best = null;
+  let bestScore = 0;
+  skills.filter((skill) => skill.enabled && skill.instructions).forEach((skill) => {
+    const score = skillTriggerTerms(skill).reduce((sum, term) => sum + (text.includes(term) ? term.length : 0), 0);
+    if (score > bestScore) {
+      best = skill;
+      bestScore = score;
+    }
+  });
+  return best;
 }
 
 function normalizeTask(value) {
@@ -105,6 +280,11 @@ function normalizeTask(value) {
     question: String(value?.question || "").slice(0, 4_000),
     finalAnswer: String(value?.finalAnswer || "").slice(0, 100_000),
     error: String(value?.error || "").slice(0, 4_000),
+    skillId: String(value?.skillId || ""),
+    skillName: String(value?.skillName || "").slice(0, 80),
+    skillSnapshot: String(value?.skillSnapshot || "").slice(0, 12_000),
+    automationId: String(value?.automationId || ""),
+    automationName: String(value?.automationName || "").slice(0, 80),
     maxSteps: Math.min(20, Math.max(3, Number(value?.maxSteps) || 12)),
     stepCount: Math.max(0, Number(value?.stepCount) || 0),
     aiCalls: Math.max(0, Number(value?.aiCalls) || 0),
@@ -171,12 +351,14 @@ function formatTime(value) {
 function currentAiConfig() {
   let saved = {};
   try { saved = JSON.parse(localStorage.getItem(AI_SETTINGS_KEY) || "{}"); } catch { saved = {}; }
-  const provider = ["deepseek", "gemini", "ollama"].includes(saved.provider) ? saved.provider : "deepseek";
+  const provider = ["deepseek", "gemini", "ollama", "codex"].includes(saved.provider) ? saved.provider : "deepseek";
   const model = provider === "deepseek"
     ? "deepseek-v4-flash"
     : provider === "gemini"
       ? (["gemini-3.1-flash-lite", "gemini-3.5-flash"].includes(saved.geminiModel) ? saved.geminiModel : "gemini-3.1-flash-lite")
-      : String(saved.ollamaModel || "").slice(0, 120);
+      : provider === "codex"
+        ? "codex-default"
+        : String(saved.ollamaModel || "").slice(0, 120);
   return {
     provider,
     model,
@@ -196,7 +378,7 @@ function addActivity(task, kind, title, detail = "") {
   task.updatedAt = nowIso();
 }
 
-function contextSummary() {
+function contextSummary(task = null) {
   let knowledgeCount = 0;
   try {
     const data = JSON.parse(localStorage.getItem(BUSINESS_DATA_KEY) || "null");
@@ -207,7 +389,10 @@ function contextSummary() {
     const memories = JSON.parse(localStorage.getItem(MEMORIES_KEY) || "[]");
     memoryCount = Array.isArray(memories) ? memories.length : 0;
   } catch { memoryCount = 0; }
-  return `本机知识库：${knowledgeCount} 份可检索资料；长期记忆：${memoryCount} 条。`;
+  const skillContext = task?.skillSnapshot
+    ? `\n\n本次必须遵循的已确认技能「${task.skillName}」：\n${task.skillSnapshot}`
+    : "";
+  return `本机知识库：${knowledgeCount} 份可检索资料；长期记忆：${memoryCount} 条。${skillContext}`;
 }
 
 function renderTaskList() {
@@ -223,6 +408,177 @@ function renderTaskList() {
       <footer><b>${escapeHtml(STATUS_LABELS[task.status])}</b><span>${escapeHtml(formatTime(task.updatedAt))}</span></footer>
     </button>
   `).join("") || '<div class="task-list-empty">这里还没有任务。</div>';
+}
+
+function renderSkillOptions() {
+  const current = taskSkillSelect.value;
+  taskSkillSelect.replaceChildren(new Option("自动匹配或不使用", ""));
+  skills.filter((skill) => skill.enabled && skill.instructions).forEach((skill) => {
+    taskSkillSelect.add(new Option(skill.name, skill.id));
+  });
+  taskSkillSelect.value = skills.some((skill) => skill.id === current && skill.enabled) ? current : "";
+}
+
+function clearSkillForm() {
+  selectedSkillId = "";
+  skillIdInput.value = "";
+  skillNameInput.value = "";
+  skillDescriptionInput.value = "";
+  skillTriggersInput.value = "";
+  skillInstructionsInput.value = "";
+  skillEnabledInput.checked = true;
+  restoreSkillButton.classList.add("hidden");
+  deleteSkillButton.classList.add("hidden");
+  renderSkills();
+  skillNameInput.focus();
+}
+
+function fillSkillForm(skill) {
+  if (!skill) return clearSkillForm();
+  selectedSkillId = skill.id;
+  skillIdInput.value = skill.id;
+  skillNameInput.value = skill.name;
+  skillDescriptionInput.value = skill.description;
+  skillTriggersInput.value = skill.triggers;
+  skillInstructionsInput.value = skill.instructions;
+  skillEnabledInput.checked = skill.enabled;
+  restoreSkillButton.classList.toggle("hidden", !skill.versions.length);
+  deleteSkillButton.classList.remove("hidden");
+  renderSkills();
+}
+
+function renderSkills() {
+  if (!skillList) return;
+  skillList.innerHTML = skills.map((skill) => `
+    <button class="skill-card ${skill.id === selectedSkillId ? "active" : ""} ${skill.enabled ? "" : "disabled"}" type="button" data-skill-id="${escapeHtml(skill.id)}">
+      <strong>${escapeHtml(skill.name)}</strong>
+      <span>${escapeHtml(skill.description || "尚未填写用途说明")}</span>
+      <footer><b>${skill.enabled ? "已启用" : "已停用"}</b><span>运行 ${skill.runCount} 次 · ${skill.versions.length} 个旧版本</span></footer>
+    </button>
+  `).join("") || '<div class="task-list-empty">还没有技能。完成一个 Agent 任务后可以保存，也可以直接新建。</div>';
+}
+
+function showSkillsView(skillId = "") {
+  showingSkills = true;
+  showingAutomations = false;
+  selectedTaskId = "";
+  createView.classList.add("hidden");
+  taskView.classList.add("hidden");
+  skillsView.classList.remove("hidden");
+  automationsView.classList.add("hidden");
+  automationsButton.classList.remove("active");
+  skillsButton.classList.add("active");
+  if (skillId) fillSkillForm(skills.find((skill) => skill.id === skillId));
+  else if (!selectedSkillId) clearSkillForm();
+  renderSkills();
+}
+
+function hideSkillsView() {
+  showingSkills = false;
+  skillsView.classList.add("hidden");
+  skillsButton.classList.remove("active");
+}
+
+function renderAutomationScheduleRows() {
+  const schedule = automationScheduleSelect.value;
+  automationOnceRow.classList.toggle("hidden", schedule !== "once");
+  automationDailyRow.classList.toggle("hidden", schedule !== "daily");
+  automationWeeklyRow.classList.toggle("hidden", schedule !== "weekly");
+  const preview = nextAutomationRun({
+    schedule,
+    date: automationDateInput.value,
+    time: schedule === "once" ? automationOnceTimeInput.value : schedule === "daily" ? automationDailyTimeInput.value : automationWeeklyTimeInput.value,
+    weekday: Number(automationWeekdaySelect.value),
+  });
+  automationNextRun.textContent = preview ? `预计下次：${new Date(preview).toLocaleString("zh-CN")}` : "请填写有效的执行时间。";
+}
+
+function renderAutomationSkillOptions() {
+  const current = automationSkillSelect.value;
+  automationSkillSelect.replaceChildren(new Option("自动匹配或不使用", ""));
+  skills.filter((skill) => skill.enabled && skill.instructions).forEach((skill) => {
+    automationSkillSelect.add(new Option(skill.name, skill.id));
+  });
+  automationSkillSelect.value = skills.some((skill) => skill.id === current && skill.enabled) ? current : "";
+}
+
+function clearAutomationForm() {
+  selectedAutomationId = "";
+  automationIdInput.value = "";
+  automationNameInput.value = "";
+  automationGoalInput.value = "";
+  automationScheduleSelect.value = "once";
+  automationDateInput.value = localDateValue(new Date(Date.now() + 86_400_000));
+  automationOnceTimeInput.value = "09:00";
+  automationDailyTimeInput.value = "09:00";
+  automationWeekdaySelect.value = "1";
+  automationWeeklyTimeInput.value = "09:00";
+  automationSkillSelect.value = "";
+  automationAutoStartInput.checked = true;
+  automationEnabledInput.checked = true;
+  deleteAutomationButton.classList.add("hidden");
+  runAutomationNowButton.classList.add("hidden");
+  renderAutomationScheduleRows();
+  renderAutomations();
+  automationNameInput.focus();
+}
+
+function fillAutomationForm(automation) {
+  if (!automation) return clearAutomationForm();
+  selectedAutomationId = automation.id;
+  automationIdInput.value = automation.id;
+  automationNameInput.value = automation.name;
+  automationGoalInput.value = automation.goal;
+  automationScheduleSelect.value = automation.schedule;
+  automationDateInput.value = automation.date;
+  automationOnceTimeInput.value = automation.schedule === "once" ? automation.time : "09:00";
+  automationDailyTimeInput.value = automation.schedule === "daily" ? automation.time : "09:00";
+  automationWeekdaySelect.value = String(automation.weekday);
+  automationWeeklyTimeInput.value = automation.schedule === "weekly" ? automation.time : "09:00";
+  automationSkillSelect.value = automation.skillId;
+  automationAutoStartInput.checked = automation.autoStart;
+  automationEnabledInput.checked = automation.enabled;
+  deleteAutomationButton.classList.remove("hidden");
+  runAutomationNowButton.classList.remove("hidden");
+  renderAutomationScheduleRows();
+  renderAutomations();
+}
+
+function renderAutomations() {
+  if (!automationList) return;
+  renderAutomationSkillOptions();
+  automationList.innerHTML = automations.map((automation) => {
+    const next = automation.nextRunAt ? new Date(automation.nextRunAt) : null;
+    const nextText = next && !Number.isNaN(next.getTime()) ? next.toLocaleString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "未安排";
+    return `
+      <button class="skill-card ${automation.id === selectedAutomationId ? "active" : ""} ${automation.enabled ? "" : "disabled"}" type="button" data-automation-id="${escapeHtml(automation.id)}">
+        <strong>${escapeHtml(automation.name)}</strong>
+        <span>${escapeHtml(clipText(automation.goal, 100))}</span>
+        <footer><b>${automation.enabled ? "已启用" : "已停用"}</b><span>下次 ${escapeHtml(nextText)}</span></footer>
+      </button>
+    `;
+  }).join("") || '<div class="task-list-empty">还没有自动化。这里的任务只会在 Kardii 正在运行时触发。</div>';
+}
+
+function showAutomationsView(automationId = "") {
+  showingAutomations = true;
+  showingSkills = false;
+  selectedTaskId = "";
+  createView.classList.add("hidden");
+  taskView.classList.add("hidden");
+  skillsView.classList.add("hidden");
+  automationsView.classList.remove("hidden");
+  skillsButton.classList.remove("active");
+  automationsButton.classList.add("active");
+  if (automationId) fillAutomationForm(automations.find((item) => item.id === automationId));
+  else if (!selectedAutomationId) clearAutomationForm();
+  renderAutomations();
+}
+
+function hideAutomationsView() {
+  showingAutomations = false;
+  automationsView.classList.add("hidden");
+  automationsButton.classList.remove("active");
 }
 
 function renderPermission(task) {
@@ -267,14 +623,18 @@ function renderPermission(task) {
 
 function renderTask() {
   const task = selectedTask();
-  createView.classList.toggle("hidden", Boolean(task));
-  taskView.classList.toggle("hidden", !task);
+  createView.classList.toggle("hidden", showingSkills || showingAutomations || Boolean(task));
+  taskView.classList.toggle("hidden", showingSkills || showingAutomations || !task);
+  skillsView.classList.toggle("hidden", !showingSkills);
+  automationsView.classList.toggle("hidden", !showingAutomations);
   if (!task) {
     renderPermission(null);
     return;
   }
   taskStatusBadge.textContent = STATUS_LABELS[task.status];
   taskStatusBadge.className = `status-badge ${task.status}`;
+  taskSkillBadge.textContent = task.skillName ? `技能 · ${task.skillName}` : "";
+  taskSkillBadge.classList.toggle("hidden", !task.skillName);
   taskTitle.textContent = task.title || "Agent 任务";
   taskGoal.textContent = task.goal;
   stepMetric.textContent = `${task.stepCount} / ${task.maxSteps}`;
@@ -321,22 +681,43 @@ function renderTask() {
 function renderAll() {
   document.querySelectorAll(".task-filter").forEach((button) => button.classList.toggle("active", button.dataset.filter === activeFilter));
   renderTaskList();
+  renderSkillOptions();
+  renderSkills();
+  renderAutomations();
   renderTask();
 }
 
-function createTask(goal, maxSteps = 12) {
+function createTask(goal, maxSteps = 12, requestedSkillId = "") {
   const cleanGoal = String(goal || "").trim().slice(0, 4_000);
   if (!cleanGoal) throw new Error("请先填写任务目标。");
+  const selectedSkill = skills.find((skill) => skill.id === requestedSkillId && skill.enabled)
+    || (!requestedSkillId ? matchedSkill(cleanGoal) : null);
   const task = normalizeTask({
     id: crypto.randomUUID(),
     goal: cleanGoal,
     title: clipText(cleanGoal.replace(/\s+/g, " "), 60),
     status: "draft",
     maxSteps,
+    skillId: selectedSkill?.id || "",
+    skillName: selectedSkill?.name || "",
+    skillSnapshot: selectedSkill?.instructions || "",
     createdAt: nowIso(),
     updatedAt: nowIso(),
   });
-  addActivity(task, "system", "任务已创建", "Kardii 将先制定计划，再逐步执行。涉及高权限工具时会等待你的确认。");
+  if (selectedSkill) {
+    selectedSkill.runCount += 1;
+    selectedSkill.lastUsedAt = nowIso();
+    selectedSkill.updatedAt = nowIso();
+    saveSkills();
+  }
+  addActivity(
+    task,
+    "system",
+    "任务已创建",
+    selectedSkill
+      ? `已使用技能「${selectedSkill.name}」。Kardii 将按已保存规则制定计划；高权限操作仍会等待确认。`
+      : "Kardii 将先制定计划，再逐步执行。涉及高权限工具时会等待你的确认。",
+  );
   tasks.unshift(task);
   selectedTaskId = task.id;
   saveTasks();
@@ -389,7 +770,7 @@ async function planTask(taskId) {
     const result = await invoke("create_agent_plan", {
       request: {
         goal: task.goal,
-        context: contextSummary(),
+        context: contextSummary(task),
         provider: ai.provider,
         model: ai.model,
         ollamaBaseUrl: ai.ollamaBaseUrl,
@@ -542,7 +923,12 @@ async function executeLoop(taskId) {
         action = await invoke("decide_agent_action", {
           request: {
             goal: task.goal,
-            plan: { title: task.title, summary: task.summary, steps: task.plan },
+            plan: {
+              title: task.title,
+              summary: task.summary,
+              steps: task.plan,
+              skill: task.skillSnapshot ? { name: task.skillName, instructions: task.skillSnapshot } : null,
+            },
             history: compactHistory(task),
             provider: ai.provider,
             model: ai.model,
@@ -698,8 +1084,9 @@ createTaskForm.addEventListener("submit", (event) => {
   event.preventDefault();
   startTaskButton.disabled = true;
   try {
-    const task = createTask(goalInput.value, Number(maxStepsInput.value));
+    const task = createTask(goalInput.value, Number(maxStepsInput.value), taskSkillSelect.value);
     goalInput.value = "";
+    taskSkillSelect.value = "";
     void planTask(task.id);
   } catch (error) {
     showToast(String(error));
@@ -709,6 +1096,8 @@ createTaskForm.addEventListener("submit", (event) => {
 });
 
 showCreateButton.addEventListener("click", () => {
+  hideSkillsView();
+  hideAutomationsView();
   selectedTaskId = "";
   renderAll();
   goalInput.focus();
@@ -717,6 +1106,8 @@ showCreateButton.addEventListener("click", () => {
 taskList.addEventListener("click", (event) => {
   const button = event.target.closest("[data-task-id]");
   if (!button) return;
+  hideSkillsView();
+  hideAutomationsView();
   selectedTaskId = button.dataset.taskId;
   renderAll();
 });
@@ -821,6 +1212,275 @@ document.getElementById("toggleLogsButton").addEventListener("click", (event) =>
   event.currentTarget.textContent = hidden ? "展开" : "收起";
 });
 
+skillsButton.addEventListener("click", () => {
+  if (showingSkills) {
+    hideSkillsView();
+    renderAll();
+  } else {
+    showSkillsView(selectedSkillId);
+  }
+});
+
+newSkillButton.addEventListener("click", clearSkillForm);
+
+skillList.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-skill-id]");
+  if (!button) return;
+  fillSkillForm(skills.find((skill) => skill.id === button.dataset.skillId));
+});
+
+skillForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const name = skillNameInput.value.trim();
+  const instructions = skillInstructionsInput.value.trim();
+  if (!name || !instructions) {
+    showToast("请填写技能名称和执行规则。");
+    return;
+  }
+  const existing = skills.find((skill) => skill.id === skillIdInput.value);
+  if (existing) {
+    existing.versions.push({
+      name: existing.name,
+      description: existing.description,
+      triggers: existing.triggers,
+      instructions: existing.instructions,
+      enabled: existing.enabled,
+      savedAt: existing.updatedAt,
+    });
+    existing.versions = existing.versions.slice(-10);
+    Object.assign(existing, {
+      name: name.slice(0, 80),
+      description: skillDescriptionInput.value.trim().slice(0, 500),
+      triggers: skillTriggersInput.value.trim().slice(0, 300),
+      instructions: instructions.slice(0, 12_000),
+      enabled: skillEnabledInput.checked,
+      updatedAt: nowIso(),
+    });
+    saveSkills();
+    fillSkillForm(existing);
+    showToast("技能已保存，并保留上一版");
+    return;
+  }
+  const skill = normalizeSkill({
+    id: crypto.randomUUID(),
+    name,
+    description: skillDescriptionInput.value,
+    triggers: skillTriggersInput.value,
+    instructions,
+    enabled: skillEnabledInput.checked,
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
+  });
+  skills.unshift(skill);
+  saveSkills();
+  fillSkillForm(skill);
+  showToast("技能已创建");
+});
+
+restoreSkillButton.addEventListener("click", () => {
+  const skill = skills.find((item) => item.id === selectedSkillId);
+  const previous = skill?.versions.pop();
+  if (!skill || !previous) return;
+  const current = {
+    name: skill.name,
+    description: skill.description,
+    triggers: skill.triggers,
+    instructions: skill.instructions,
+    enabled: skill.enabled,
+    savedAt: skill.updatedAt,
+  };
+  Object.assign(skill, previous, { updatedAt: nowIso() });
+  skill.versions.push(current);
+  skill.versions = skill.versions.slice(-10);
+  saveSkills();
+  fillSkillForm(skill);
+  showToast("已恢复上一版；刚才的版本仍可再次恢复");
+});
+
+deleteSkillButton.addEventListener("click", () => {
+  const skill = skills.find((item) => item.id === selectedSkillId);
+  if (!skill || !window.confirm(`确定永久删除技能“${skill.name}”吗？已有 Agent 任务中的技能快照不会被删除。`)) return;
+  skills = skills.filter((item) => item.id !== skill.id);
+  saveSkills();
+  clearSkillForm();
+  showToast("技能已删除");
+});
+
+saveAsSkillButton.addEventListener("click", () => {
+  const task = selectedTask();
+  if (!task || task.status !== "completed") return;
+  const steps = task.plan.map((step, index) => `${index + 1}. ${step.title}${step.description ? `：${step.description}` : ""}`).join("\n");
+  const skill = normalizeSkill({
+    id: crypto.randomUUID(),
+    name: task.title,
+    description: task.summary || `由 Agent 任务“${task.title}”保存`,
+    triggers: "",
+    instructions: [
+      "先理解用户当前目标，不要假设它与保存技能时的对象完全相同。",
+      "按以下成熟流程执行；如果当前目标不适合某一步，可以说明原因并调整，但不得降低安全确认要求。",
+      steps,
+      "所有文件、剪贴板、网页、终端与外部写入仍遵循 Kardii 的逐次权限确认。",
+      "完成后汇总结果、依据、未完成项和下一步。",
+    ].filter(Boolean).join("\n\n"),
+    enabled: true,
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
+  });
+  skills.unshift(skill);
+  saveSkills();
+  showSkillsView(skill.id);
+  showToast("已从任务生成技能草稿，可以继续修改");
+});
+
+automationsButton.addEventListener("click", () => {
+  if (showingAutomations) {
+    hideAutomationsView();
+    renderAll();
+  } else {
+    showAutomationsView(selectedAutomationId);
+  }
+});
+
+newAutomationButton.addEventListener("click", clearAutomationForm);
+
+automationList.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-automation-id]");
+  if (!button) return;
+  fillAutomationForm(automations.find((item) => item.id === button.dataset.automationId));
+});
+
+[
+  automationScheduleSelect,
+  automationDateInput,
+  automationOnceTimeInput,
+  automationDailyTimeInput,
+  automationWeekdaySelect,
+  automationWeeklyTimeInput,
+].forEach((element) => element.addEventListener("change", renderAutomationScheduleRows));
+
+automationForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const name = automationNameInput.value.trim();
+  const goal = automationGoalInput.value.trim();
+  if (!name || !goal) {
+    showToast("请填写自动化名称和 Agent 任务目标。");
+    return;
+  }
+  const schedule = automationScheduleSelect.value;
+  const time = schedule === "once"
+    ? automationOnceTimeInput.value
+    : schedule === "daily"
+      ? automationDailyTimeInput.value
+      : automationWeeklyTimeInput.value;
+  const draft = {
+    name,
+    goal,
+    schedule,
+    date: automationDateInput.value,
+    time,
+    weekday: Number(automationWeekdaySelect.value),
+    skillId: automationSkillSelect.value,
+    autoStart: automationAutoStartInput.checked,
+    enabled: automationEnabledInput.checked,
+  };
+  const nextRunAt = nextAutomationRun(draft);
+  if (!nextRunAt) {
+    showToast("请填写有效的执行日期和时间。");
+    return;
+  }
+  if (schedule === "once" && new Date(nextRunAt) <= new Date() && draft.enabled) {
+    showToast("仅一次的执行时间必须晚于现在。");
+    return;
+  }
+  const existing = automations.find((item) => item.id === automationIdInput.value);
+  if (existing) {
+    Object.assign(existing, draft, { nextRunAt, updatedAt: nowIso() });
+    saveAutomations();
+    fillAutomationForm(existing);
+    showToast("自动化已保存");
+    return;
+  }
+  const automation = normalizeAutomation({
+    id: crypto.randomUUID(),
+    ...draft,
+    nextRunAt,
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
+  });
+  automations.unshift(automation);
+  saveAutomations();
+  fillAutomationForm(automation);
+  showToast("自动化已创建");
+});
+
+deleteAutomationButton.addEventListener("click", () => {
+  const automation = automations.find((item) => item.id === selectedAutomationId);
+  if (!automation || !window.confirm(`确定永久删除自动化“${automation.name}”吗？已经创建的 Agent 任务会保留。`)) return;
+  automations = automations.filter((item) => item.id !== automation.id);
+  saveAutomations();
+  clearAutomationForm();
+  showToast("自动化已删除");
+});
+
+async function surfaceAgentWindow() {
+  try {
+    await appWindow.show();
+    await appWindow.unminimize();
+    await appWindow.setFocus();
+  } catch {
+    // The task remains saved even if the operating system refuses to focus the window.
+  }
+}
+
+function runAutomation(automation, advanceSchedule = false) {
+  if (!automation?.goal) return;
+  const ranAt = nowIso();
+  automation.lastRunAt = ranAt;
+  automation.runCount += 1;
+  automation.updatedAt = ranAt;
+  if (advanceSchedule) {
+    if (automation.schedule === "once") {
+      automation.enabled = false;
+    } else {
+      automation.nextRunAt = nextAutomationRun(automation, new Date(Date.now() + 1_000));
+    }
+  }
+  saveAutomations();
+  try {
+    const task = createTask(automation.goal, 12, automation.skillId);
+    task.automationId = automation.id;
+    task.automationName = automation.name;
+    addActivity(task, "system", `由自动化“${automation.name}”创建`, automation.autoStart ? "任务将自动开始；高权限操作仍会等待确认。" : "任务已创建为草稿，等待你手动开始。");
+    saveTasks();
+    if (advanceSchedule) void surfaceAgentWindow();
+    if (automation.autoStart) void planTask(task.id);
+  } catch (error) {
+    showToast(`自动化未能创建任务：${String(error)}`);
+  }
+}
+
+runAutomationNowButton.addEventListener("click", () => {
+  const automation = automations.find((item) => item.id === selectedAutomationId);
+  if (!automation) return;
+  runAutomation(automation, false);
+  showToast("已创建一次 Agent 任务");
+});
+
+function checkAutomations() {
+  const now = Date.now();
+  const dueIds = automations
+    .filter((automation) => automation.enabled && automation.nextRunAt)
+    .filter((automation) => {
+      const dueAt = new Date(automation.nextRunAt).getTime();
+      return Number.isFinite(dueAt) && dueAt <= now;
+    })
+    .map((automation) => automation.id);
+  dueIds.forEach((id) => {
+    const automation = automations.find((item) => item.id === id);
+    if (automation) runAutomation(automation, true);
+  });
+}
+
 document.getElementById("openChatButton").addEventListener("click", async () => {
   const window = (await getAllWindows()).find((item) => item.label === "chat");
   if (!window) return;
@@ -838,6 +1498,20 @@ window.addEventListener("storage", (event) => {
     } catch { return; }
     renderAll();
   }
+  if (event.key === AGENT_SKILLS_KEY) {
+    try {
+      const incoming = JSON.parse(event.newValue || "[]");
+      if (Array.isArray(incoming)) skills = incoming.map(normalizeSkill).slice(0, 100);
+    } catch { return; }
+    renderAll();
+  }
+  if (event.key === AUTOMATIONS_KEY) {
+    try {
+      const incoming = JSON.parse(event.newValue || "[]");
+      if (Array.isArray(incoming)) automations = incoming.map(normalizeAutomation).slice(0, 100);
+    } catch { return; }
+    renderAll();
+  }
   if (event.key === AGENT_TARGET_KEY && event.newValue) consumeTarget();
 });
 
@@ -848,3 +1522,5 @@ window.addEventListener("keydown", (event) => {
 
 renderAll();
 consumeTarget();
+checkAutomations();
+setInterval(checkAutomations, 30_000);

@@ -611,14 +611,16 @@ function currentResearchAiConfig() {
   } catch {
     saved = {};
   }
-  const provider = ["deepseek", "gemini", "ollama"].includes(saved.provider) ? saved.provider : "deepseek";
+  const provider = ["deepseek", "gemini", "ollama", "codex"].includes(saved.provider) ? saved.provider : "deepseek";
   return {
     provider,
     model: provider === "deepseek"
       ? "deepseek-v4-flash"
       : provider === "gemini"
         ? (["gemini-3.1-flash-lite", "gemini-3.5-flash"].includes(saved.geminiModel) ? saved.geminiModel : "gemini-3.1-flash-lite")
-        : String(saved.ollamaModel || ""),
+        : provider === "codex"
+          ? "codex-default"
+          : String(saved.ollamaModel || ""),
     ollamaBaseUrl: String(saved.ollamaBaseUrl || "http://127.0.0.1:11434"),
   };
 }

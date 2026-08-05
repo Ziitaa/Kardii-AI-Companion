@@ -64,13 +64,14 @@
           </div>
           <div class="settings-section-title ai-section-title">
             <strong>聊天模型</strong>
-            <span>v0.7</span>
+            <span>v1.1</span>
           </div>
           <label for="providerSelect">AI 服务</label>
           <select id="providerSelect" class="settings-input">
             <option value="deepseek">DeepSeek · 当前默认</option>
             <option value="gemini">Google Gemini · 低成本云端</option>
             <option value="ollama">Ollama · 完全本机</option>
+            <option value="codex">Codex · 使用 ChatGPT 登录</option>
           </select>
           <p id="providerDescription" class="provider-description"></p>
 
@@ -108,6 +109,17 @@
           <div id="ollamaStatusRow" class="ollama-status-row hidden">
             <p id="ollamaStatus" class="settings-status">Ollama 不需要 API Key。</p>
             <button id="testOllamaButton" class="primary-button" type="button">测试本机连接</button>
+          </div>
+          <div id="codexStatusRow" class="ollama-status-row codex-status-row hidden">
+            <p id="codexStatus" class="settings-status">正在检查 Codex……</p>
+            <div class="codex-actions">
+              <button id="codexInstallButton" class="secondary-button" type="button">安装说明</button>
+              <button id="codexRefreshButton" class="secondary-button" type="button">刷新状态</button>
+              <button id="codexLogoutButton" class="secondary-button hidden" type="button">退出登录</button>
+              <button id="codexTestButton" class="secondary-button hidden" type="button">测试连接</button>
+              <button id="codexLoginButton" class="primary-button" type="button">使用 ChatGPT 登录</button>
+            </div>
+            <p class="ollama-note">登录由官方 Codex 在浏览器中完成。Kardii 不读取账号密码或登录令牌，使用量计入你的 ChatGPT/Codex 额度。</p>
           </div>
           <button id="clearHistoryButton" class="clear-history-button" type="button">清空聊天记录</button>
           <div class="settings-section-title">
@@ -216,7 +228,7 @@
             <button id="exportBackupButton" class="secondary-button" type="button">导出完整备份</button>
             <button id="importBackupButton" class="secondary-button" type="button">导入完整备份</button>
           </div>
-          <p class="backup-note">迁移码只包含个性和长期记忆；完整备份还包含聊天记录、工作台和 Agent 任务。API Key 永远不会导出。</p>
+          <p class="backup-note">迁移码只包含个性和长期记忆；完整备份还包含聊天记录、工作台、Agent 任务、技能和自动化。API Key 与 Codex 登录永远不会导出。</p>
         </div>
       </section>
 

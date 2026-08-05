@@ -117,6 +117,13 @@ const refreshOllamaButton = document.getElementById("refreshOllamaButton");
 const ollamaStatusRow = document.getElementById("ollamaStatusRow");
 const ollamaStatus = document.getElementById("ollamaStatus");
 const testOllamaButton = document.getElementById("testOllamaButton");
+const codexStatusRow = document.getElementById("codexStatusRow");
+const codexStatus = document.getElementById("codexStatus");
+const codexInstallButton = document.getElementById("codexInstallButton");
+const codexRefreshButton = document.getElementById("codexRefreshButton");
+const codexLoginButton = document.getElementById("codexLoginButton");
+const codexLogoutButton = document.getElementById("codexLogoutButton");
+const codexTestButton = document.getElementById("codexTestButton");
 const activeModelBadge = document.getElementById("activeModelBadge");
 
 const HISTORY_KEY = "kardii-chat-history-v1";
@@ -129,6 +136,8 @@ const AI_SETTINGS_KEY = "kardii-ai-settings-v1";
 const BUSINESS_DATA_KEY = "kardii-business-data-v1";
 const WORKBENCH_TARGET_KEY = "kardii-workbench-open-target-v1";
 const AGENT_TASKS_KEY = "kardii-agent-tasks-v1";
+const AGENT_SKILLS_KEY = "kardii-agent-skills-v1";
+const AUTOMATIONS_KEY = "kardii-automations-v1";
 const AGENT_TARGET_KEY = "kardii-agent-open-target-v1";
 const AGENT_MODE_KEY = "kardii-chat-agent-mode-v1";
 const MAX_SAVED_MESSAGES = 50;
@@ -159,6 +168,11 @@ const AI_PROVIDERS = {
     name: "Ollama",
     description: "模型在这台电脑上运行，不按次数收费；速度取决于电脑配置和本机模型大小。",
     models: [],
+  },
+  codex: {
+    name: "Codex",
+    description: "通过官方 Codex CLI 使用 ChatGPT 登录，不需要 OpenAI API Key；使用量计入 ChatGPT/Codex 方案额度。",
+    models: [{ value: "codex-default", label: "Codex 默认模型 · ChatGPT 方案" }],
   },
 };
 let conversation = loadConversation();
@@ -220,6 +234,27 @@ async function createAgentTaskFromChat(goal) {
   } catch {
     tasks = [];
   }
+  let matchedSkill = null;
+  let skills = [];
+  try {
+    const saved = JSON.parse(localStorage.getItem(AGENT_SKILLS_KEY) || "[]");
+    if (Array.isArray(saved)) skills = saved;
+  } catch {
+    skills = [];
+  }
+  const lowerGoal = goal.toLowerCase();
+  let bestScore = 0;
+  skills.filter((skill) => skill?.enabled !== false && String(skill?.instructions || "").trim()).forEach((skill) => {
+    const score = String(skill.triggers || "")
+      .split(/[，,、\n]/)
+      .map((item) => item.trim().toLowerCase())
+      .filter((item) => item.length >= 2)
+      .reduce((sum, term) => sum + (lowerGoal.includes(term) ? term.length : 0), 0);
+    if (score > bestScore) {
+      matchedSkill = skill;
+      bestScore = score;
+    }
+  });
   const createdAt = new Date().toISOString();
   const task = {
     id: crypto.randomUUID(),
@@ -233,7 +268,9 @@ async function createAgentTaskFromChat(goal) {
       id: crypto.randomUUID(),
       kind: "system",
       title: "任务已从聊天创建",
-      detail: "Kardii 将先制定计划，再逐步执行。涉及高权限工具时会等待你的确认。",
+      detail: matchedSkill
+        ? `已自动匹配技能「${String(matchedSkill.name || "未命名技能").slice(0, 80)}」。高权限操作仍会等待你的确认。`
+        : "Kardii 将先制定计划，再逐步执行。涉及高权限工具时会等待你的确认。",
       createdAt,
     }],
     currentAction: null,
@@ -241,6 +278,9 @@ async function createAgentTaskFromChat(goal) {
     question: "",
     finalAnswer: "",
     error: "",
+    skillId: String(matchedSkill?.id || ""),
+    skillName: String(matchedSkill?.name || "").slice(0, 80),
+    skillSnapshot: String(matchedSkill?.instructions || "").slice(0, 12_000),
     maxSteps: 12,
     stepCount: 0,
     aiCalls: 0,
@@ -248,10 +288,19 @@ async function createAgentTaskFromChat(goal) {
     createdAt,
     updatedAt: createdAt,
   };
+  if (matchedSkill) {
+    const savedSkill = skills.find((skill) => skill.id === matchedSkill.id);
+    if (savedSkill) {
+      savedSkill.runCount = Math.max(0, Number(savedSkill.runCount) || 0) + 1;
+      savedSkill.lastUsedAt = createdAt;
+      savedSkill.updatedAt = createdAt;
+      localStorage.setItem(AGENT_SKILLS_KEY, JSON.stringify(skills.slice(0, 100)));
+    }
+  }
   tasks.unshift(task);
   localStorage.setItem(AGENT_TASKS_KEY, JSON.stringify(tasks.slice(0, 100)));
   localStorage.setItem(AGENT_TARGET_KEY, JSON.stringify({ taskId: task.id, autoStart: true }));
-  const reply = `已经交给 Kardii Agent：${task.title}\n我会在任务中心先列出计划，再开始执行；需要读取文件、剪贴板、打开网页或运行命令时会停下来问你。`;
+  const reply = `已经交给 Kardii Agent：${task.title}\n${matchedSkill ? `已使用技能「${task.skillName}」。` : ""}我会在任务中心先列出计划，再开始执行；需要读取文件、剪贴板、打开网页或运行命令时会停下来问你。`;
   addMessage(goal, "user");
   addMessage(reply, "kardii");
   conversation.push({ role: "user", content: goal });
@@ -296,7 +345,9 @@ function currentAiConfig() {
     ? "deepseek-v4-flash"
     : provider === "gemini"
       ? aiSettings.geminiModel
-      : aiSettings.ollamaModel;
+      : provider === "codex"
+        ? "codex-default"
+        : aiSettings.ollamaModel;
   return {
     provider,
     model,
@@ -753,6 +804,8 @@ function applyImportedPersonalization(data) {
 function createFullBackup() {
   let businessData = null;
   let agentTasks = [];
+  let agentSkills = [];
+  let automations = [];
   try {
     const saved = JSON.parse(localStorage.getItem(BUSINESS_DATA_KEY) || "null");
     if (
@@ -771,10 +824,22 @@ function createFullBackup() {
   } catch {
     agentTasks = [];
   }
+  try {
+    const saved = JSON.parse(localStorage.getItem(AGENT_SKILLS_KEY) || "[]");
+    if (Array.isArray(saved)) agentSkills = saved.slice(0, 100);
+  } catch {
+    agentSkills = [];
+  }
+  try {
+    const saved = JSON.parse(localStorage.getItem(AUTOMATIONS_KEY) || "[]");
+    if (Array.isArray(saved)) automations = saved.slice(0, 100);
+  } catch {
+    automations = [];
+  }
   return {
     format: "kardii-backup",
     version: 1,
-    appVersion: "1.0.0",
+    appVersion: "1.1.0",
     createdAt: new Date().toISOString(),
     profile,
     memories,
@@ -783,6 +848,8 @@ function createFullBackup() {
     aiSettings,
     businessData,
     agentTasks,
+    agentSkills,
+    automations,
   };
 }
 
@@ -828,6 +895,12 @@ function applyFullBackup(data) {
   }
   if (Array.isArray(data.agentTasks)) {
     localStorage.setItem(AGENT_TASKS_KEY, JSON.stringify(data.agentTasks.slice(0, 100)));
+  }
+  if (Array.isArray(data.agentSkills)) {
+    localStorage.setItem(AGENT_SKILLS_KEY, JSON.stringify(data.agentSkills.slice(0, 100)));
+  }
+  if (Array.isArray(data.automations)) {
+    localStorage.setItem(AUTOMATIONS_KEY, JSON.stringify(data.automations.slice(0, 100)));
   }
   renderConversation();
 }
@@ -1417,6 +1490,7 @@ function showSettings() {
   void refreshVoiceModelStatus();
   setTimeout(() => {
     if (aiSettings.provider === "ollama") ollamaBaseUrlInput.focus();
+    else if (aiSettings.provider === "codex") codexLoginButton.focus();
     else apiKeyInput.focus();
   }, 0);
 }
@@ -1427,7 +1501,18 @@ function hideSettings() {
 }
 
 function setSettingsBusy(busy) {
-  [saveKeyButton, testKeyButton, deleteKeyButton, refreshOllamaButton, testOllamaButton].forEach((button) => {
+  [
+    saveKeyButton,
+    testKeyButton,
+    deleteKeyButton,
+    refreshOllamaButton,
+    testOllamaButton,
+    codexInstallButton,
+    codexRefreshButton,
+    codexLoginButton,
+    codexLogoutButton,
+    codexTestButton,
+  ].forEach((button) => {
     button.disabled = busy;
   });
 }
@@ -1437,10 +1522,16 @@ function setOllamaStatus(text, type = "") {
   ollamaStatus.className = `settings-status ${type}`.trim();
 }
 
+function setCodexStatus(text, type = "") {
+  codexStatus.textContent = text;
+  codexStatus.className = `settings-status ${type}`.trim();
+}
+
 function updateActiveModelBadge() {
   const { provider, model } = currentAiConfig();
   if (provider === "deepseek") activeModelBadge.textContent = "DeepSeek · V4 Flash";
   else if (provider === "gemini") activeModelBadge.textContent = model.includes("lite") ? "Gemini · Flash-Lite" : "Gemini · Flash";
+  else if (provider === "codex") activeModelBadge.textContent = "Codex · ChatGPT";
   else activeModelBadge.textContent = model ? `Ollama · ${model}` : "Ollama · 未选模型";
   activeModelBadge.title = `${AI_PROVIDERS[provider].name} · ${model || "未选择模型"}`;
 }
@@ -1463,7 +1554,9 @@ function populateAiModels() {
     ? "deepseek-v4-flash"
     : provider === "gemini"
       ? aiSettings.geminiModel
-      : aiSettings.ollamaModel;
+      : provider === "codex"
+        ? "codex-default"
+        : aiSettings.ollamaModel;
   aiModelSelect.value = models.some((item) => item.value === preferred)
     ? preferred
     : models[0]?.value || "";
@@ -1480,9 +1573,10 @@ function renderProviderSettings() {
   providerDescription.textContent = AI_PROVIDERS[provider].description;
   ollamaSettings.classList.toggle("hidden", provider !== "ollama");
   ollamaStatusRow.classList.toggle("hidden", provider !== "ollama");
-  apiKeySection.classList.toggle("hidden", provider === "ollama");
+  codexStatusRow.classList.toggle("hidden", provider !== "codex");
+  apiKeySection.classList.toggle("hidden", provider === "ollama" || provider === "codex");
   ollamaBaseUrlInput.value = aiSettings.ollamaBaseUrl;
-  if (provider !== "ollama") {
+  if (provider !== "ollama" && provider !== "codex") {
     const label = AI_PROVIDERS[provider].name;
     apiKeyLabel.textContent = `${label} API Key`;
     apiKeyInput.placeholder = `粘贴 ${label} API Key`;
@@ -1517,11 +1611,42 @@ async function refreshOllamaModels(showSuccess = true) {
   }
 }
 
+async function refreshCodexState(showPanelIfMissing = false) {
+  setSettingsBusy(true);
+  setCodexStatus("正在检查 Codex 安装与登录状态……");
+  try {
+    const status = await invoke("get_codex_status");
+    providerReady = status.installed === true && status.authenticated === true;
+    codexLoginButton.classList.toggle("hidden", providerReady || !status.installed);
+    codexLogoutButton.classList.toggle("hidden", !providerReady);
+    codexTestButton.classList.toggle("hidden", !providerReady);
+    codexInstallButton.classList.toggle("hidden", status.installed);
+    if (!status.installed) {
+      setCodexStatus("这台电脑还没有检测到 Codex CLI。先查看安装说明，安装后再刷新状态。", "error");
+    } else if (!status.authenticated) {
+      setCodexStatus(`${status.version || "Codex 已安装"} · 尚未使用 ChatGPT 登录。`, "error");
+    } else {
+      setCodexStatus(`${status.version || "Codex"} · 已使用 ChatGPT 登录，可以在 Kardii 中调用。`, "success");
+    }
+    if (!providerReady && showPanelIfMissing) showSettings();
+  } catch (error) {
+    providerReady = false;
+    setCodexStatus(String(error), "error");
+    if (showPanelIfMissing) showSettings();
+  } finally {
+    setSettingsBusy(false);
+  }
+}
+
 async function refreshProviderState(showPanelIfMissing = false) {
   const provider = aiSettings.provider;
   if (provider === "ollama") {
     await refreshOllamaModels(false);
     if (!providerReady && showPanelIfMissing) showSettings();
+    return;
+  }
+  if (provider === "codex") {
+    await refreshCodexState(showPanelIfMissing);
     return;
   }
   providerReady = await invoke("has_provider_key", { provider });
@@ -1923,6 +2048,8 @@ form.addEventListener("submit", async (event) => {
     showSettings();
     if (aiSettings.provider === "ollama") {
       setOllamaStatus("请先启动 Ollama、下载模型并刷新列表。", "error");
+    } else if (aiSettings.provider === "codex") {
+      setCodexStatus("请先安装 Codex，并使用 ChatGPT 登录。", "error");
     } else {
       setSettingsStatus(`请先设置 ${AI_PROVIDERS[aiSettings.provider].name} API Key。`, "error");
     }
@@ -2176,9 +2303,9 @@ importBackupButton.addEventListener("click", async () => {
     const contents = await invoke("import_backup_file");
     if (!contents) return;
     const data = JSON.parse(contents);
-    if (!window.confirm("导入会替换当前个性、记忆、聊天记录，以及备份中包含的工作台和 Agent 任务，是否继续？")) return;
+    if (!window.confirm("导入会替换当前个性、记忆、聊天记录，以及备份中包含的工作台、Agent 任务、技能和自动化，是否继续？")) return;
     applyFullBackup(data);
-    setProfileStatus("完整备份导入成功。API Key 未被修改。", "success");
+    setProfileStatus("完整备份导入成功。API Key 与 Codex 登录均未被修改。", "success");
   } catch (error) {
     setProfileStatus(`导入失败：${String(error)}`, "error");
   }
@@ -2358,6 +2485,76 @@ testOllamaButton.addEventListener("click", async () => {
   } catch (error) {
     providerReady = false;
     setOllamaStatus(String(error), "error");
+  } finally {
+    setSettingsBusy(false);
+  }
+});
+
+codexInstallButton.addEventListener("click", async () => {
+  try {
+    await invoke("open_external_url", { url: "https://developers.openai.com/codex/cli" });
+  } catch (error) {
+    setCodexStatus(String(error), "error");
+  }
+});
+
+codexRefreshButton.addEventListener("click", () => {
+  void refreshCodexState();
+});
+
+codexLoginButton.addEventListener("click", async () => {
+  setSettingsBusy(true);
+  setCodexStatus("正在打开 OpenAI 登录页面……完成登录后回到 Kardii。 ");
+  try {
+    await invoke("start_codex_login");
+    setSettingsBusy(false);
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+      if (aiSettings.provider !== "codex") return;
+      const status = await invoke("get_codex_status");
+      if (status.authenticated) {
+        providerReady = true;
+        renderProviderSettings();
+        await refreshCodexState();
+        return;
+      }
+    }
+    setCodexStatus("还没有检测到登录完成。完成浏览器登录后点击“刷新状态”。", "error");
+  } catch (error) {
+    setCodexStatus(String(error), "error");
+  } finally {
+    setSettingsBusy(false);
+  }
+});
+
+codexLogoutButton.addEventListener("click", async () => {
+  if (!window.confirm("退出后 Kardii 将不能继续使用这台电脑上的 Codex 登录。是否继续？")) return;
+  setSettingsBusy(true);
+  try {
+    await invoke("logout_codex");
+    providerReady = false;
+    await refreshCodexState();
+  } catch (error) {
+    setCodexStatus(String(error), "error");
+  } finally {
+    setSettingsBusy(false);
+  }
+});
+
+codexTestButton.addEventListener("click", async () => {
+  setSettingsBusy(true);
+  setCodexStatus("正在通过 Codex 调用 ChatGPT 模型……");
+  try {
+    const ai = currentAiConfig();
+    await invoke("test_ai_connection", {
+      provider: ai.provider,
+      model: ai.model,
+      ollamaBaseUrl: ai.ollamaBaseUrl,
+    });
+    providerReady = true;
+    setCodexStatus("Codex 调用成功，Kardii 已可以使用 ChatGPT/Codex 模型。", "success");
+  } catch (error) {
+    setCodexStatus(String(error), "error");
   } finally {
     setSettingsBusy(false);
   }

@@ -33,9 +33,9 @@ for (const command of ["create_agent_plan", "decide_agent_action", "run_web_sear
   assert(agentJs.includes(`invoke("${command}"`), `Agent UI does not call command: ${command}`);
 }
 
-assert(config.version === "1.0.0", "tauri.conf.json version is not 1.0.0");
-assert(packageJson.version === "1.0.0", "package.json version is not 1.0.0");
-assert(/version = "1\.0\.0"/.test(cargo), "Cargo.toml version is not 1.0.0");
+assert(config.version === "1.1.0", "tauri.conf.json version is not 1.1.0");
+assert(packageJson.version === "1.1.0", "package.json version is not 1.1.0");
+assert(/version = "1\.1\.0"/.test(cargo), "Cargo.toml version is not 1.1.0");
 assert(config.app.windows.some((window) => window.label === "agent" && window.url === "agent.html"), "Agent window is missing from Tauri config");
 assert(capability.windows.includes("agent"), "Agent window is missing from capabilities");
 assert(chatHtml.includes('id="agentModeButton"') && chatHtml.includes('id="agentCenterButton"'), "Chat Agent entry points are missing");
@@ -68,7 +68,11 @@ class FakeElement {
   innerHTML = "";
   className = "";
   disabled = false;
+  checked = false;
+  options = [];
   addEventListener() {}
+  replaceChildren(...items) { this.options = items; }
+  add(item) { this.options.push(item); }
   focus() {}
   closest() { return null; }
 }
@@ -113,10 +117,12 @@ const runtimeContext = vm.createContext({
   Number,
   String,
   Set,
+  Option: class FakeOption { constructor(label, value) { this.label = label; this.value = value; } },
   Array,
   Object,
   Error,
   setTimeout: () => 1,
+  setInterval: () => 1,
   clearTimeout() {},
 });
 vm.runInContext(agentJs, runtimeContext);
@@ -141,4 +147,14 @@ localStorage.setItem("kardii-memories-v1", JSON.stringify(["用户喜欢靠窗�
 const memoryResult = vm.runInContext('searchMemories("座位")', runtimeContext);
 assert(memoryResult.includes("靠窗座位"), "Agent memory retrieval smoke test failed");
 
-console.log(`Kardii v1.0 checks passed (${referencedIds.length} Agent UI bindings).`);
+const skillTaskId = vm.runInContext(`(() => {
+  skills = [normalizeSkill({ id: "skill-1", name: "整理技能", triggers: "整理", instructions: "先分类，再汇总。", enabled: true })];
+  saveSkills();
+  return createTask("请整理这些资料", 8, "skill-1").id;
+})()`, runtimeContext);
+const skillTask = JSON.parse(localStorage.getItem("kardii-agent-tasks-v1")).find((task) => task.id === skillTaskId);
+assert(skillTask.skillId === "skill-1" && skillTask.skillSnapshot.includes("先分类"), "Agent skill snapshot was not attached to task");
+const dailyNext = vm.runInContext(`nextAutomationRun({ schedule: "daily", time: "09:00" }, new Date("2026-08-04T10:00:00"))`, runtimeContext);
+assert(new Date(dailyNext).getTime() > new Date("2026-08-04T10:00:00").getTime(), "Daily automation did not advance to a future run");
+
+console.log(`Kardii v1.1 checks passed (${referencedIds.length} Agent UI bindings).`);
