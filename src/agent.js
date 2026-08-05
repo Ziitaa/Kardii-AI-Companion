@@ -17,6 +17,7 @@ const STATUS_LABELS = {
   planning: "制定计划",
   running: "执行中",
   paused: "已暂停",
+  waiting_authorization: "等待任务授权",
   waiting_permission: "等待确认",
   waiting_input: "等待回答",
   completed: "已完成",
@@ -63,6 +64,7 @@ const permissionDescription = document.getElementById("permissionDescription");
 const permissionDetail = document.getElementById("permissionDetail");
 const allowPermissionButton = document.getElementById("allowPermissionButton");
 const denyPermissionButton = document.getElementById("denyPermissionButton");
+const stepPermissionButton = document.getElementById("stepPermissionButton");
 const toast = document.getElementById("toast");
 const skillsButton = document.getElementById("skillsButton");
 const skillsView = document.getElementById("skillsView");
@@ -277,6 +279,10 @@ function normalizeTask(value) {
     activities: Array.isArray(value?.activities) ? value.activities.slice(-80) : [],
     currentAction: value?.currentAction && typeof value.currentAction === "object" ? value.currentAction : null,
     pendingAction: value?.pendingAction && typeof value.pendingAction === "object" ? value.pendingAction : null,
+    requestedPermissions: Array.isArray(value?.requestedPermissions) ? value.requestedPermissions.filter((tool) => PERMISSION_TOOLS.has(tool)) : [],
+    authorizedTools: Array.isArray(value?.authorizedTools) ? value.authorizedTools.filter((tool) => PERMISSION_TOOLS.has(tool)) : [],
+    authorizationMode: ["task", "step"].includes(value?.authorizationMode) ? value.authorizationMode : "",
+    authorizationGrantedAt: String(value?.authorizationGrantedAt || ""),
     question: String(value?.question || "").slice(0, 4_000),
     finalAnswer: String(value?.finalAnswer || "").slice(0, 100_000),
     error: String(value?.error || "").slice(0, 4_000),
@@ -332,7 +338,7 @@ function selectedTask() {
 }
 
 function blockingTask(taskId) {
-  return tasks.find((task) => task.id !== taskId && ["planning", "running", "waiting_permission", "waiting_input"].includes(task.status));
+  return tasks.find((task) => task.id !== taskId && ["planning", "running", "waiting_authorization", "waiting_permission", "waiting_input"].includes(task.status));
 }
 
 function showToast(text) {
@@ -582,9 +588,32 @@ function hideAutomationsView() {
 }
 
 function renderPermission(task) {
+  if (task?.status === "waiting_authorization") {
+    const permissionLabels = {
+      read_file: "选择并读取文件",
+      read_clipboard: "读取剪贴板文字",
+      write_clipboard: "写入剪贴板",
+      open_url: "在默认浏览器打开网页",
+      run_terminal: "运行计划范围内的只读终端命令",
+    };
+    const permissions = (task.requestedPermissions || []).map((tool) => `• ${permissionLabels[tool] || tool}`);
+    permissionPanel.classList.remove("hidden");
+    permissionTitle.textContent = "确认本任务的执行范围";
+    permissionDescription.textContent = "允许后，计划内且低风险的同类操作不再重复询问；超出计划或高风险操作仍会停下来确认。";
+    permissionDetail.textContent = ["执行计划：", ...task.plan.map((step, index) => `${index + 1}. ${step.title}`), "", "本任务可能需要：", ...permissions].join("\n");
+    permissionBadge.textContent = "一次确认本任务";
+    permissionBadge.classList.remove("danger");
+    denyPermissionButton.textContent = "取消任务";
+    stepPermissionButton.classList.remove("hidden");
+    allowPermissionButton.textContent = "允许本任务执行";
+    return;
+  }
   const action = task?.status === "waiting_permission" ? task.pendingAction : null;
   permissionPanel.classList.toggle("hidden", !action);
   if (!action) return;
+  denyPermissionButton.textContent = "拒绝";
+  stepPermissionButton.classList.add("hidden");
+  allowPermissionButton.textContent = "允许这一次";
   const args = action.arguments || {};
   const details = {
     read_file: {
@@ -780,10 +809,19 @@ async function planTask(taskId) {
     task.title = result.title || task.title;
     task.summary = result.summary || "";
     task.plan = (Array.isArray(result.steps) ? result.steps : []).map((step) => ({ ...step, status: "pending" }));
+    task.requestedPermissions = (Array.isArray(result.permissions) ? result.permissions : []).filter((tool) => PERMISSION_TOOLS.has(tool));
+    task.authorizedTools = [];
+    task.authorizationMode = "";
+    task.authorizationGrantedAt = "";
     task.currentAction = null;
     if (task.status === "planning") {
-      task.status = "running";
-      continueAfterPlan = true;
+      if (task.requestedPermissions.length) {
+        task.status = "waiting_authorization";
+        addActivity(task, "permission", "等待任务范围确认", `计划可能使用：${task.requestedPermissions.join("、")}`);
+      } else {
+        task.status = "running";
+        continueAfterPlan = true;
+      }
     }
     addActivity(task, "ai", "计划已生成", `${task.plan.length} 个步骤`);
   } catch (error) {
@@ -877,6 +915,24 @@ async function executeAutomaticTool(action, citationGroup = 1) {
   if (action.tool === "knowledge_search") return searchKnowledge(String(args.query || ""), citationGroup);
   if (action.tool === "memory_search") return searchMemories(String(args.query || ""));
   throw new Error("这不是可以自动执行的工具。");
+}
+
+function isReadOnlyTerminalCommand(command) {
+  const clean = String(command || "").trim();
+  if (!clean || /[;&|><`\r\n]/.test(clean)) return false;
+  if (/\b(?:rm|del|erase|move|mv|cp|copy|ren|rename|mkdir|rmdir|rd|touch|tee|setx|reg|shutdown|format|diskpart|git\s+(?:add|commit|push|pull|merge|rebase|reset|checkout|switch|clean))\b/i.test(clean)) return false;
+  return /^(?:whoami|pwd|cd|dir|ls|where(?:\.exe)?|which|uname|hostname|type|cat|head|tail|wc|stat|rg|findstr|Get-ChildItem|Get-Location|Test-Path|git\s+(?:status|log|diff|show|branch))(?:\s|$)/i.test(clean);
+}
+
+function actionNeedsFreshConfirmation(action) {
+  if (action.tool === "run_terminal") return !isReadOnlyTerminalCommand(action.arguments?.command);
+  return false;
+}
+
+function taskAuthorizationCovers(task, action) {
+  return task.authorizationMode === "task"
+    && (task.authorizedTools || []).includes(action.tool)
+    && !actionNeedsFreshConfirmation(action);
 }
 
 function appendHistory(task, action, success, result) {
@@ -979,11 +1035,26 @@ async function executeLoop(taskId) {
         break;
       }
       if (PERMISSION_TOOLS.has(action.tool)) {
-        task.pendingAction = action;
-        task.status = "waiting_permission";
-        addActivity(task, "permission", "等待操作确认", action.title || action.tool);
+        if (!taskAuthorizationCovers(task, action)) {
+          task.pendingAction = action;
+          task.status = "waiting_permission";
+          addActivity(task, "permission", actionNeedsFreshConfirmation(action) ? "高风险操作需要重新确认" : "等待操作确认", action.title || action.tool);
+          saveTasks();
+          break;
+        }
+        task.toolCalls += 1;
+        addActivity(task, "permission", "已按本任务授权执行", action.title || action.tool);
+        try {
+          const result = await executePermissionTool(action);
+          appendHistory(task, action, true, result);
+          addActivity(task, "tool", `${action.title || action.tool}完成`, clipText(result, 1_200));
+        } catch (error) {
+          appendHistory(task, action, false, String(error));
+          addActivity(task, "error", `${action.title || action.tool}失败`, String(error));
+        }
+        task.currentAction = null;
         saveTasks();
-        break;
+        continue;
       }
 
       task.toolCalls += 1;
@@ -1035,6 +1106,32 @@ async function executePermissionTool(action) {
     ].filter(Boolean).join("\n\n");
   }
   throw new Error("Kardii 不支持这个需要确认的工具。");
+}
+
+function resolveTaskAuthorization(mode) {
+  const task = selectedTask();
+  if (!task || task.status !== "waiting_authorization") return;
+  if (mode === "cancel") {
+    task.status = "cancelled";
+    task.currentAction = null;
+    addActivity(task, "permission", "任务授权已取消", "计划与记录仍保留。 ");
+    saveTasks();
+    return;
+  }
+  task.authorizationMode = mode === "task" ? "task" : "step";
+  task.authorizedTools = mode === "task" ? [...task.requestedPermissions] : [];
+  task.authorizationGrantedAt = nowIso();
+  task.status = "running";
+  addActivity(
+    task,
+    "permission",
+    mode === "task" ? "已允许本任务执行" : "已选择逐步确认",
+    mode === "task"
+      ? "计划内低风险操作不再重复询问；超出计划和高风险终端命令仍会再次确认。"
+      : "涉及文件、剪贴板、浏览器或终端时仍会逐次确认。",
+  );
+  saveTasks();
+  void executeLoop(task.id);
 }
 
 async function resolvePermission(allowed) {
@@ -1197,8 +1294,17 @@ submitAnswerButton.addEventListener("click", () => {
   void executeLoop(task.id);
 });
 
-allowPermissionButton.addEventListener("click", () => void resolvePermission(true));
-denyPermissionButton.addEventListener("click", () => void resolvePermission(false));
+allowPermissionButton.addEventListener("click", () => {
+  const task = selectedTask();
+  if (task?.status === "waiting_authorization") resolveTaskAuthorization("task");
+  else void resolvePermission(true);
+});
+stepPermissionButton.addEventListener("click", () => resolveTaskAuthorization("step"));
+denyPermissionButton.addEventListener("click", () => {
+  const task = selectedTask();
+  if (task?.status === "waiting_authorization") resolveTaskAuthorization("cancel");
+  else void resolvePermission(false);
+});
 
 document.getElementById("copyResultButton").addEventListener("click", async () => {
   const task = selectedTask();

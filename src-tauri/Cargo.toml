@@ -1,6 +1,6 @@
 [package]
 name = "kardii-ai-companion"
-version = "1.1.1"
+version = "1.2.0"
 description = "Kardii cross-platform floating desktop pet"
 authors = ["Zt S"]
 edition = "2021"
@@ -26,7 +26,7 @@ futures-util = "0.3"
 rfd = "0.15"
 arboard = "3"
 open = "5"
-tokio = { version = "1", features = ["io-util", "process", "time"] }
+tokio = { version = "1", features = ["io-util", "process", "sync", "time"] }
 cpal = "0.16"
 sherpa-onnx = { version = "1.13.4", default-features = false }
 bzip2 = "0.4"

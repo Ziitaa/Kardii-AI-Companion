@@ -809,7 +809,7 @@ function createFullBackup() {
   try {
     const saved = JSON.parse(localStorage.getItem(BUSINESS_DATA_KEY) || "null");
     if (
-      saved?.version === 1
+      [1, 2].includes(saved?.version)
       && Array.isArray(saved.customers)
       && Array.isArray(saved.projects)
       && Array.isArray(saved.tasks)
@@ -839,7 +839,7 @@ function createFullBackup() {
   return {
     format: "kardii-backup",
     version: 1,
-    appVersion: "1.1.0",
+    appVersion: "1.2.0",
     createdAt: new Date().toISOString(),
     profile,
     memories,
@@ -885,7 +885,7 @@ function applyFullBackup(data) {
     void refreshProviderState();
   }
   if (
-    data.businessData?.version === 1
+    [1, 2].includes(data.businessData?.version)
     && Array.isArray(data.businessData.customers)
     && Array.isArray(data.businessData.projects)
     && Array.isArray(data.businessData.tasks)
@@ -993,8 +993,9 @@ function loadBusinessData() {
     if (!saved || typeof saved !== "object") return null;
     return {
       ...saved,
-      version: 1,
+      version: [1, 2].includes(saved.version) ? saved.version : 1,
       customers: Array.isArray(saved.customers) ? saved.customers : [],
+      contacts: Array.isArray(saved.contacts) ? saved.contacts : [],
       projects: Array.isArray(saved.projects) ? saved.projects : [],
       tasks: Array.isArray(saved.tasks) ? saved.tasks : [],
       notes: Array.isArray(saved.notes) ? saved.notes : [],
@@ -1002,6 +1003,7 @@ function loadBusinessData() {
       activities: Array.isArray(saved.activities) ? saved.activities : [],
       intelligence: Array.isArray(saved.intelligence) ? saved.intelligence : [],
       knowledge: Array.isArray(saved.knowledge) ? saved.knowledge : [],
+      reports: Array.isArray(saved.reports) ? saved.reports : [],
       settings: {
         autoCaptureEnabled: saved.settings?.autoCaptureEnabled === true,
       },
@@ -1127,9 +1129,14 @@ function captureBusinessMessage(text) {
   const relationProject = businessData.projects.find((project) => clean.toLowerCase().includes(String(project.name || "").toLowerCase()));
   const relationCustomer = businessData.customers.find((customer) => {
     const company = String(customer.company || "").trim();
-    const contact = String(customer.contact || "").trim();
+    const contactNames = [
+      String(customer.contact || "").trim(),
+      ...businessData.contacts
+        .filter((contact) => contact.relationshipId === customer.id)
+        .map((contact) => String(contact.name || "").trim()),
+    ].filter(Boolean);
     return (company && clean.toLowerCase().includes(company.toLowerCase()))
-      || (contact && clean.toLowerCase().includes(contact.toLowerCase()));
+      || contactNames.some((contact) => clean.toLowerCase().includes(contact.toLowerCase()));
   });
   const capture = {
     id: crypto.randomUUID(),
@@ -1205,7 +1212,7 @@ function captureBusinessMessage(text) {
 
   latestBusinessCaptureId = capture.id;
   clearTimeout(businessCaptureTimer);
-  const typeLabels = { decision: "重要决定", task: "待办线索", customer: "客户信息", project: "项目动态", intelligence: "背调任务" };
+  const typeLabels = { decision: "重要决定", task: "待办线索", customer: "关系信息", project: "项目动态", intelligence: "背调任务" };
   const relationLabel = capture.relationName ? `已记录到「${capture.relationName}」` : `已记录${typeLabels[type]}`;
   if (generatedIntelligence) {
     businessCaptureText.textContent = `已创建背调任务：${generatedIntelligence.subject}，点“查看”即可开始联网调查`;
@@ -1626,7 +1633,8 @@ async function refreshCodexState(showPanelIfMissing = false) {
     } else if (!status.authenticated) {
       setCodexStatus(`${status.version || "Codex 已安装"} · 尚未使用 ChatGPT 登录。`, "error");
     } else {
-      setCodexStatus(`${status.version || "Codex"} · 已使用 ChatGPT 登录，可以在 Kardii 中调用。`, "success");
+      const mode = status.appServerAvailable ? "常驻连接已可用" : "将使用兼容调用";
+      setCodexStatus(`${status.version || "Codex"} · 已使用 ChatGPT 登录 · ${mode}。`, "success");
     }
     if (!providerReady && showPanelIfMissing) showSettings();
   } catch (error) {
@@ -1952,6 +1960,7 @@ async function streamReplySegment({ messages, replyBubble, existingText, desktop
     model: ai.model,
     ollamaBaseUrl: ai.ollamaBaseUrl,
     requestId: activeRequestId,
+    codexThreadKey: "kardii-main-chat-v1",
     maxTokens,
     desktopImageDataUrl,
     onEvent: channel,
@@ -2305,6 +2314,7 @@ importBackupButton.addEventListener("click", async () => {
     const data = JSON.parse(contents);
     if (!window.confirm("导入会替换当前个性、记忆、聊天记录，以及备份中包含的工作台、Agent 任务、技能和自动化，是否继续？")) return;
     applyFullBackup(data);
+    await invoke("reset_codex_conversation", { scope: "kardii-main-chat-v1" }).catch(() => {});
     setProfileStatus("完整备份导入成功。API Key 与 Codex 登录均未被修改。", "success");
   } catch (error) {
     setProfileStatus(`导入失败：${String(error)}`, "error");
@@ -2336,6 +2346,9 @@ regenerateButton.addEventListener("click", async () => {
   conversation.splice(lastIndex, 1);
   saveConversation();
   renderConversation();
+  if (currentAiConfig().provider === "codex") {
+    await invoke("reset_codex_conversation", { scope: "kardii-main-chat-v1" }).catch(() => {});
+  }
   const latestUser = [...conversation].reverse().find((message) => message.role === "user");
   if (latestUser) prepareKnowledgeContext(latestUser.content);
   await requestReply();
@@ -2436,7 +2449,11 @@ providerSelect.addEventListener("change", async () => {
     return;
   }
   stopSpeaking();
+  const previousProvider = aiSettings.provider;
   aiSettings.provider = providerSelect.value;
+  if (previousProvider !== aiSettings.provider && [previousProvider, aiSettings.provider].includes("codex")) {
+    await invoke("reset_codex_conversation", { scope: "kardii-main-chat-v1" }).catch(() => {});
+  }
   saveAiSettings();
   providerReady = false;
   renderProviderSettings();
@@ -2646,7 +2663,7 @@ awarenessDiscardButton.addEventListener("click", discardDesktopCapture);
 awarenessUseButton.addEventListener("click", useDesktopCapture);
 micButton.addEventListener("click", toggleVoiceRecording);
 
-clearHistoryButton.addEventListener("click", () => {
+clearHistoryButton.addEventListener("click", async () => {
   if (!clearHistoryButton.classList.contains("confirming")) {
     clearHistoryButton.classList.add("confirming");
     clearHistoryButton.textContent = "再点一次，确认清空";
@@ -2661,6 +2678,7 @@ clearHistoryButton.addEventListener("click", () => {
   clearTimeout(clearConfirmationTimer);
   conversation = [];
   localStorage.removeItem(HISTORY_KEY);
+  await invoke("reset_codex_conversation", { scope: "kardii-main-chat-v1" }).catch(() => {});
   renderConversation();
   clearHistoryButton.classList.remove("confirming");
   clearHistoryButton.textContent = "清空聊天记录";

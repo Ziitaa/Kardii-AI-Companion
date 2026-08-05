@@ -27,21 +27,24 @@ assert(chatHtml.includes('<option value="codex">'), "Codex provider option is mi
 assert(chatHtml.includes('id="codexStatusRow"'), "Codex status panel is missing");
 assert(rust.includes('"--sandbox".to_string()') && rust.includes('"read-only".to_string()'), "Codex is not constrained to read-only sandbox");
 assert(rust.includes('"--ignore-user-config".to_string()') && rust.includes('"--ignore-rules".to_string()'), "Codex provider does not isolate user config and rules");
-const codexArgs = rust.slice(rust.indexOf("let mut args = vec!["), rust.indexOf("if !model.trim().is_empty()"));
+const codexExecStart = rust.indexOf("async fn run_codex_exec_prompt");
+const codexArgs = rust.slice(rust.indexOf("let mut args = vec![", codexExecStart), rust.indexOf("if !model.trim().is_empty()", codexExecStart));
 assert(codexArgs.indexOf('"--ask-for-approval".to_string()') < codexArgs.indexOf('"exec".to_string()'), "Codex global approval flag must appear before the exec subcommand");
 assert(!rust.includes("Codex CLI 版本过旧"), "Codex argument errors must not be mislabeled as an outdated CLI");
 for (const control of [
   'web_search=\\"disabled\\"',
   'agents.enabled=false',
   'tools.view_image=false',
-  'apps._default.enabled=false',
+  'apps={}',
   'shell_environment_policy.inherit=\\"none\\"',
 ]) {
   assert(rust.includes(control), `Codex isolation control is missing: ${control}`);
 }
 assert(rust.includes("CodexWorkDir::create()"), "Codex does not use a private temporary workspace");
 assert(!rust.includes('auth.json'), "Kardii must not read or copy Codex auth.json");
-assert(cargo.includes('features = ["io-util", "process", "time"]'), "Tokio process I/O support is missing");
+for (const feature of ["io-util", "process", "time"]) {
+  assert(cargo.includes(`"${feature}"`), `Tokio support is missing: ${feature}`);
+}
 
 for (const id of [
   "skillsButton", "skillsView", "skillForm", "taskSkillSelect", "saveAsSkillButton",
