@@ -1,4 +1,5 @@
 mod voice;
+mod oauth;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use image::{DynamicImage, ImageFormat};
 use mailparse::MailHeaderMap;
@@ -12,6 +13,10 @@ use voice::{
     clear_voice_recording_result, delete_voice_model, download_voice_model,
     get_voice_model_status, get_voice_recording_state, start_voice_recording,
     stop_voice_recording, VoiceState,
+};
+use oauth::{
+    disconnect_oauth_connection, oauth_connection_status, start_oauth_connection,
+    sync_cloud_overview,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -297,6 +302,12 @@ struct EmailSyncRequest {
     since_uid: u32,
     uid_validity: u32,
     max_messages: usize,
+    #[serde(default)]
+    sync_mode: String,
+    #[serde(default)]
+    since_date: String,
+    #[serde(default)]
+    tracked_uids: Vec<u32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -316,6 +327,7 @@ struct EmailMessageResult {
     preview: String,
     attachment_names: Vec<String>,
     attachment_count: usize,
+    attachment_warnings: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -326,6 +338,7 @@ struct EmailSyncResult {
     inbox_count: u32,
     uid_validity: u32,
     has_more: bool,
+    deleted_uids: Vec<u32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -885,7 +898,7 @@ impl CodexAppServer {
             "clientInfo": {
                 "name": "kardii_ai_companion",
                 "title": "Kardii AI Companion",
-                "version": "1.3.1"
+                "version": "1.4.0"
             }
         })).await?;
         server.wait_for_response(initialize_id, Duration::from_secs(12)).await?;
@@ -1630,9 +1643,12 @@ fn has_email_password(account_id: String) -> bool {
 fn delete_email_password(account_id: String) -> Result<(), String> {
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     {
-        return credential_account_entry(&email_credential_account(&account_id)?)?
+        return match credential_account_entry(&email_credential_account(&account_id)?)?
             .delete_credential()
-            .map_err(|error| format!("删除邮箱凭据失败：{error}"));
+        {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(error) => Err(format!("删除邮箱凭据失败：{error}")),
+        };
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     Err("当前测试版仅支持 Windows 和 macOS。".into())
@@ -3121,6 +3137,7 @@ fn collect_email_parts(
     html_bodies: &mut Vec<String>,
     attachments: &mut Vec<(String, Vec<u8>)>,
     total_attachment_bytes: &mut usize,
+    attachment_warnings: &mut Vec<String>,
 ) -> Result<(), String> {
     if !part.subparts.is_empty() {
         for child in &part.subparts {
@@ -3130,6 +3147,7 @@ fn collect_email_parts(
                 html_bodies,
                 attachments,
                 total_attachment_bytes,
+                attachment_warnings,
             )?;
         }
         return Ok(());
@@ -3144,16 +3162,21 @@ fn collect_email_parts(
         .filter(|value| !value.is_empty());
     let mime = part.ctype.mimetype.to_ascii_lowercase();
     if let Some(file_name) = file_name {
-        if attachments.len() >= 9 {
+        if attachments.len() >= 15 {
+            if !attachment_warnings.iter().any(|warning| warning.contains("最多保留 15 个")) {
+                attachment_warnings.push("附件超过数量上限；每封邮件最多保留 15 个附件。".into());
+            }
             return Ok(());
         }
         let bytes = part
             .get_body_raw()
             .map_err(|error| format!("无法读取邮件附件 {file_name}：{error}"))?;
-        if bytes.len() > 20_000_000 {
+        if bytes.len() > 40_000_000 {
+            attachment_warnings.push(format!("附件“{file_name}”超过 40 MB，已跳过。"));
             return Ok(());
         }
-        if total_attachment_bytes.saturating_add(bytes.len()) > 40_000_000 {
+        if total_attachment_bytes.saturating_add(bytes.len()) > 80_000_000 {
+            attachment_warnings.push(format!("附件总量超过 80 MB，“{file_name}”已跳过。"));
             return Ok(());
         }
         *total_attachment_bytes += bytes.len();
@@ -3197,12 +3220,14 @@ fn cache_email_message(
     let mut html_bodies = Vec::new();
     let mut attachments = Vec::new();
     let mut total_attachment_bytes = 0;
+    let mut attachment_warnings = Vec::new();
     collect_email_parts(
         &parsed,
         &mut plain_bodies,
         &mut html_bodies,
         &mut attachments,
         &mut total_attachment_bytes,
+        &mut attachment_warnings,
     )?;
     let raw_body = if plain_bodies.is_empty() {
         html_bodies.join("\n\n")
@@ -3218,6 +3243,15 @@ fn cache_email_message(
         400_000,
     );
     let message_dir = cache_root.join(uid.to_string());
+    if message_dir.exists() {
+        let metadata = std::fs::symlink_metadata(&message_dir)
+            .map_err(|error| format!("无法检查 UID {uid} 的旧缓存：{error}"))?;
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            return Err(format!("UID {uid} 的旧缓存不是安全的本地目录。"));
+        }
+        std::fs::remove_dir_all(&message_dir)
+            .map_err(|error| format!("无法清理 UID {uid} 的旧缓存：{error}"))?;
+    }
     std::fs::create_dir_all(&message_dir)
         .map_err(|error| format!("无法创建邮件本地缓存：{error}"))?;
     let body_path = message_dir.join(format!("00-email-{uid}.txt"));
@@ -3229,6 +3263,19 @@ fn cache_email_message(
     let mut attachment_names = Vec::new();
     for (index, (name, bytes)) in attachments.into_iter().enumerate() {
         let safe_name = safe_workbench_file_name(&name);
+        let extension = Path::new(&safe_name)
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if ![
+            "pdf", "docx", "pptx", "xlsx", "txt", "md", "json", "csv", "log", "toml",
+            "yaml", "yml", "js", "ts", "html", "css", "rs", "py", "png", "jpg", "jpeg",
+            "webp",
+        ].contains(&extension.as_str())
+        {
+            attachment_warnings.push(format!("附件“{name}”已缓存，但当前不能提取内容。"));
+        }
         let path = message_dir.join(format!("{:02}-{safe_name}", index + 1));
         std::fs::write(path, bytes)
             .map_err(|error| format!("无法保存邮件附件 {name}：{error}"))?;
@@ -3242,7 +3289,18 @@ fn cache_email_message(
         preview: truncate_chars(body.trim(), 240),
         attachment_count: attachment_names.len(),
         attachment_names,
+        attachment_warnings,
     })
+}
+
+fn imap_since_query(value: &str) -> Result<Option<String>, String> {
+    let clean = value.trim();
+    if clean.is_empty() {
+        return Ok(None);
+    }
+    let date = chrono::NaiveDate::parse_from_str(clean, "%Y-%m-%d")
+        .map_err(|_| "邮件同步起始日期无效。".to_string())?;
+    Ok(Some(format!("SINCE {}", date.format("%d-%b-%Y"))))
 }
 
 #[tauri::command]
@@ -3265,6 +3323,18 @@ async fn sync_email_inbox(
     let requested_since_uid = request.since_uid;
     let requested_uid_validity = request.uid_validity;
     let max_messages = request.max_messages.clamp(1, 30);
+    let sync_mode = match request.sync_mode.as_str() {
+        "" | "new" => "new".to_string(),
+        "7" | "30" | "custom" | "all" => request.sync_mode.clone(),
+        _ => return Err("邮件同步范围无效。".into()),
+    };
+    let since_query = imap_since_query(&request.since_date)?;
+    let tracked_uids: Vec<u32> = request
+        .tracked_uids
+        .into_iter()
+        .filter(|uid| *uid > 0)
+        .take(1_200)
+        .collect();
     tauri::async_runtime::spawn_blocking(move || {
         std::fs::create_dir_all(&cache_root)
             .map_err(|error| format!("无法创建邮件缓存目录：{error}"))?;
@@ -3273,25 +3343,54 @@ async fn sync_email_inbox(
             .examine("INBOX")
             .map_err(|error| format!("无法读取收件箱：{error}"))?;
         let uid_validity = mailbox.uid_validity.unwrap_or_default();
-        let since_uid = if requested_uid_validity != 0
+        let uid_validity_changed = requested_uid_validity != 0
             && uid_validity != 0
-            && requested_uid_validity != uid_validity
-        {
-            0
-        } else {
-            requested_since_uid
-        };
+            && requested_uid_validity != uid_validity;
+        let since_uid = if uid_validity_changed { 0 } else { requested_since_uid };
         let mut all_uids: Vec<u32> = session
             .uid_search("ALL")
             .map_err(|error| format!("无法读取邮件索引：{error}"))?
             .into_iter()
             .collect();
         all_uids.sort_unstable();
-        let candidates: Vec<u32> = all_uids
-            .into_iter()
-            .filter(|uid| since_uid == 0 || *uid > since_uid)
-            .collect();
-        let selected: Vec<u32> = if since_uid == 0 {
+        let current_uid_set: HashSet<u32> = all_uids.iter().copied().collect();
+        let tracked_uid_set: HashSet<u32> = if uid_validity_changed {
+            HashSet::new()
+        } else {
+            tracked_uids.iter().copied().collect()
+        };
+        let deleted_uids = if uid_validity_changed {
+            Vec::new()
+        } else {
+            tracked_uids
+                .iter()
+                .copied()
+                .filter(|uid| !current_uid_set.contains(uid))
+                .collect()
+        };
+        let mut candidates: Vec<u32> = if sync_mode == "new" {
+            all_uids
+                .iter()
+                .copied()
+                .filter(|uid| since_uid == 0 || *uid > since_uid)
+                .collect()
+        } else if let Some(query) = since_query.as_deref() {
+            session
+                .uid_search(query)
+                .map_err(|error| format!("无法按日期读取邮件索引：{error}"))?
+                .into_iter()
+                .filter(|uid| !tracked_uid_set.contains(uid))
+                .collect()
+        } else {
+            all_uids
+                .iter()
+                .copied()
+                .filter(|uid| !tracked_uid_set.contains(uid))
+                .collect()
+        };
+        candidates.sort_unstable();
+        let newest_first_page = sync_mode != "new" || since_uid == 0;
+        let selected: Vec<u32> = if newest_first_page {
             candidates
                 .iter()
                 .rev()
@@ -3304,7 +3403,10 @@ async fn sync_email_inbox(
         } else {
             candidates.iter().take(max_messages).copied().collect()
         };
-        let has_more = since_uid > 0 && candidates.len() > selected.len();
+        // The first "new mail" sync intentionally seeds only the newest page.
+        // Older mail is available through the explicit date/all-history modes.
+        let has_more = !(sync_mode == "new" && since_uid == 0)
+            && candidates.len() > selected.len();
         if selected.is_empty() {
             let _ = session.logout();
             return Ok(EmailSyncResult {
@@ -3313,6 +3415,7 @@ async fn sync_email_inbox(
                 inbox_count: mailbox.exists,
                 uid_validity,
                 has_more: false,
+                deleted_uids,
             });
         }
         let sequence = selected
@@ -3342,6 +3445,7 @@ async fn sync_email_inbox(
             inbox_count: mailbox.exists,
             uid_validity,
             has_more,
+            deleted_uids,
         })
     })
     .await
@@ -3397,7 +3501,7 @@ fn prepare_email_bundle(
     }
     paths
         .iter()
-        .take(10)
+        .take(20)
         .map(|path| extract_knowledge_file(path))
         .collect()
 }
@@ -3443,14 +3547,47 @@ fn delete_local_email_cache(
     Ok(true)
 }
 
+#[tauri::command]
+fn clear_email_account_cache(
+    app: tauri::AppHandle,
+    account_id: String,
+) -> Result<bool, String> {
+    let cache_root = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("无法打开 Kardii 数据文件夹：{error}"))?
+        .join("email-cache");
+    let account_dir = cache_root.join(validate_email_account_id(&account_id)?);
+    if !account_dir.exists() {
+        return Ok(false);
+    }
+    let metadata = std::fs::symlink_metadata(&account_dir)
+        .map_err(|error| format!("无法检查邮箱缓存类型：{error}"))?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err("邮箱缓存项目不是安全的本地目录，未执行删除。".into());
+    }
+    let canonical_root = cache_root
+        .canonicalize()
+        .map_err(|error| format!("无法检查邮件缓存根目录：{error}"))?;
+    let canonical_account = account_dir
+        .canonicalize()
+        .map_err(|error| format!("无法检查邮箱缓存目录：{error}"))?;
+    if canonical_account.parent() != Some(canonical_root.as_path()) {
+        return Err("邮箱缓存路径无效，未执行删除。".into());
+    }
+    std::fs::remove_dir_all(&canonical_account)
+        .map_err(|error| format!("无法清空邮箱本地缓存：{error}"))?;
+    Ok(true)
+}
+
 fn extract_knowledge_file(path: &Path) -> Result<KnowledgeFileResult, String> {
     let metadata = std::fs::metadata(path)
         .map_err(|error| format!("无法读取文件信息：{error}"))?;
     if !metadata.is_file() {
         return Err("选择的项目不是普通文件。".into());
     }
-    if metadata.len() > 20_000_000 {
-        return Err("单个文件超过 20 MB。请拆分或压缩后再导入。".into());
+    if metadata.len() > 40_000_000 {
+        return Err("单个文件超过 40 MB。请拆分或压缩后再导入。".into());
     }
     let name = path
         .file_name()
@@ -3531,8 +3668,8 @@ async fn import_knowledge_files() -> Result<Vec<KnowledgeFileResult>, String> {
     else {
         return Ok(Vec::new());
     };
-    if files.len() > 10 {
-        return Err("一次最多导入 10 个文件。".into());
+    if files.len() > 20 {
+        return Err("一次最多导入 20 个文件。".into());
     }
     files
         .iter()
@@ -3560,8 +3697,8 @@ fn persist_knowledge_files(
     app: tauri::AppHandle,
     source_paths: Vec<String>,
 ) -> Result<Vec<PersistedKnowledgeFile>, String> {
-    if source_paths.is_empty() || source_paths.len() > 10 {
-        return Err("一次需要保存 1 到 10 个文件。".into());
+    if source_paths.is_empty() || source_paths.len() > 20 {
+        return Err("一次需要保存 1 到 20 个文件。".into());
     }
     let root = app
         .path()
@@ -3575,8 +3712,8 @@ fn persist_knowledge_files(
         let source = PathBuf::from(value.trim());
         let metadata = std::fs::metadata(&source)
             .map_err(|_| format!("原文件已移动或删除：{}", source.to_string_lossy()))?;
-        if !metadata.is_file() || metadata.len() > 20_000_000 {
-            return Err(format!("文件无效或超过 20 MB：{}", source.to_string_lossy()));
+        if !metadata.is_file() || metadata.len() > 40_000_000 {
+            return Err(format!("文件无效或超过 40 MB：{}", source.to_string_lossy()));
         }
         validated_sources.push(source);
     }
@@ -3894,6 +4031,11 @@ pub fn run() {
             sync_email_inbox,
             prepare_email_bundle,
             delete_local_email_cache,
+            clear_email_account_cache,
+            start_oauth_connection,
+            oauth_connection_status,
+            disconnect_oauth_connection,
+            sync_cloud_overview,
             get_codex_status,
             start_codex_login,
             logout_codex,

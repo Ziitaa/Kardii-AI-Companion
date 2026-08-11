@@ -1,4 +1,4 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8">
@@ -8,7 +8,7 @@
   </head>
   <body>
     <main class="app-shell">
-      <aside class="sidebar">
+      <aside class="sidebar" aria-label="Kardii 主侧栏">
         <div class="brand" data-tauri-drag-region>
           <div class="brand-mark">K</div>
           <div>
@@ -44,7 +44,7 @@
         </nav>
 
         <div class="sidebar-footer">
-          <label class="capture-toggle" for="autoCaptureToggle">
+          <label class="capture-toggle">
             <input id="autoCaptureToggle" type="checkbox">
             <span><strong>聊天自动记录</strong><small>需要时手动开启</small></span>
           </label>
@@ -230,7 +230,7 @@
           <section id="knowledgeView" class="view" data-view-panel="knowledge">
             <div class="knowledge-intro">
               <div>
-                <span class="section-kicker">KNOWLEDGE & FILE ANALYSIS</span>
+                <span class="section-kicker">KNOWLEDGE &amp; FILE ANALYSIS</span>
                 <h2>让文件、聊天记录与项目资料真正参与工作。</h2>
                 <p>支持 PDF、Word、PPT、Excel、图片与常见文本；先预览和编辑 AI 结论，再确认保存。</p>
               </div>
@@ -264,13 +264,13 @@
                 </section>
                 <div id="knowledgeGrid" class="knowledge-grid"></div>
               </div>
-              <aside class="knowledge-qa">
+              <aside class="knowledge-qa" aria-label="知识库问答">
                 <div class="knowledge-qa-heading">
                   <span class="section-kicker">ASK YOUR FILES</span>
                   <h3>问知识库</h3>
                   <p>先在本机检索相关片段，再交给当前 AI 回答并标注来源。</p>
                 </div>
-                <textarea id="knowledgeQuestion" rows="4" maxlength="1000"></textarea>
+                <textarea id="knowledgeQuestion" rows="4" maxlength="1000" aria-label="向知识库提问"></textarea>
                 <button id="askKnowledgeButton" class="primary-button" type="button">开始分析</button>
                 <p id="knowledgeQaStatus" class="knowledge-qa-status">知识库资料不会发送给搜索引擎；只有相关片段会交给你当前选择的 AI。</p>
                 <div id="knowledgeAnswer" class="knowledge-answer hidden"></div>
@@ -283,8 +283,8 @@
             <div class="connections-intro">
               <div>
                 <span class="section-kicker">EXTERNAL CONNECTIONS</span>
-                <h2>先把邮箱变成 Kardii 的只读资料入口。</h2>
-                <p>手动同步收件箱，检查邮件和附件后再交给现有多文件分析。当前版本不会发送、删除、移动或标记邮件。</p>
+                <h2>把邮箱、日历与云盘变成 Kardii 的只读资料入口。</h2>
+                <p>IMAP 支持多个邮箱；Google 与 Microsoft 使用系统浏览器 OAuth。当前版本不会发送、删除、移动或标记邮件，也不会改写日历和云端文件。</p>
               </div>
               <span class="read-only-badge">只读连接</span>
             </div>
@@ -294,6 +294,10 @@
                 <div class="connection-card-heading">
                   <div><span class="connection-icon">✉</span><span><strong>邮箱 · IMAP</strong><small id="emailConnectionSummary">尚未连接</small></span></div>
                   <span id="emailConnectionBadge" class="connection-state disconnected">未连接</span>
+                </div>
+                <div class="connection-account-toolbar">
+                  <select id="emailAccountSelect" aria-label="选择邮箱账号"></select>
+                  <button id="newEmailAccountButton" class="outline-button" type="button">＋ 添加邮箱</button>
                 </div>
                 <form id="emailConnectionForm" class="connection-form">
                   <label class="form-field full">
@@ -308,7 +312,7 @@
                   </label>
                   <label class="form-field full">
                     <span>连接名称</span>
-                    <input id="emailLabelInput" maxlength="60" value="工作邮箱" placeholder="例如：工作邮箱">
+                    <input id="emailLabelInput" type="text" maxlength="60" value="工作邮箱" placeholder="例如：工作邮箱">
                   </label>
                   <label class="form-field full">
                     <span>邮箱地址</span>
@@ -316,7 +320,7 @@
                   </label>
                   <label class="form-field">
                     <span>IMAP 服务器</span>
-                    <input id="emailServerInput" maxlength="253" value="imap.exmail.qq.com" spellcheck="false">
+                    <input id="emailServerInput" type="text" maxlength="253" value="imap.exmail.qq.com" spellcheck="false">
                   </label>
                   <label class="form-field">
                     <span>SSL/TLS 端口</span>
@@ -324,7 +328,7 @@
                   </label>
                   <label class="form-field full">
                     <span>登录账号</span>
-                    <input id="emailUsernameInput" maxlength="320" autocomplete="username" placeholder="通常与完整邮箱地址相同">
+                    <input id="emailUsernameInput" type="text" maxlength="320" autocomplete="username" placeholder="通常与完整邮箱地址相同">
                   </label>
                   <label class="form-field full">
                     <span>客户端专用密码 / 授权码</span>
@@ -332,12 +336,17 @@
                   </label>
                   <p class="connection-help full">请勿填写日常登录密码。企业微信、QQ、163 和 Gmail 应先开启 IMAP，并生成客户端专用密码、授权码或应用专用密码；若后台给出的服务器地址不同，以后台为准。Kardii 的 JSON 备份不会包含它。</p>
                   <div class="connection-actions full">
-                    <button id="disconnectEmailButton" class="delete-action" type="button">断开连接</button>
+                    <button id="pauseEmailButton" class="archive-action" type="button">暂停同步</button>
+                    <button id="disconnectEmailButton" class="delete-action" type="button">删除凭据</button>
                     <span class="modal-action-spacer"></span>
                     <button id="testEmailButton" class="outline-button" type="button">测试连接</button>
                     <button id="saveEmailButton" class="primary-button" type="submit">保存并连接</button>
                   </div>
-                  <p id="emailConnectionStatus" class="connection-status full">第一阶段仅连接一个邮箱；账号信息保存在本机，密码进入系统安全凭据库。</p>
+                  <div class="connection-maintenance-actions full">
+                    <button id="clearEmailCacheButton" class="ghost-action" type="button">清空本地邮件缓存</button>
+                    <button id="removeEmailAccountButton" class="ghost-action danger" type="button">移除这个账号</button>
+                  </div>
+                  <p id="emailConnectionStatus" class="connection-status full">可添加多个邮箱；账号配置保存在本机，密码只进入系统安全凭据库。</p>
                 </form>
               </article>
 
@@ -346,18 +355,88 @@
                   <div><span class="connection-icon">⇣</span><span><strong>同步收件箱</strong><small id="emailLastSyncLabel">连接后可手动同步</small></span></div>
                   <button id="syncEmailButton" class="primary-button" type="button" disabled>同步新邮件</button>
                 </div>
+                <div class="email-inbox-toolbar">
+                  <input id="emailSearchInput" type="search" maxlength="200" placeholder="搜索主题、发件人、附件">
+                  <select id="emailStatusFilter" aria-label="筛选邮件状态">
+                    <option value="all">全部邮件</option>
+                    <option value="unarchived">未归档</option>
+                    <option value="quote">疑似报价</option>
+                    <option value="archived">已归档</option>
+                    <option value="source-deleted">源邮箱已删除</option>
+                  </select>
+                  <select id="emailSyncWindowSelect" aria-label="同步时间范围">
+                    <option value="new">只同步新邮件</option>
+                    <option value="7">最近 7 天</option>
+                    <option value="30">最近 30 天</option>
+                    <option value="custom">自定义起始日</option>
+                    <option value="all">全部邮件（分批）</option>
+                  </select>
+                  <input id="emailSyncSinceInput" class="hidden" type="date" aria-label="同步起始日期">
+                </div>
                 <div class="email-sync-note">
                   <strong>同步不会改变邮箱里的任何内容</strong>
-                  <span>首次读取最近 20 封；以后只读取新 UID。邮件正文和支持的附件先进入本地缓存，仍需你确认后才保存到工作台。</span>
+                  <span>每次最多读取 30 封并自动去重，同时标记源邮箱中已删除的邮件。正文和支持的附件先进入本地缓存，仍需你确认后才保存到工作台。</span>
                 </div>
                 <div id="emailInboxList" class="email-inbox-list"></div>
               </article>
             </div>
 
+            <div class="cloud-connections-grid">
+              <article class="connection-card cloud-connection-card" data-cloud-provider="google">
+                <div class="connection-card-heading">
+                  <div><span class="connection-icon google-icon">G</span><span><strong>Google Workspace</strong><small id="googleConnectionSummary">Gmail · Calendar · Drive · Sheets</small></span></div>
+                  <span id="googleConnectionBadge" class="connection-state disconnected">未连接</span>
+                </div>
+                <div class="connection-form">
+                  <label class="form-field full"><span>Google 桌面应用 Client ID</span><input id="googleClientIdInput" type="text" maxlength="500" spellcheck="false" placeholder="xxxx.apps.googleusercontent.com"></label>
+                  <label class="form-field full"><span>Client secret（如 Google 控制台提供）</span><input id="googleClientSecretInput" type="password" maxlength="500" autocomplete="new-password" placeholder="不会写入 Kardii 备份"></label>
+                  <p class="connection-help full">登录会在系统浏览器完成，使用 PKCE 与随机回调端口；授权令牌只保存到系统凭据库。</p>
+                  <div class="connection-actions full">
+                    <button id="disconnectGoogleButton" class="delete-action" type="button">断开</button>
+                    <span class="modal-action-spacer"></span>
+                    <button id="syncGoogleButton" class="outline-button" type="button">同步概览</button>
+                    <button id="connectGoogleButton" class="primary-button" type="button">浏览器登录</button>
+                  </div>
+                  <p id="googleConnectionStatus" class="connection-status full">只申请 Gmail、日历、Drive 与 Sheets 的读取权限。</p>
+                </div>
+              </article>
+
+              <article class="connection-card cloud-connection-card" data-cloud-provider="microsoft">
+                <div class="connection-card-heading">
+                  <div><span class="connection-icon microsoft-icon">M</span><span><strong>Microsoft 365</strong><small id="microsoftConnectionSummary">Outlook · Calendar · OneDrive · Excel</small></span></div>
+                  <span id="microsoftConnectionBadge" class="connection-state disconnected">未连接</span>
+                </div>
+                <div class="connection-form">
+                  <label class="form-field full"><span>Microsoft 公共客户端 Application ID</span><input id="microsoftClientIdInput" type="text" maxlength="500" spellcheck="false" placeholder="应用程序（客户端）ID"></label>
+                  <label class="form-field"><span>登录范围</span><select id="microsoftTenantInput"><option value="common">个人或组织账号</option><option value="organizations">仅组织账号</option><option value="consumers">仅个人账号</option></select></label>
+                  <label class="cloud-check-option"><input id="microsoftSharePointInput" type="checkbox"><span>同时读取 SharePoint 站点（可能需要管理员批准）</span></label>
+                  <p class="connection-help full">公共桌面客户端不使用 client secret；登录在系统浏览器完成，令牌只保存到系统凭据库。</p>
+                  <div class="connection-actions full">
+                    <button id="disconnectMicrosoftButton" class="delete-action" type="button">断开</button>
+                    <span class="modal-action-spacer"></span>
+                    <button id="syncMicrosoftButton" class="outline-button" type="button">同步概览</button>
+                    <button id="connectMicrosoftButton" class="primary-button" type="button">浏览器登录</button>
+                  </div>
+                  <p id="microsoftConnectionStatus" class="connection-status full">只申请 Outlook、日历、OneDrive 与在线 Excel 的读取权限。</p>
+                </div>
+              </article>
+            </div>
+
+            <article class="connection-card cloud-overview-card">
+              <div class="connection-card-heading">
+                <div><span class="connection-icon">☁</span><span><strong>云端只读概览</strong><small id="cloudOverviewSummary">连接后显示最近邮件、日程与文件</small></span></div>
+                <div class="cloud-overview-filters">
+                  <select id="cloudProviderFilter" aria-label="筛选云端平台"><option value="all">全部平台</option><option value="google">Google</option><option value="microsoft">Microsoft</option></select>
+                  <select id="cloudServiceFilter" aria-label="筛选云端项目类型"><option value="all">全部类型</option><option value="mail">邮件</option><option value="calendar">日历</option><option value="drive">云盘</option><option value="sheets">表格 / Excel</option><option value="sharepoint">SharePoint</option></select>
+                </div>
+              </div>
+              <div id="cloudOverviewList" class="cloud-overview-list"></div>
+            </article>
+
             <div class="future-connections-grid">
-              <article><span>日历</span><strong>下一阶段</strong><p>读取日程并建立内部跟进提醒。</p></article>
-              <article><span>在线表格 / 网盘</span><strong>后续开放</strong><p>按项目选择资料，不默认上传全部企业文件。</p></article>
-              <article><span>对外发送</span><strong>保持关闭</strong><p>以后即使开放，也会逐次显示收件人、正文和附件让你确认。</p></article>
+              <article><span>数据权限</span><strong>默认只读</strong><p>连接仅列出最近项目，不会批量上传企业文件。</p></article>
+              <article><span>内部整理</span><strong>人工确认</strong><p>选择资料后再归档到关系、项目和知识库。</p></article>
+              <article><span>对外发送</span><strong>保持关闭</strong><p>当前版本没有发送邮件、修改日历或写入云盘的能力。</p></article>
             </div>
           </section>
         </div>
@@ -367,7 +446,7 @@
     <div id="modalBackdrop" class="modal-backdrop hidden">
       <section class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
         <div class="modal-heading">
-          <div><span id="modalEyebrow" class="section-kicker"></span><h2 id="modalTitle"></h2></div>
+          <div><span id="modalEyebrow" class="section-kicker"></span><h2 id="modalTitle">详情</h2></div>
           <button id="modalCloseButton" class="window-button" type="button" aria-label="关闭">×</button>
         </div>
         <form id="entityForm">
@@ -405,7 +484,7 @@
               <button id="bundleNewRelationButton" class="outline-button" type="button">＋ 新建</button>
             </div>
             <div id="bundleNewRelationPanel" class="bundle-new-relation hidden">
-              <input id="bundleNewRelationName" maxlength="120" placeholder="公司 / 机构名称" aria-label="公司或机构名称">
+              <input id="bundleNewRelationName" type="text" maxlength="120" placeholder="公司 / 机构名称" aria-label="公司或机构名称">
               <select id="bundleNewRelationType" aria-label="关系类型">
                 <option value="partner">合作伙伴</option>
                 <option value="service_provider">服务商</option>
@@ -425,18 +504,18 @@
           </div>
           <div class="form-field"><label for="bundleProjectSelect">关联项目</label><select id="bundleProjectSelect"></select></div>
           <label class="bundle-chat-option full"><input id="bundleIncludeChat" type="checkbox"><span><strong>同时分析当前 Kardii 聊天记录</strong><small id="bundleChatSummary">没有可加入的聊天记录</small></span></label>
-          <label id="bundleEmailFollowup" class="bundle-chat-option bundle-followup-option full hidden">
+          <div id="bundleEmailFollowup" class="bundle-chat-option bundle-followup-option full hidden">
             <input id="bundleCreateFollowup" type="checkbox" checked>
-            <span><strong>保存邮件时同时建立内部跟进提醒</strong><small>只写入 Kardii 待办，不会向邮箱或日历发送任何内容</small></span>
+            <label for="bundleCreateFollowup"><span><strong>保存邮件时同时建立内部跟进提醒</strong><small>只写入 Kardii 待办，不会向邮箱或日历发送任何内容</small></span></label>
             <input id="bundleFollowupDate" class="bundle-followup-date" type="date" aria-label="跟进日期">
-          </label>
+          </div>
         </div>
         <div class="bundle-analysis-actions">
           <p id="bundleStatus">文件尚未保存。可以先让 AI 综合分析，也可以直接确认保存原件。</p>
           <button id="analyzeBundleButton" class="outline-button" type="button">AI 综合分析</button>
         </div>
         <div id="bundleDraftFields" class="form-fields bundle-draft-fields hidden">
-          <div class="form-field full"><label for="bundleDraftTitle">成果标题</label><input id="bundleDraftTitle" maxlength="160"></div>
+          <div class="form-field full"><label for="bundleDraftTitle">成果标题</label><input id="bundleDraftTitle" type="text" maxlength="160"></div>
           <div class="form-field full"><label for="bundleDraftSummary">综合摘要</label><textarea id="bundleDraftSummary" rows="4"></textarea></div>
           <div class="form-field"><label for="bundleDraftKeyPoints">关键事实与数据</label><textarea id="bundleDraftKeyPoints" rows="6"></textarea></div>
           <div class="form-field"><label for="bundleDraftCommitments">承诺、约定与日期</label><textarea id="bundleDraftCommitments" rows="6"></textarea></div>

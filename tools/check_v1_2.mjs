@@ -17,7 +17,7 @@ const chatJs = read("src/chat.js");
 const rust = read("src-tauri/src/lib.rs");
 
 assert(workbenchHtml.includes("关系库") && !workbenchHtml.includes(">客户库<"), "关系库命名未完成");
-assert(workbenchJs.includes("version: 2") && workbenchJs.includes("[1, 2].includes(saved.version)"), "v1 到 v2 数据迁移缺失");
+assert(workbenchJs.includes("version: 3") && workbenchJs.includes("[1, 2, 3].includes(saved.version)"), "v1 到 v3 数据迁移缺失");
 assert(workbenchJs.includes("contacts: []") && workbenchJs.includes("relationshipId"), "独立联系人模型缺失");
 assert(workbenchJs.includes("primaryContactId") && workbenchJs.includes("contactName:${contact.id}"), "联系人不可独立编辑或设置主要联系人");
 assert(workbenchJs.includes("reports: []") && workbenchJs.includes("projectWorkspacePanelMarkup"), "项目工作台成果模型缺失");
@@ -65,12 +65,12 @@ const migrationContext = vm.createContext({
 });
 const migrationPrelude = workbenchJs.slice(0, workbenchJs.indexOf("const navItems"));
 const migrationFunctions = workbenchJs.slice(
-  workbenchJs.indexOf("function loadData"),
+  workbenchJs.indexOf("function normalizeEmailAccount"),
   workbenchJs.indexOf("function escapeHtml"),
 );
 vm.runInContext(`${migrationPrelude}\n${migrationFunctions}`, migrationContext);
 const migrated = vm.runInContext("data", migrationContext);
-assert(migrated.version === 2 && migrated.customers[0].company === "旧版服务商", "旧版关系数据迁移失败");
+assert(migrated.version === 3 && migrated.customers[0].company === "旧版服务商", "旧版关系数据迁移失败");
 assert(migrated.contacts.length === 1 && migrated.contacts[0].name === "王经理", "旧版联系人没有拆分保存");
 assert(migrated.settings.autoCaptureEnabled === true && migrated.reports.length === 0, "旧版设置或新集合迁移失败");
 

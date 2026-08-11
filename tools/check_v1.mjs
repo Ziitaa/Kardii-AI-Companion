@@ -33,9 +33,9 @@ for (const command of ["create_agent_plan", "decide_agent_action", "run_web_sear
   assert(agentJs.includes(`invoke("${command}"`), `Agent UI does not call command: ${command}`);
 }
 
-assert(config.version === "1.3.1", "tauri.conf.json version is not 1.3.1");
-assert(packageJson.version === "1.3.1", "package.json version is not 1.3.1");
-assert(/version = "1\.3\.1"/.test(cargo), "Cargo.toml version is not 1.3.1");
+assert(config.version === "1.4.0", "tauri.conf.json version is not 1.4.0");
+assert(packageJson.version === "1.4.0", "package.json version is not 1.4.0");
+assert(/version = "1\.4\.0"/.test(cargo), "Cargo.toml version is not 1.4.0");
 assert(config.app.windows.some((window) => window.label === "agent" && window.url === "agent.html"), "Agent window is missing from Tauri config");
 assert(capability.windows.includes("agent"), "Agent window is missing from capabilities");
 assert(chatHtml.includes('id="agentModeButton"') && chatHtml.includes('id="agentCenterButton"'), "Chat Agent entry points are missing");
@@ -46,7 +46,7 @@ for (const seededText of ["Target 入驻", "欧洲市场启动", "分销合作�
 }
 const fieldMarkup = workbenchJs.slice(workbenchJs.indexOf("function fieldMarkup"), workbenchJs.indexOf("function currentResearchAiConfig"));
 assert(!fieldMarkup.includes("placeholder="), "Workbench modal fields still render placeholder text");
-assert(workbenchJs.includes("settings: { autoCaptureEnabled: false }"), "Business auto-capture is not opt-in for new users");
+assert(/settings:\s*\{\s*autoCaptureEnabled: false,/.test(workbenchJs), "Business auto-capture is not opt-in for new users");
 assert(read("src/chat.js").includes("businessData.settings?.autoCaptureEnabled !== true"), "Chat does not respect the business auto-capture toggle");
 
 class FakeClassList {

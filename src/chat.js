@@ -809,7 +809,7 @@ function createFullBackup() {
   try {
     const saved = JSON.parse(localStorage.getItem(BUSINESS_DATA_KEY) || "null");
     if (
-      [1, 2].includes(saved?.version)
+      [1, 2, 3].includes(saved?.version)
       && Array.isArray(saved.customers)
       && Array.isArray(saved.projects)
       && Array.isArray(saved.tasks)
@@ -839,7 +839,7 @@ function createFullBackup() {
   return {
     format: "kardii-backup",
     version: 1,
-    appVersion: "1.3.1",
+    appVersion: "1.4.0",
     createdAt: new Date().toISOString(),
     profile,
     memories,
@@ -885,7 +885,7 @@ function applyFullBackup(data) {
     void refreshProviderState();
   }
   if (
-    [1, 2].includes(data.businessData?.version)
+    [1, 2, 3].includes(data.businessData?.version)
     && Array.isArray(data.businessData.customers)
     && Array.isArray(data.businessData.projects)
     && Array.isArray(data.businessData.tasks)
@@ -993,7 +993,7 @@ function loadBusinessData() {
     if (!saved || typeof saved !== "object") return null;
     return {
       ...saved,
-      version: [1, 2].includes(saved.version) ? saved.version : 1,
+      version: [1, 2, 3].includes(saved.version) ? saved.version : 1,
       customers: Array.isArray(saved.customers) ? saved.customers : [],
       contacts: Array.isArray(saved.contacts) ? saved.contacts : [],
       projects: Array.isArray(saved.projects) ? saved.projects : [],
@@ -1005,6 +1005,7 @@ function loadBusinessData() {
       knowledge: Array.isArray(saved.knowledge) ? saved.knowledge : [],
       reports: Array.isArray(saved.reports) ? saved.reports : [],
       settings: {
+        ...(saved.settings && typeof saved.settings === "object" ? saved.settings : {}),
         autoCaptureEnabled: saved.settings?.autoCaptureEnabled === true,
       },
     };
