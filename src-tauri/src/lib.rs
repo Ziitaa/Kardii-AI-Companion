@@ -885,7 +885,7 @@ impl CodexAppServer {
             "clientInfo": {
                 "name": "kardii_ai_companion",
                 "title": "Kardii AI Companion",
-                "version": "1.3.0"
+                "version": "1.3.1"
             }
         })).await?;
         server.wait_for_response(initialize_id, Duration::from_secs(12)).await?;
@@ -3402,6 +3402,47 @@ fn prepare_email_bundle(
         .collect()
 }
 
+#[tauri::command]
+fn delete_local_email_cache(
+    app: tauri::AppHandle,
+    account_id: String,
+    uid: u32,
+) -> Result<bool, String> {
+    if uid == 0 {
+        return Err("邮件 UID 无效。".into());
+    }
+    let root = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("无法打开 Kardii 数据文件夹：{error}"))?
+        .join("email-cache")
+        .join(validate_email_account_id(&account_id)?);
+    if !root.exists() {
+        return Ok(false);
+    }
+    let root = root
+        .canonicalize()
+        .map_err(|error| format!("无法检查邮箱缓存目录：{error}"))?;
+    let message_dir = root.join(uid.to_string());
+    if !message_dir.exists() {
+        return Ok(false);
+    }
+    let message_metadata = std::fs::symlink_metadata(&message_dir)
+        .map_err(|error| format!("无法检查这封邮件的缓存类型：{error}"))?;
+    if message_metadata.file_type().is_symlink() || !message_metadata.is_dir() {
+        return Err("邮箱缓存项目不是安全的本地目录，未执行删除。".into());
+    }
+    let message_dir = message_dir
+        .canonicalize()
+        .map_err(|error| format!("无法检查这封邮件的缓存目录：{error}"))?;
+    if !message_dir.starts_with(&root) || !message_dir.is_dir() {
+        return Err("邮箱缓存路径无效，未执行删除。".into());
+    }
+    std::fs::remove_dir_all(&message_dir)
+        .map_err(|error| format!("无法删除这封邮件的本地缓存：{error}"))?;
+    Ok(true)
+}
+
 fn extract_knowledge_file(path: &Path) -> Result<KnowledgeFileResult, String> {
     let metadata = std::fs::metadata(path)
         .map_err(|error| format!("无法读取文件信息：{error}"))?;
@@ -3852,6 +3893,7 @@ pub fn run() {
             test_email_connection,
             sync_email_inbox,
             prepare_email_bundle,
+            delete_local_email_cache,
             get_codex_status,
             start_codex_login,
             logout_codex,

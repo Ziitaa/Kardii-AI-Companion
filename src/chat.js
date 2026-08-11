@@ -839,7 +839,7 @@ function createFullBackup() {
   return {
     format: "kardii-backup",
     version: 1,
-    appVersion: "1.3.0",
+    appVersion: "1.3.1",
     createdAt: new Date().toISOString(),
     profile,
     memories,
