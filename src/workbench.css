@@ -542,8 +542,11 @@ button { cursor: pointer; }
 .email-message-main p { margin: 6px 0 0; overflow: hidden; color: #69737e; font-size: 8px; line-height: 1.55; }
 .email-message-meta { display: flex; grid-column: 1 / -1; align-items: center; justify-content: space-between; gap: 10px; color: #9ba1a8; font-size: 8px; }
 .email-message-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.email-message-actions { display: flex; align-items: flex-start; gap: 5px; }
 .email-message-card button { align-self: start; padding: 7px 9px; color: #8e536a; font-size: 8px; background: #fff; border: 1px solid #e6d4dc; border-radius: 7px; white-space: nowrap; }
 .email-message-card button:disabled { color: #688071; border-color: #d5e4db; cursor: default; }
+.email-message-card .email-delete-button { padding-inline: 7px; color: #a34f62; border-color: #ecd6dc; }
+.email-message-card .email-delete-button:hover { background: #fdf1f4; }
 .future-connections-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
 .future-connections-grid article { padding: 12px 13px; background: rgba(255, 255, 255, 0.65); border: 1px dashed #dfe3e7; border-radius: 10px; }
 .future-connections-grid span, .future-connections-grid strong { display: block; }
@@ -663,6 +666,14 @@ button { cursor: pointer; }
 .bundle-file span { margin-top: 3px; color: #9199a3; font-size: 8px; }
 .bundle-file small { color: #a67748; font-size: 8px; }
 .bundle-settings { margin-bottom: 13px; }
+.bundle-relation-field { align-content: start; }
+.bundle-relation-picker { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
+.bundle-relation-picker button { padding: 8px 9px; white-space: nowrap; }
+.bundle-new-relation { display: grid; gap: 7px; margin-top: 2px; padding: 9px; background: #fbf7f8; border: 1px solid #ecdfe4; border-radius: 8px; }
+.bundle-new-relation input, .bundle-new-relation select { width: 100%; padding: 8px 9px; color: var(--ink); outline: 0; background: #fff; border: 1px solid #e2e5e9; border-radius: 7px; }
+.bundle-new-relation input:focus, .bundle-new-relation select:focus { border-color: #cb7d99; box-shadow: 0 0 0 3px rgba(203, 125, 153, 0.09); }
+.bundle-new-relation-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.bundle-new-relation-actions button { padding: 7px 9px; font-size: 8px; }
 .bundle-chat-option { display: flex; align-items: center; gap: 9px; padding: 10px; color: #596574; background: #f7f9fb; border: 1px solid #e0e6eb; border-radius: 9px; cursor: pointer; }
 .bundle-chat-option input { width: 14px; height: 14px; accent-color: #a75e78; }
 .bundle-chat-option span, .bundle-chat-option strong, .bundle-chat-option small { display: block; }

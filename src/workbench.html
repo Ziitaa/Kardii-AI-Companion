@@ -301,6 +301,8 @@
                     <select id="emailPresetSelect">
                       <option value="wecom">企业微信邮箱 / 腾讯企业邮箱</option>
                       <option value="qq">QQ 邮箱</option>
+                      <option value="163">163 邮箱</option>
+                      <option value="gmail">Gmail</option>
                       <option value="custom">其他支持 IMAP 的邮箱</option>
                     </select>
                   </label>
@@ -328,7 +330,7 @@
                     <span>客户端专用密码 / 授权码</span>
                     <input id="emailPasswordInput" type="password" maxlength="512" autocomplete="new-password" placeholder="只保存到 Windows 凭据管理器或 macOS 钥匙串">
                   </label>
-                  <p class="connection-help full">不要填写企业微信登录密码。请先在邮箱后台开启 IMAP，并生成客户端专用密码或授权码；若后台给出的服务器地址不同，以后台为准。Kardii 的 JSON 备份不会包含它。</p>
+                  <p class="connection-help full">请勿填写日常登录密码。企业微信、QQ、163 和 Gmail 应先开启 IMAP，并生成客户端专用密码、授权码或应用专用密码；若后台给出的服务器地址不同，以后台为准。Kardii 的 JSON 备份不会包含它。</p>
                   <div class="connection-actions full">
                     <button id="disconnectEmailButton" class="delete-action" type="button">断开连接</button>
                     <span class="modal-action-spacer"></span>
@@ -396,7 +398,31 @@
         <div id="bundleFileList" class="bundle-file-list"></div>
         <div class="form-fields bundle-settings">
           <div class="form-field full"><label for="bundleObjective">这批资料要解决什么问题</label><textarea id="bundleObjective" rows="3" placeholder="例如：整理三家欧洲海外仓的服务、报价、风险和下一步"></textarea></div>
-          <div class="form-field"><label for="bundleRelationSelect">关联关系</label><select id="bundleRelationSelect"></select></div>
+          <div class="form-field bundle-relation-field">
+            <label for="bundleRelationSelect">关联关系</label>
+            <div class="bundle-relation-picker">
+              <select id="bundleRelationSelect"></select>
+              <button id="bundleNewRelationButton" class="outline-button" type="button">＋ 新建</button>
+            </div>
+            <div id="bundleNewRelationPanel" class="bundle-new-relation hidden">
+              <input id="bundleNewRelationName" maxlength="120" placeholder="公司 / 机构名称" aria-label="公司或机构名称">
+              <select id="bundleNewRelationType" aria-label="关系类型">
+                <option value="partner">合作伙伴</option>
+                <option value="service_provider">服务商</option>
+                <option value="logistics">海外仓 / 物流</option>
+                <option value="customer">客户 / 买家</option>
+                <option value="distributor">分销商</option>
+                <option value="platform">平台 / 渠道</option>
+                <option value="supplier">供应商 / 工厂</option>
+                <option value="institution">机构 / 学校</option>
+                <option value="other">其他关系</option>
+              </select>
+              <div class="bundle-new-relation-actions">
+                <button id="bundleNewRelationCancelButton" class="ghost-action" type="button">取消</button>
+                <button id="bundleNewRelationSaveButton" class="primary-button" type="button">创建并选中</button>
+              </div>
+            </div>
+          </div>
           <div class="form-field"><label for="bundleProjectSelect">关联项目</label><select id="bundleProjectSelect"></select></div>
           <label class="bundle-chat-option full"><input id="bundleIncludeChat" type="checkbox"><span><strong>同时分析当前 Kardii 聊天记录</strong><small id="bundleChatSummary">没有可加入的聊天记录</small></span></label>
           <label id="bundleEmailFollowup" class="bundle-chat-option bundle-followup-option full hidden">

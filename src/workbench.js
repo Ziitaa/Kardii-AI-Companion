@@ -62,6 +62,12 @@ const INTELLIGENCE_KINDS = {
 const KNOWLEDGE_TEXT_TYPES = new Set([
   "txt", "md", "json", "csv", "log", "toml", "yaml", "yml", "js", "ts", "html", "css", "rs", "py",
 ]);
+const EMAIL_PRESETS = {
+  wecom: { server: "imap.exmail.qq.com", port: 993 },
+  qq: { server: "imap.qq.com", port: 993 },
+  "163": { server: "imap.163.com", port: 993 },
+  gmail: { server: "imap.gmail.com", port: 993 },
+};
 
 const viewMeta = {
   dashboard: ["KARDII WORKBENCH", "今日工作台"],
@@ -154,6 +160,12 @@ const bundleBackdrop = document.getElementById("bundleBackdrop");
 const bundleFileList = document.getElementById("bundleFileList");
 const bundleObjective = document.getElementById("bundleObjective");
 const bundleRelationSelect = document.getElementById("bundleRelationSelect");
+const bundleNewRelationButton = document.getElementById("bundleNewRelationButton");
+const bundleNewRelationPanel = document.getElementById("bundleNewRelationPanel");
+const bundleNewRelationName = document.getElementById("bundleNewRelationName");
+const bundleNewRelationType = document.getElementById("bundleNewRelationType");
+const bundleNewRelationCancelButton = document.getElementById("bundleNewRelationCancelButton");
+const bundleNewRelationSaveButton = document.getElementById("bundleNewRelationSaveButton");
 const bundleProjectSelect = document.getElementById("bundleProjectSelect");
 const bundleStatus = document.getElementById("bundleStatus");
 const bundleDraftFields = document.getElementById("bundleDraftFields");
@@ -247,7 +259,7 @@ function loadData() {
         emailConnection: saved.settings?.emailConnection && typeof saved.settings.emailConnection === "object"
           ? {
               accountId: "primary",
-              preset: ["wecom", "qq", "custom"].includes(saved.settings.emailConnection.preset)
+              preset: ["wecom", "qq", "163", "gmail", "custom"].includes(saved.settings.emailConnection.preset)
                 ? saved.settings.emailConnection.preset
                 : "custom",
               label: String(saved.settings.emailConnection.label || "工作邮箱"),
@@ -814,7 +826,10 @@ function renderEmailInbox() {
           <span>${escapeHtml(message.sender)}</span>
           <p>${escapeHtml(message.preview || "这封邮件没有可预览的文字正文。")}</p>
         </div>
-        <button type="button" data-action="prepare-email" data-email-uid="${message.uid}" ${message.archivedAt ? "disabled" : ""}>${message.archivedAt ? "已归档" : quoteCandidate ? "整理报价" : "整理到工作台"}</button>
+        <div class="email-message-actions">
+          <button type="button" data-action="prepare-email" data-email-uid="${message.uid}" ${message.archivedAt ? "disabled" : ""}>${message.archivedAt ? "已归档" : quoteCandidate ? "整理报价" : "整理到工作台"}</button>
+          <button class="email-delete-button" type="button" data-action="delete-local-email" data-email-uid="${message.uid}" title="只删除 Kardii 本地记录" aria-label="删除这封邮件的 Kardii 本地记录">删除</button>
+        </div>
         <div class="email-message-meta"><span title="${escapeHtml(attachmentLabel)}">${escapeHtml(attachmentLabel)}</span><time>${escapeHtml(formatEmailDate(message.receivedAt))}</time></div>
       </article>
     `;
@@ -1032,6 +1047,29 @@ async function prepareEmailForWorkbench(uid) {
     setEmailConnectionStatus("邮件已进入预览，检查关联对象后再分析或保存。", "success");
   } catch (error) {
     setEmailConnectionStatus(String(error), "error");
+  }
+}
+
+async function deleteLocalEmailMessage(uid) {
+  const numericUid = Number(uid);
+  const message = data.emailMessages.find((item) => item.uid === numericUid);
+  if (!message) return;
+  const archivedNote = message.archivedAt
+    ? " 已归档到项目、关系库、知识库和待办的内容会继续保留。"
+    : "";
+  if (!window.confirm(`只删除这封邮件在 Kardii 里的本地记录和临时缓存吗？原邮箱里的邮件不会被删除。${archivedNote}`)) return;
+  const previousMessages = structuredClone(data.emailMessages);
+  data.emailMessages = data.emailMessages.filter((item) => item.uid !== numericUid);
+  if (!saveData()) {
+    data.emailMessages = previousMessages;
+    renderConnections();
+    return;
+  }
+  try {
+    await invoke("delete_local_email_cache", { accountId: "primary", uid: numericUid });
+    setEmailConnectionStatus("已删除 Kardii 本地邮件记录；原邮箱和已归档工作资料没有改变。", "success");
+  } catch (error) {
+    setEmailConnectionStatus(`本地记录已删除，但临时缓存清理失败：${String(error)}`, "error");
   }
 }
 
@@ -2129,8 +2167,10 @@ function openBundlePreview(files, emailUid = "") {
   bundleChatSummary.textContent = conversation
     ? `可加入当前会话的 ${conversation.messageCount} 条消息（不会复制或删除原聊天）`
     : "没有可加入的聊天记录";
-  bundleRelationSelect.replaceChildren(new Option("不关联关系对象", ""));
-  data.customers.forEach((item) => bundleRelationSelect.add(new Option(`${RELATIONSHIP_TYPES[item.relationshipType] || "关系"} · ${item.company}`, item.id)));
+  bundleNewRelationPanel.classList.add("hidden");
+  bundleNewRelationName.value = "";
+  bundleNewRelationType.value = "other";
+  refreshBundleRelationshipOptions();
   bundleProjectSelect.replaceChildren(new Option("不关联项目", ""));
   data.projects.forEach((item) => bundleProjectSelect.add(new Option(item.name, item.id)));
   const searchable = pendingBundleFiles.map((file) => `${file.name} ${String(file.content || "").slice(0, 20_000)}`).join(" ").toLowerCase();
@@ -2154,6 +2194,71 @@ function openBundlePreview(files, emailUid = "") {
   analyzeBundleButton.textContent = "AI 综合分析";
   saveBundleButton.disabled = false;
   bundleBackdrop.classList.remove("hidden");
+}
+
+function refreshBundleRelationshipOptions(selectedId = "") {
+  const currentValue = selectedId || bundleRelationSelect.value;
+  bundleRelationSelect.replaceChildren(new Option("不关联关系对象", ""));
+  data.customers.forEach((item) => {
+    bundleRelationSelect.add(new Option(`${RELATIONSHIP_TYPES[item.relationshipType] || "关系"} · ${item.company}`, item.id));
+  });
+  bundleRelationSelect.value = data.customers.some((item) => item.id === currentValue) ? currentValue : "";
+}
+
+function setBundleNewRelationVisible(visible) {
+  bundleNewRelationPanel.classList.toggle("hidden", !visible);
+  bundleNewRelationButton.textContent = visible ? "收起" : "＋ 新建";
+  if (visible) bundleNewRelationName.focus();
+}
+
+function createBundleRelationship() {
+  const company = bundleNewRelationName.value.trim();
+  if (!company) {
+    bundleStatus.textContent = "请先填写公司或机构名称。";
+    bundleStatus.className = "error";
+    bundleNewRelationName.focus();
+    return;
+  }
+  const existing = data.customers.find((item) => String(item.company || "").trim().toLowerCase() === company.toLowerCase());
+  if (existing) {
+    refreshBundleRelationshipOptions(existing.id);
+    setBundleNewRelationVisible(false);
+    bundleStatus.textContent = `关系库中已有“${existing.company}”，已直接选中。`;
+    bundleStatus.className = "";
+    return;
+  }
+  const now = new Date().toISOString();
+  const relationship = {
+    id: crypto.randomUUID(),
+    company,
+    relationshipType: Object.hasOwn(RELATIONSHIP_TYPES, bundleNewRelationType.value) ? bundleNewRelationType.value : "other",
+    website: "",
+    country: "",
+    channel: "",
+    source: pendingEmailUid ? "邮件归档" : "资料归档",
+    stage: "lead",
+    priority: "medium",
+    followupDate: "",
+    tags: "",
+    nextAction: "",
+    notes: "",
+    linkedProjectIds: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+  data.customers.unshift(relationship);
+  if (!saveData()) {
+    data.customers = data.customers.filter((item) => item.id !== relationship.id);
+    renderAll();
+    bundleStatus.textContent = "关系对象未能保存，请先释放本机存储空间后重试。";
+    bundleStatus.className = "error";
+    return;
+  }
+  refreshBundleRelationshipOptions(relationship.id);
+  setBundleNewRelationVisible(false);
+  bundleStatus.textContent = `已新建并选中关系对象“${company}”。可以继续分析或保存。`;
+  bundleStatus.className = "";
+  showToast("关系对象已创建并选中");
 }
 
 function currentConversationDocument() {
@@ -2183,6 +2288,7 @@ function closeBundlePreview() {
   pendingBundleAnalysis = null;
   pendingEmailUid = "";
   bundleEmailFollowup.classList.add("hidden");
+  setBundleNewRelationVisible(false);
 }
 
 async function analyzePendingBundle() {
@@ -2426,6 +2532,7 @@ document.addEventListener("click", (event) => {
     openModal("knowledge", actionTarget.dataset.entityId);
   }
   if (action === "prepare-email") prepareEmailForWorkbench(actionTarget.dataset.emailUid);
+  if (action === "delete-local-email") deleteLocalEmailMessage(actionTarget.dataset.emailUid);
   if (action === "delete-task") deleteTask(actionTarget.dataset.entityId);
   if (action === "delete-note") deleteNote(actionTarget.dataset.entityId);
   if (action === "delete-activity") deleteActivity(actionTarget.dataset.entityId);
@@ -2473,10 +2580,23 @@ bundleBackdrop.addEventListener("mousedown", (event) => {
 bundleCreateFollowup.addEventListener("change", () => {
   bundleFollowupDate.disabled = !bundleCreateFollowup.checked;
 });
+bundleNewRelationButton.addEventListener("click", () => {
+  setBundleNewRelationVisible(bundleNewRelationPanel.classList.contains("hidden"));
+});
+bundleNewRelationCancelButton.addEventListener("click", () => setBundleNewRelationVisible(false));
+bundleNewRelationSaveButton.addEventListener("click", createBundleRelationship);
+bundleNewRelationName.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    createBundleRelationship();
+  }
+});
 emailPresetSelect.addEventListener("change", () => {
-  if (emailPresetSelect.value === "wecom") emailServerInput.value = "imap.exmail.qq.com";
-  if (emailPresetSelect.value === "qq") emailServerInput.value = "imap.qq.com";
-  if (emailPresetSelect.value !== "custom") emailPortInput.value = "993";
+  const preset = EMAIL_PRESETS[emailPresetSelect.value];
+  if (preset) {
+    emailServerInput.value = preset.server;
+    emailPortInput.value = String(preset.port);
+  }
 });
 emailAddressInput.addEventListener("input", () => {
   const config = emailConnectionConfig();
