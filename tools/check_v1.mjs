@@ -156,5 +156,11 @@ const skillTask = JSON.parse(localStorage.getItem("kardii-agent-tasks-v1")).find
 assert(skillTask.skillId === "skill-1" && skillTask.skillSnapshot.includes("先分类"), "Agent skill snapshot was not attached to task");
 const dailyNext = vm.runInContext(`nextAutomationRun({ schedule: "daily", time: "09:00" }, new Date("2026-08-04T10:00:00"))`, runtimeContext);
 assert(new Date(dailyNext).getTime() > new Date("2026-08-04T10:00:00").getTime(), "Daily automation did not advance to a future run");
+const attachmentEvidence = vm.runInContext(`questionAttachmentEvidence([
+  { name: "brief.pdf", fileType: "pdf", size: 1200, content: "产品要求：保留原有结构。" },
+  { name: "product.png", fileType: "png", size: 2400, content: "" }
+], "图片中可见一个黑色储物箱。")`, runtimeContext);
+assert(attachmentEvidence.includes("brief.pdf") && attachmentEvidence.includes("保留原有结构"), "Agent file attachment content was not preserved");
+assert(attachmentEvidence.includes("product.png") && attachmentEvidence.includes("图片识别结果"), "Agent image attachment analysis was not preserved");
 
 console.log(`Kardii v1.1 checks passed (${referencedIds.length} Agent UI bindings).`);

@@ -18,6 +18,9 @@ const oauth = read("src-tauri/src/oauth.rs");
 const html = read("src/workbench.html");
 const js = read("src/workbench.js");
 const chatJs = read("src/chat.js");
+const agentHtml = read("src/agent.html");
+const agentJs = read("src/agent.js");
+const agentCss = read("src/agent.css");
 
 for (const version of [packageJson.version, packageLock.version, packageLock.packages[""].version, tauriConfig.version]) {
   assert(version === "1.4.0", `v1.4 版本号未统一: ${version}`);
@@ -78,6 +81,23 @@ assert(oauth.includes('oauth_entry("meta"') && oauth.includes('oauth_entry("refr
 assert(!oauth.includes("Mail.Send") && !oauth.includes("Calendars.ReadWrite") && !oauth.includes("Files.ReadWrite"), "v1.4 不应申请外部写入权限");
 assert(!rust.includes("smtp::") && !rust.includes("send_email"), "v1.4 不应包含邮件发送能力");
 assert(!js.includes("clientSecret: String(value.clientSecret"), "Google client secret 不应进入 localStorage 数据模型");
+
+for (const id of [
+  "questionDropZone", "questionAttachmentList", "questionAttachmentInput", "addQuestionAttachmentButton",
+]) {
+  assert(agentHtml.includes(`id="${id}"`), `Agent 附件控件缺失: ${id}`);
+  assert(agentJs.includes(`getElementById("${id}")`), `Agent 附件控件未绑定: ${id}`);
+}
+for (const command of ["prepare_agent_attachment", "analyze_agent_images"]) {
+  assert(rust.includes(`fn ${command}`), `Agent 附件后端命令缺失: ${command}`);
+  assert(rust.includes(`            ${command},`), `Agent 附件命令未注册: ${command}`);
+  assert(agentJs.includes(`invoke("${command}"`), `Agent 前端未调用附件命令: ${command}`);
+}
+assert(agentJs.includes('questionAnswer.addEventListener("paste"') && agentJs.includes('eventName === "drop"'), "Agent 附件粘贴或拖入缺失");
+assert(agentJs.includes("data-remove-attachment") && agentCss.includes(".question-attachment-preview"), "Agent 附件预览或删除缺失");
+assert(rust.includes('request.provider != "gemini"') && rust.includes("valid_agent_image_signature"), "Agent 图片识别模型限制或文件签名校验缺失");
+const agentWindow = tauriConfig.app.windows.find((window) => window.label === "agent");
+assert(agentWindow?.dragDropEnabled === false, "Agent 窗口未启用 HTML5 文件拖入");
 
 const legacyStorage = new Map([["kardii-business-data-v1", JSON.stringify({
   version: 2,

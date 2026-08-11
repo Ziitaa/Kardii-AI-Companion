@@ -160,8 +160,18 @@
             <section id="questionPanel" class="panel question-panel hidden">
               <span class="eyebrow">NEED YOUR INPUT</span>
               <h2 id="questionText"></h2>
-              <textarea id="questionAnswer" rows="4" maxlength="4000"></textarea>
-              <button id="submitAnswerButton" class="primary-button" type="button">提交并继续</button>
+              <div id="questionDropZone" class="question-drop-zone">
+                <textarea id="questionAnswer" rows="4" maxlength="4000" placeholder="输入回答，也可以粘贴或拖入图片"></textarea>
+                <div id="questionAttachmentList" class="question-attachment-list"></div>
+                <div class="question-input-actions">
+                  <div>
+                    <button id="addQuestionAttachmentButton" class="attachment-button" type="button">＋ 添加图片或文件</button>
+                    <input id="questionAttachmentInput" class="hidden" type="file" multiple accept=".png,.jpg,.jpeg,.webp,.pdf,.docx,.pptx,.xlsx,.csv,.txt,.md,.json">
+                    <span id="questionAttachmentHint">最多 6 个；文件 20 MB、图片 8 MB</span>
+                  </div>
+                  <button id="submitAnswerButton" class="primary-button" type="button">提交并继续</button>
+                </div>
+              </div>
             </section>
 
             <section id="resultPanel" class="panel result-panel hidden">
