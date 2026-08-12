@@ -11,16 +11,19 @@
     <main class="chat-card" aria-label="Kardii 聊天窗口">
       <header data-tauri-drag-region>
         <div class="avatar">K</div>
-        <div>
+        <div class="chat-identity">
           <strong>Kardii</strong>
           <span id="activeModelBadge" class="active-model-badge">DeepSeek</span>
         </div>
-        <button id="agentCenterButton" class="icon-button agent-center-button" type="button" aria-label="Agent 任务中心" title="打开 Agent 任务中心">✦</button>
-        <button id="workbenchButton" class="icon-button workbench-button" type="button" aria-label="工作台" title="打开工作台">▦</button>
-        <button id="toolsButton" class="icon-button tools-button" type="button" aria-label="桌面工具">⌘</button>
-        <button id="profileButton" class="icon-button profile-button" type="button" aria-label="个性与记忆">♡</button>
-        <button id="settingsButton" class="icon-button settings-button" type="button" aria-label="AI 设置">⚙</button>
-        <button id="closeButton" class="icon-button" type="button" aria-label="关闭">×</button>
+        <div class="header-actions" aria-label="Kardii 快捷功能">
+          <button id="agentCenterButton" class="icon-button agent-center-button" type="button" aria-label="Agent 任务中心" title="Agent 任务中心">✦</button>
+          <button id="workbenchButton" class="icon-button workbench-button" type="button" aria-label="工作台" title="工作台">▦</button>
+          <button id="toolsButton" class="icon-button tools-button" type="button" aria-label="桌面工具" title="桌面工具">⌘</button>
+          <button id="profileButton" class="icon-button profile-button" type="button" aria-label="个性与记忆" title="个性与记忆">♡</button>
+          <button id="settingsButton" class="icon-button settings-button" type="button" aria-label="AI 设置" title="AI 与语音设置">⚙</button>
+          <button id="helpButton" class="icon-button help-button" type="button" aria-label="帮助与使用说明" title="帮助与使用说明">?</button>
+          <button id="closeButton" class="icon-button close-chat-button" type="button" aria-label="关闭" title="关闭">×</button>
+        </div>
       </header>
 
       <section id="messages" class="messages" aria-live="polite"></section>
@@ -294,6 +297,44 @@
           <div id="toolLogList" class="tool-log-list"></div>
         </div>
       </section>
+      <section id="helpPanel" class="settings-panel help-panel hidden" aria-label="帮助与使用说明">
+        <div class="settings-box help-box">
+          <div class="settings-title help-title">
+            <div>
+              <strong>帮助与使用说明</strong>
+              <span>忘记时随时回来看看</span>
+            </div>
+            <button id="helpCloseButton" class="icon-button" type="button" aria-label="关闭帮助">×</button>
+          </div>
+
+          <section class="help-hero">
+            <div>
+              <span class="help-kicker">KARDII GUIDE</span>
+              <h2>想做什么，就从对应功能开始</h2>
+              <p>这里的内容和 Kardii 自己掌握的功能清单来自同一份资料。</p>
+            </div>
+            <span id="helpVersionBadge" class="help-version">v1.4.0</span>
+          </section>
+
+          <div class="help-section-heading">
+            <div><strong>当前状态</strong><span id="helpStatusTime">正在读取……</span></div>
+            <button id="refreshHelpStatusButton" class="secondary-button" type="button">刷新</button>
+          </div>
+          <div id="helpStatusList" class="help-status-list" aria-live="polite"></div>
+
+          <div class="help-section-heading help-feature-heading">
+            <div><strong>按任务查看</strong><span>展开后只看两三步</span></div>
+          </div>
+          <div id="helpFeatureList" class="help-feature-list"></div>
+
+          <section class="help-whats-new">
+            <div class="help-section-heading">
+              <div><strong>这个版本新增了什么</strong><span>v1.4</span></div>
+            </div>
+            <ul id="helpVersionHighlights"></ul>
+          </section>
+        </div>
+      </section>
       <section id="awarenessPanel" class="settings-panel awareness-panel hidden" aria-label="桌面上下文">
         <div class="settings-box awareness-box">
           <div class="settings-title">
@@ -352,6 +393,7 @@
       </section>
     </main>
     <script src="./kardii-task-title.js"></script>
+    <script src="./kardii-capabilities.js"></script>
     <script src="./kardii-dialog.js"></script>
     <script src="./chat.js"></script>
   </body>

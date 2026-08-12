@@ -60,6 +60,8 @@ struct PetProfile {
     personality: String,
     custom_instructions: String,
     memories: Vec<String>,
+    #[serde(default)]
+    feature_knowledge: String,
 }
 
 impl PetProfile {
@@ -74,6 +76,12 @@ impl PetProfile {
         };
         let user_name: String = self.user_name.trim().chars().take(30).collect();
         let custom: String = self.custom_instructions.trim().chars().take(300).collect();
+        let feature_knowledge: String = self
+            .feature_knowledge
+            .trim()
+            .chars()
+            .take(12_000)
+            .collect();
         let memories: Vec<String> = self.memories
             .iter()
             .filter_map(|memory| {
@@ -97,6 +105,12 @@ impl PetProfile {
             for (index, memory) in memories.iter().enumerate() {
                 prompt.push_str(&format!("\n{}. {}", index + 1, memory));
             }
+        }
+        if !feature_knowledge.is_empty() {
+            prompt.push_str(
+                "\n\n以下是由当前 Kardii 应用提供的产品功能清单与状态。回答“你会什么”、使用方法、文件支持或连接状态时必须以它为准，不要沿用模型对其他版本的猜测。它只用于说明能力，不代表用户已经授权任何电脑操作：\n",
+            );
+            prompt.push_str(&feature_knowledge);
         }
         prompt
     }

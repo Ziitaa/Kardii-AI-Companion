@@ -26,6 +26,7 @@ const agentCss = read("src/agent.css");
 const dialogJs = read("src/kardii-dialog.js");
 const dialogCss = read("src/kardii-dialog.css");
 const taskTitleJs = read("src/kardii-task-title.js");
+const capabilityJs = read("src/kardii-capabilities.js");
 
 for (const version of [packageJson.version, packageLock.version, packageLock.packages[""].version, tauriConfig.version]) {
   assert(version === "1.4.0", `v1.4 版本号未统一: ${version}`);
@@ -117,6 +118,48 @@ assert(chatJs.includes('input.addEventListener("paste"') && chatJs.includes('cha
 assert(chatJs.includes('invoke("prepare_agent_attachment"') && chatJs.includes("attachmentImages"), "普通聊天附件没有传给后端或聊天模型");
 assert(chatCss.includes(".chat-attachment-item") && chatCss.includes(".dragging-files::after"), "普通聊天附件预览或拖入样式缺失");
 assert(rust.includes("attachment_images: Option<Vec<AgentImageInput>>") && rust.includes("validated_agent_image_data(image)?"), "普通聊天图片没有经过后端校验后传给 Gemini");
+
+for (const id of [
+  "helpButton", "helpPanel", "helpCloseButton", "helpStatusList", "helpFeatureList",
+  "helpVersionHighlights", "refreshHelpStatusButton",
+]) {
+  assert(chatHtml.includes(`id="${id}"`), `帮助与使用说明控件缺失: ${id}`);
+  assert(chatJs.includes(`getElementById("${id}")`), `帮助与使用说明控件未绑定: ${id}`);
+}
+assert(chatHtml.includes('src="./kardii-capabilities.js"'), "聊天页没有加载共享功能清单");
+assert(chatHtml.includes('class="header-actions"'), "顶部图标没有统一到同一布局容器");
+assert(chatCss.includes("scale(1.12)") && chatCss.includes("text-shadow") && chatCss.includes("prefers-reduced-motion"), "顶部图标缺少悬停放大、发光或减少动画保护");
+assert(chatCss.includes(".help-feature-card") && chatCss.includes(".help-status-list"), "主题化帮助面板样式不完整");
+assert(chatJs.includes("window.KardiiCapabilities.knowledgeText(currentCapabilityStatus())"), "Kardii 对话没有读取共享功能清单");
+assert(chatJs.includes('invoke("has_email_password"') && chatJs.includes('invoke("oauth_connection_status"'), "功能状态没有核对邮箱或云端连接");
+assert(rust.includes("feature_knowledge: String") && rust.includes("由当前 Kardii 应用提供的产品功能清单与状态"), "后端系统提示没有接入 Kardii 功能认知");
+
+const capabilityContext = vm.createContext({ window: {} });
+vm.runInContext(capabilityJs, capabilityContext);
+const capabilityIds = vm.runInContext("window.KardiiCapabilities.features.map((item) => item.id)", capabilityContext);
+for (const id of ["chat", "agent", "attachments", "desktop-context", "workbench", "connections", "tools", "voice", "personalization"]) {
+  assert(capabilityIds.includes(id), `共享功能清单缺少: ${id}`);
+}
+const capabilityKnowledge = vm.runInContext(`window.KardiiCapabilities.knowledgeText({
+  appVersion: "1.4.0",
+  providerName: "Gemini",
+  modelName: "gemini-3.5-flash",
+  providerReady: true,
+  autoAgentHandoff: true,
+  voiceModelState: "ready",
+  emailConfigured: 1,
+  emailConnected: 1,
+  cloudConfigured: 0,
+  cloudConnected: 0,
+  codexChecked: true,
+  codexInstalled: true,
+  codexAuthenticated: true,
+  memoryCount: 4,
+})`, capabilityContext);
+assert(capabilityKnowledge.includes("Gemini") && capabilityKnowledge.includes("邮箱1 个已连接"), "共享功能清单没有包含动态连接状态");
+assert(capabilityKnowledge.includes("不能发送邮件") && capabilityKnowledge.includes("仅 Gemini 能识别"), "共享功能清单没有准确说明关键限制");
+assert(vm.runInContext('window.KardiiCapabilities.isCapabilityQuestion("Kardii 你会什么？")', capabilityContext), "Kardii 功能问题识别失败");
+assert(vm.runInContext('window.KardiiCapabilities.isCapabilityQuestion("我的邮箱连接了吗？")', capabilityContext), "Kardii 连接状态问题识别失败");
 
 assert(chatJs.includes("function shouldAutoRouteToAgent(") && chatJs.includes("function buildAgentTaskGoal("), "聊天到 Agent 的智能衔接缺失");
 assert(chatHtml.includes('id="autoAgentHandoffToggle"'), "自动衔接 Agent 开关缺失");

@@ -133,6 +133,15 @@ const chatAttachmentList = document.getElementById("chatAttachmentList");
 const chatAttachmentHint = document.getElementById("chatAttachmentHint");
 const chatAttachmentInput = document.getElementById("chatAttachmentInput");
 const addChatAttachmentButton = document.getElementById("addChatAttachmentButton");
+const helpButton = document.getElementById("helpButton");
+const helpPanel = document.getElementById("helpPanel");
+const helpCloseButton = document.getElementById("helpCloseButton");
+const helpVersionBadge = document.getElementById("helpVersionBadge");
+const helpStatusTime = document.getElementById("helpStatusTime");
+const helpStatusList = document.getElementById("helpStatusList");
+const helpFeatureList = document.getElementById("helpFeatureList");
+const helpVersionHighlights = document.getElementById("helpVersionHighlights");
+const refreshHelpStatusButton = document.getElementById("refreshHelpStatusButton");
 
 const HISTORY_KEY = "kardii-chat-history-v1";
 const RESPONSE_LENGTH_KEY = "kardii-response-length";
@@ -220,6 +229,15 @@ let autoAgentHandoff = localStorage.getItem(AUTO_AGENT_HANDOFF_KEY) !== "off";
 let pendingChatAttachments = [];
 let chatAttachmentProcessing = false;
 let chatDragDepth = 0;
+let appVersion = window.KardiiCapabilities?.version || "1.4.0";
+let capabilityRuntime = {
+  emailConnected: null,
+  cloudConnected: null,
+  codexChecked: false,
+  codexInstalled: false,
+  codexAuthenticated: false,
+  checkedAt: null,
+};
 
 function normalizedAgentHandoffText(value) {
   return String(value || "")
@@ -697,8 +715,244 @@ function loadMemories() {
   }
 }
 
+function capabilityConnections() {
+  const businessData = loadBusinessData();
+  const emailAccounts = Array.isArray(businessData?.settings?.emailAccounts)
+    ? businessData.settings.emailAccounts.filter((account) => typeof account?.accountId === "string" && account.accountId.trim())
+    : [];
+  const cloudConnections = businessData?.settings?.cloudConnections && typeof businessData.settings.cloudConnections === "object"
+    ? Object.values(businessData.settings.cloudConnections)
+      .filter((connection) => typeof connection?.accountId === "string" && connection.accountId.trim())
+    : [];
+  return { emailAccounts, cloudConnections };
+}
+
+function currentCapabilityStatus() {
+  const ai = currentAiConfig();
+  const connections = capabilityConnections();
+  const modelName = ai.provider === "deepseek"
+    ? "V4 Flash"
+    : ai.provider === "gemini"
+      ? ai.model.replace("gemini-", "").replaceAll("-", " ")
+      : ai.provider === "codex"
+        ? "ChatGPT"
+        : ai.model || "未选择模型";
+  return {
+    appVersion,
+    providerName: AI_PROVIDERS[ai.provider]?.name || ai.provider,
+    modelName,
+    providerReady,
+    agentMode,
+    autoAgentHandoff,
+    voiceModelState,
+    emailConfigured: connections.emailAccounts.length,
+    cloudConfigured: connections.cloudConnections.length,
+    emailConnected: capabilityRuntime.emailConnected,
+    cloudConnected: capabilityRuntime.cloudConnected,
+    codexChecked: capabilityRuntime.codexChecked,
+    codexInstalled: capabilityRuntime.codexInstalled,
+    codexAuthenticated: capabilityRuntime.codexAuthenticated,
+    memoryCount: memories.length,
+  };
+}
+
 function currentProfile() {
-  return { ...profile, memories };
+  const featureKnowledge = window.KardiiCapabilities
+    ? window.KardiiCapabilities.knowledgeText(currentCapabilityStatus())
+    : "";
+  return { ...profile, memories, featureKnowledge };
+}
+
+async function refreshCapabilityRuntime({ checkConnections = true, checkCodex = true } = {}) {
+  const { emailAccounts, cloudConnections } = capabilityConnections();
+  refreshHelpStatusButton.disabled = true;
+
+  const tasks = [];
+  if (["deepseek", "gemini"].includes(aiSettings.provider)) {
+    tasks.push((async () => {
+      providerReady = await invoke("has_provider_key", { provider: aiSettings.provider }).catch(() => providerReady);
+    })());
+  } else if (aiSettings.provider === "ollama") {
+    tasks.push((async () => {
+      const models = await invoke("list_ollama_models", { ollamaBaseUrl: aiSettings.ollamaBaseUrl }).catch(() => null);
+      if (Array.isArray(models)) {
+        ollamaModels = models;
+        providerReady = models.length > 0;
+      }
+    })());
+  }
+  if (checkConnections) {
+    tasks.push((async () => {
+      if (!emailAccounts.length) {
+        capabilityRuntime.emailConnected = 0;
+        return;
+      }
+      const statuses = await Promise.all(emailAccounts.map((account) =>
+        invoke("has_email_password", { accountId: account.accountId }).catch(() => null)));
+      capabilityRuntime.emailConnected = statuses.some((status) => status == null)
+        ? null
+        : statuses.filter(Boolean).length;
+    })());
+    tasks.push((async () => {
+      if (!cloudConnections.length) {
+        capabilityRuntime.cloudConnected = 0;
+        return;
+      }
+      const statuses = await Promise.all(cloudConnections.map((connection) =>
+        invoke("oauth_connection_status", { accountId: connection.accountId }).catch(() => null)));
+      capabilityRuntime.cloudConnected = statuses.some((status) => status == null)
+        ? null
+        : statuses.filter(Boolean).length;
+    })());
+  }
+  if (checkCodex) {
+    tasks.push((async () => {
+      try {
+        const status = await invoke("get_codex_status");
+        capabilityRuntime.codexChecked = true;
+        capabilityRuntime.codexInstalled = status.installed === true;
+        capabilityRuntime.codexAuthenticated = status.authenticated === true;
+        if (aiSettings.provider === "codex") {
+          providerReady = capabilityRuntime.codexInstalled && capabilityRuntime.codexAuthenticated;
+        }
+      } catch {
+        capabilityRuntime.codexChecked = false;
+      }
+    })());
+  }
+
+  try {
+    await Promise.all(tasks);
+    capabilityRuntime.checkedAt = new Date();
+  } finally {
+    refreshHelpStatusButton.disabled = false;
+    renderHelpStatus();
+  }
+}
+
+function renderHelpStatus() {
+  if (!window.KardiiCapabilities) return;
+  helpStatusList.replaceChildren();
+  window.KardiiCapabilities.statusRows(currentCapabilityStatus()).forEach((row) => {
+    const item = document.createElement("div");
+    item.className = "help-status-item";
+    item.dataset.tone = row.tone;
+    const label = document.createElement("span");
+    label.textContent = row.label;
+    const value = document.createElement("span");
+    value.textContent = row.value;
+    value.title = row.value;
+    item.append(label, value);
+    helpStatusList.appendChild(item);
+  });
+  helpStatusTime.textContent = capabilityRuntime.checkedAt
+    ? `更新于 ${capabilityRuntime.checkedAt.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`
+    : "打开后自动检测";
+  helpVersionBadge.textContent = `v${appVersion}`;
+}
+
+function useHelpExample(example) {
+  hideHelp();
+  input.value = example;
+  resizeInput();
+  chatHint.textContent = "示例已填入，你可以修改后发送";
+  input.focus();
+}
+
+function renderHelpFeatures() {
+  if (!window.KardiiCapabilities) return;
+  helpFeatureList.replaceChildren();
+  let previousGroup = "";
+  window.KardiiCapabilities.features.forEach((feature, index) => {
+    if (feature.group !== previousGroup) {
+      const group = document.createElement("div");
+      group.className = "help-group-label";
+      group.textContent = feature.group;
+      helpFeatureList.appendChild(group);
+      previousGroup = feature.group;
+    }
+
+    const details = document.createElement("details");
+    details.className = "help-feature-card";
+    details.dataset.featureId = feature.id;
+    details.open = index === 0;
+
+    const summary = document.createElement("summary");
+    const icon = document.createElement("span");
+    icon.className = "help-feature-icon";
+    icon.textContent = feature.icon;
+    const copy = document.createElement("span");
+    copy.className = "help-feature-copy";
+    const title = document.createElement("strong");
+    title.textContent = feature.title;
+    const description = document.createElement("span");
+    description.textContent = feature.summary;
+    copy.append(title, description);
+    const chevron = document.createElement("span");
+    chevron.className = "help-feature-chevron";
+    chevron.textContent = "›";
+    summary.append(icon, copy, chevron);
+
+    const body = document.createElement("div");
+    body.className = "help-feature-body";
+    const steps = document.createElement("ol");
+    feature.steps.forEach((step) => {
+      const item = document.createElement("li");
+      item.textContent = step;
+      steps.appendChild(item);
+    });
+    const tryButton = document.createElement("button");
+    tryButton.type = "button";
+    tryButton.className = "help-try-button";
+    tryButton.textContent = "立即试用";
+    tryButton.addEventListener("click", () => useHelpExample(feature.example));
+    body.append(steps, tryButton);
+    details.append(summary, body);
+    helpFeatureList.appendChild(details);
+  });
+
+  helpVersionHighlights.replaceChildren();
+  window.KardiiCapabilities.versionHighlights.forEach((highlight) => {
+    const item = document.createElement("li");
+    item.textContent = highlight;
+    helpVersionHighlights.appendChild(item);
+  });
+  renderHelpStatus();
+}
+
+function dismissHeaderPanels() {
+  [
+    [settingsPanel, settingsButton],
+    [profilePanel, profileButton],
+    [toolsPanel, toolsButton],
+    [helpPanel, helpButton],
+  ].forEach(([candidatePanel, candidateButton]) => {
+    candidatePanel.classList.add("hidden");
+    candidateButton.classList.remove("is-active");
+  });
+}
+
+function openHeaderPanel(panel, button) {
+  dismissHeaderPanels();
+  if (!awarenessPanel.classList.contains("hidden")) hideAwareness();
+  panel.classList.remove("hidden");
+  button.classList.add("is-active");
+}
+
+function closeHeaderPanel(panel, button) {
+  panel.classList.add("hidden");
+  button.classList.remove("is-active");
+  input.focus();
+}
+
+function showHelp() {
+  openHeaderPanel(helpPanel, helpButton);
+  renderHelpStatus();
+  void refreshCapabilityRuntime();
+}
+
+function hideHelp() {
+  closeHeaderPanel(helpPanel, helpButton);
 }
 
 function setProfileStatus(text, type = "") {
@@ -760,12 +1014,11 @@ function setToolStatus(text, type = "") {
 
 function showTools() {
   renderToolLogs();
-  toolsPanel.classList.remove("hidden");
+  openHeaderPanel(toolsPanel, toolsButton);
 }
 
 function hideTools() {
-  toolsPanel.classList.add("hidden");
-  input.focus();
+  closeHeaderPanel(toolsPanel, toolsButton);
 }
 
 function setAwarenessStatus(text, type = "") {
@@ -786,6 +1039,7 @@ function showAwarenessPicker() {
 }
 
 function showAwareness() {
+  dismissHeaderPanels();
   awarenessPanel.classList.remove("hidden");
 
   if (pendingDesktopCapture) {
@@ -1650,7 +1904,7 @@ function showProfile() {
   customInstructionsInput.value = profile.customInstructions;
   personalityDescription.textContent = PERSONALITIES[personalitySelect.value];
   renderMemories();
-  profilePanel.classList.remove("hidden");
+  openHeaderPanel(profilePanel, profileButton);
 }
 
 personalitySelect.addEventListener("change", () => {
@@ -1661,8 +1915,7 @@ personalitySelect.addEventListener("change", () => {
 });
 
 function hideProfile() {
-  profilePanel.classList.add("hidden");
-  input.focus();
+  closeHeaderPanel(profilePanel, profileButton);
 }
 
 function loadConversation() {
@@ -1734,8 +1987,11 @@ function setUpdateStatus(text, type = "") {
 async function loadAppVersion() {
   try {
     const version = await invoke("get_app_version");
+    appVersion = String(version || window.KardiiCapabilities?.version || "1.4.0");
     appVersionLabel.textContent = `当前版本：${version}`;
     currentVersionBadges.forEach((badge) => { badge.textContent = `v${version}`; });
+    helpVersionBadge.textContent = `v${appVersion}`;
+    renderHelpStatus();
   } catch (error) {
     appVersionLabel.textContent = "当前版本：读取失败";
     setUpdateStatus(String(error), "error");
@@ -1799,7 +2055,7 @@ async function installAppUpdate() {
 }
 
 function showSettings() {
-  settingsPanel.classList.remove("hidden");
+  openHeaderPanel(settingsPanel, settingsButton);
   void refreshVoiceModelStatus();
   setTimeout(() => {
     if (aiSettings.provider === "ollama") ollamaBaseUrlInput.focus();
@@ -1809,8 +2065,7 @@ function showSettings() {
 }
 
 function hideSettings() {
-  settingsPanel.classList.add("hidden");
-  input.focus();
+  closeHeaderPanel(settingsPanel, settingsButton);
 }
 
 function setSettingsBusy(busy) {
@@ -2283,6 +2538,11 @@ async function requestReply() {
   stopSpeaking();
   setSending(true);
   await emitTo("main", "kardii-state", "thinking");
+  const latestUserText = [...conversation].reverse().find((message) => message.role === "user")?.content || "";
+  if (window.KardiiCapabilities?.isCapabilityQuestion(latestUserText)) {
+    chatHint.textContent = "正在核对 Kardii 的功能与连接状态……";
+    await refreshCapabilityRuntime();
+  }
   const usingToolContext = Boolean(pendingToolContext);
   const usingKnowledgeContext = Boolean(pendingKnowledgeContext);
   const usingDesktopCapture = Boolean(pendingDesktopCapture);
@@ -3125,6 +3385,12 @@ input.addEventListener("keydown", (event) => {
 settingsButton.addEventListener("click", showSettings);
 workbenchButton.addEventListener("click", openWorkbench);
 agentCenterButton.addEventListener("click", openAgentCenter);
+helpButton.addEventListener("click", showHelp);
+helpCloseButton.addEventListener("click", hideHelp);
+refreshHelpStatusButton.addEventListener("click", () => {
+  helpStatusTime.textContent = "正在检测……";
+  void refreshCapabilityRuntime();
+});
 agentModeButton.addEventListener("click", () => {
   agentMode = !agentMode;
   localStorage.setItem(AGENT_MODE_KEY, agentMode ? "agent" : "chat");
@@ -3141,6 +3407,7 @@ window.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
   if (!permissionPanel.classList.contains("hidden")) finishPermission(false);
   else if (!awarenessPanel.classList.contains("hidden")) hideAwareness();
+  else if (!helpPanel.classList.contains("hidden")) hideHelp();
   else if (!toolsPanel.classList.contains("hidden")) hideTools();
   else if (!profilePanel.classList.contains("hidden")) hideProfile();
   else if (!settingsPanel.classList.contains("hidden")) hideSettings();
@@ -3153,6 +3420,7 @@ window.addEventListener("focus", () => {
     && profilePanel.classList.contains("hidden")
     && awarenessPanel.classList.contains("hidden")
     && toolsPanel.classList.contains("hidden")
+    && helpPanel.classList.contains("hidden")
     && permissionPanel.classList.contains("hidden")
   ) input.focus();
 });
@@ -3162,6 +3430,7 @@ installUpdateButton.addEventListener("click", installAppUpdate);
 renderConversation();
 renderAgentMode();
 renderToolLogs();
+renderHelpFeatures();
 renderProviderSettings();
 void refreshProviderState(true);
 loadSystemVoices();
