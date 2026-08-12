@@ -47,10 +47,17 @@
         </div>
       </div>
 
+      <section id="chatAttachmentTray" class="chat-attachment-tray hidden" aria-label="聊天附件">
+        <div id="chatAttachmentList" class="chat-attachment-list"></div>
+        <p id="chatAttachmentHint">支持 XLSX、CSV、PNG、JPG、WebP；最多 6 个</p>
+      </section>
+
       <form id="chatForm">
+        <input id="chatAttachmentInput" type="file" accept=".xlsx,.csv,image/png,image/jpeg,image/webp" multiple hidden>
+        <button id="addChatAttachmentButton" type="button" aria-label="添加表格或图片" title="添加表格或图片，也可以拖入文件或粘贴图片">＋</button>
         <textarea id="messageInput" rows="1" maxlength="4000" placeholder="问问 Kardii……" aria-label="消息"></textarea>
         <button id="agentModeButton" type="button" aria-label="切换 Agent 模式" title="交给 Agent 执行">A</button>
-       <button id="awarenessButton" type="button" aria-label="查看桌面上下文" title="选择一个窗口让 Kardii 看看">👁</button>
+        <button id="awarenessButton" type="button" aria-label="查看桌面上下文" title="选择一个窗口让 Kardii 看看">👁</button>
         <button id="micButton" type="button" aria-label="开始语音输入" title="语音输入">🎙</button>
         <button id="stopButton" class="hidden" type="button" aria-label="停止回答">■</button>
         <button id="sendButton" type="submit" aria-label="发送">➤</button>
@@ -344,6 +351,7 @@
         </div>
       </section>
     </main>
+    <script src="./kardii-task-title.js"></script>
     <script src="./kardii-dialog.js"></script>
     <script src="./chat.js"></script>
   </body>

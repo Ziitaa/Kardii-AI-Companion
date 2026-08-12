@@ -2455,6 +2455,7 @@ async fn stream_ai_message(
     codex_thread_key: Option<String>,
     max_tokens: u32,
     desktop_image_data_url: Option<String>,
+    attachment_images: Option<Vec<AgentImageInput>>,
     on_event: Channel<StreamEvent>,
     state: tauri::State<'_, StreamState>,
 ) -> Result<(), String> {
@@ -2465,9 +2466,8 @@ async fn stream_ai_message(
     }];
     api_messages.extend(messages.into_iter().take(16));
 
-    if let Some(data_url) = desktop_image_data_url
-        .filter(|value| !value.trim().is_empty())
-    {
+    let mut visual_parts = Vec::new();
+    if let Some(data_url) = desktop_image_data_url.filter(|value| !value.trim().is_empty()) {
         if provider != "gemini" {
             return Err("桌面截图目前只能交给 Gemini 识别。".into());
         }
@@ -2480,32 +2480,67 @@ async fn stream_ai_message(
             return Err("桌面截图数据过大，请缩小窗口后重试。".into());
         }
 
+        visual_parts.push(json!({
+            "type": "text",
+            "text": "用户本轮附加的桌面截图"
+        }));
+        visual_parts.push(json!({
+            "type": "image_url",
+            "image_url": {
+                "url": data_url
+            }
+        }));
+    }
+
+    let attachment_images = attachment_images.unwrap_or_default();
+    if !attachment_images.is_empty() {
+        if provider != "gemini" {
+            return Err("聊天图片目前只能交给 Gemini 识别。".into());
+        }
+        if attachment_images.len() > 6 {
+            return Err("一次聊天最多识别 6 张图片。".into());
+        }
+        let mut total_bytes = 0_usize;
+        for (index, image) in attachment_images.iter().enumerate() {
+            let (name, data_url, image_bytes) = validated_agent_image_data(image)?;
+            total_bytes = total_bytes.saturating_add(image_bytes);
+            if total_bytes > 20 * 1024 * 1024 {
+                return Err("本次用于识别的图片总量不能超过 20 MB。".into());
+            }
+            visual_parts.push(json!({
+                "type": "text",
+                "text": format!("用户本轮附加的图片 {}：{}", index + 1, name)
+            }));
+            visual_parts.push(json!({
+                "type": "image_url",
+                "image_url": {
+                    "url": data_url
+                }
+            }));
+        }
+    }
+
+    if !visual_parts.is_empty() {
         let last_user_message = api_messages
             .iter_mut()
             .rev()
             .find(|message| message.role == "user")
-            .ok_or_else(|| "请先输入一个关于截图的问题。".to_string())?;
+            .ok_or_else(|| "请先输入一个关于附件的问题。".to_string())?;
 
         let text = last_user_message
             .content
             .as_str()
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .unwrap_or("请分析这张桌面截图。")
+            .unwrap_or("请分析本轮附加的图片或桌面截图。")
             .to_string();
 
-        last_user_message.content = json!([
-            {
-                "type": "text",
-                "text": text
-            },
-            {
-                "type": "image_url",
-                "image_url": {
-                    "url": data_url
-                }
-            }
-        ]);
+        let mut message_parts = vec![json!({
+            "type": "text",
+            "text": text
+        })];
+        message_parts.extend(visual_parts);
+        last_user_message.content = serde_json::Value::Array(message_parts);
     }
 
     if provider == "codex" {
@@ -3820,6 +3855,35 @@ fn valid_agent_image_signature(extension: &str, bytes: &[u8]) -> bool {
     }
 }
 
+fn validated_agent_image_data(
+    image: &AgentImageInput,
+) -> Result<(String, String, usize), String> {
+    let name = agent_attachment_name(&image.name)?;
+    let extension = supported_agent_attachment_type(&name)?;
+    let expected_mime = expected_agent_image_mime(&extension)
+        .ok_or_else(|| format!("{name} 不是支持的图片格式。"))?;
+    if image.mime_type != expected_mime {
+        return Err(format!("{name} 的图片类型与扩展名不一致。"));
+    }
+    if image.data_base64.len() > 12_000_000 {
+        return Err(format!("{name} 超过图片识别大小限制（8 MB）。"));
+    }
+    let bytes = STANDARD
+        .decode(image.data_base64.as_bytes())
+        .map_err(|_| format!("{name} 的图片数据已损坏。"))?;
+    if bytes.len() > 8 * 1024 * 1024 {
+        return Err(format!("{name} 超过图片识别大小限制（8 MB）。"));
+    }
+    if !valid_agent_image_signature(&extension, &bytes) {
+        return Err(format!("{name} 的实际内容不是有效的图片。"));
+    }
+    Ok((
+        name,
+        format!("data:{expected_mime};base64,{}", image.data_base64),
+        bytes.len(),
+    ))
+}
+
 #[tauri::command]
 async fn analyze_agent_images(request: AgentImageAnalysisRequest) -> Result<String, String> {
     if request.provider != "gemini" {
@@ -3838,26 +3902,8 @@ async fn analyze_agent_images(request: AgentImageAnalysisRequest) -> Result<Stri
     })];
     let mut total_bytes = 0_usize;
     for (index, image) in request.images.iter().enumerate() {
-        let name = agent_attachment_name(&image.name)?;
-        let extension = supported_agent_attachment_type(&name)?;
-        let expected_mime = expected_agent_image_mime(&extension)
-            .ok_or_else(|| format!("{name} 不是支持的图片格式。"))?;
-        if image.mime_type != expected_mime {
-            return Err(format!("{name} 的图片类型与扩展名不一致。"));
-        }
-        if image.data_base64.len() > 12_000_000 {
-            return Err(format!("{name} 超过图片识别大小限制（8 MB）。"));
-        }
-        let bytes = STANDARD
-            .decode(image.data_base64.as_bytes())
-            .map_err(|_| format!("{name} 的图片数据已损坏。"))?;
-        if bytes.len() > 8 * 1024 * 1024 {
-            return Err(format!("{name} 超过图片识别大小限制（8 MB）。"));
-        }
-        if !valid_agent_image_signature(&extension, &bytes) {
-            return Err(format!("{name} 的实际内容不是有效的图片。"));
-        }
-        total_bytes = total_bytes.saturating_add(bytes.len());
+        let (name, data_url, image_bytes) = validated_agent_image_data(image)?;
+        total_bytes = total_bytes.saturating_add(image_bytes);
         if total_bytes > 20 * 1024 * 1024 {
             return Err("本次用于识别的图片总量不能超过 20 MB。".into());
         }
@@ -3868,7 +3914,7 @@ async fn analyze_agent_images(request: AgentImageAnalysisRequest) -> Result<Stri
         parts.push(json!({
             "type": "image_url",
             "image_url": {
-                "url": format!("data:{expected_mime};base64,{}", image.data_base64)
+                "url": data_url
             }
         }));
     }

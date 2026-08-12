@@ -7,12 +7,13 @@ const assert = (condition, message) => {
   if (!condition) throw new Error(message);
 };
 
-for (const file of ["src/agent.js", "src/chat.js", "src/workbench.js", "src/kardii-dialog.js"]) {
+for (const file of ["src/agent.js", "src/chat.js", "src/workbench.js", "src/kardii-dialog.js", "src/kardii-task-title.js"]) {
   execFileSync(process.execPath, ["--check", new URL(`../${file}`, import.meta.url).pathname], { stdio: "pipe" });
 }
 
 const agentHtml = read("src/agent.html");
 const agentJs = read("src/agent.js");
+const taskTitleJs = read("src/kardii-task-title.js");
 const rust = read("src-tauri/src/lib.rs");
 const config = JSON.parse(read("src-tauri/tauri.conf.json"));
 const capability = JSON.parse(read("src-tauri/capabilities/default.json"));
@@ -125,6 +126,14 @@ const runtimeContext = vm.createContext({
   setInterval: () => 1,
   clearTimeout() {},
 });
+vm.runInContext(taskTitleJs, runtimeContext);
+const summarizedTitle = vm.runInContext(`window.summarizeAgentTaskTitle(
+  "今天做合规的Daria过来找我聊了之前关于入驻target需要的美国独立商用地址的服务协议分付款事宜，然后协议上还有一些"
+)`, runtimeContext);
+assert(
+  summarizedTitle.includes("Target 入驻") && summarizedTitle.includes("付款事宜") && !summarizedTitle.includes("Daria") && [...summarizedTitle].length <= 35,
+  `Agent task title was not summarized: ${summarizedTitle}`,
+);
 vm.runInContext(agentJs, runtimeContext);
 const createdTaskId = vm.runInContext('createTask("整理一份旅行清单", 7).id', runtimeContext);
 const storedTasks = JSON.parse(localStorage.getItem("kardii-agent-tasks-v1"));

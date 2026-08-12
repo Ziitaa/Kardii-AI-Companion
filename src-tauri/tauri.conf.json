@@ -38,6 +38,7 @@
         "fullscreen": false,
         "decorations": false,
         "transparent": true,
+        "dragDropEnabled": false,
         "alwaysOnTop": false,
         "skipTaskbar": true,
         "shadow": true,

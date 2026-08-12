@@ -473,10 +473,11 @@ function matchedSkill(goal) {
 
 function normalizeTask(value) {
   const status = Object.hasOwn(STATUS_LABELS, value?.status) ? value.status : "draft";
+  const goal = String(value?.goal || "").slice(0, 4_000);
   return {
     id: String(value?.id || crypto.randomUUID()),
-    goal: String(value?.goal || "").slice(0, 4_000),
-    title: String(value?.title || "Agent 任务").slice(0, 120),
+    goal,
+    title: window.summarizeAgentTaskTitle(value?.title || goal || "Agent 任务"),
     summary: String(value?.summary || "").slice(0, 800),
     status,
     plan: Array.isArray(value?.plan) ? value.plan.slice(0, 8).map((step) => ({
@@ -934,7 +935,7 @@ function createTask(goal, maxSteps = 12, requestedSkillId = "") {
   const task = normalizeTask({
     id: crypto.randomUUID(),
     goal: cleanGoal,
-    title: clipText(cleanGoal.replace(/\s+/g, " "), 60),
+    title: window.summarizeAgentTaskTitle(cleanGoal),
     status: "draft",
     maxSteps,
     skillId: selectedSkill?.id || "",
@@ -1017,7 +1018,7 @@ async function planTask(taskId) {
       },
     });
     task.aiCalls += 1;
-    task.title = result.title || task.title;
+    task.title = window.summarizeAgentTaskTitle(result.title || task.title);
     task.summary = result.summary || "";
     task.plan = (Array.isArray(result.steps) ? result.steps : []).map((step) => ({ ...step, status: "pending" }));
     task.requestedPermissions = (Array.isArray(result.permissions) ? result.permissions : []).filter((tool) => PERMISSION_TOOLS.has(tool));

@@ -19,11 +19,13 @@ const html = read("src/workbench.html");
 const js = read("src/workbench.js");
 const chatJs = read("src/chat.js");
 const chatHtml = read("src/chat.html");
+const chatCss = read("src/chat.css");
 const agentHtml = read("src/agent.html");
 const agentJs = read("src/agent.js");
 const agentCss = read("src/agent.css");
 const dialogJs = read("src/kardii-dialog.js");
 const dialogCss = read("src/kardii-dialog.css");
+const taskTitleJs = read("src/kardii-task-title.js");
 
 for (const version of [packageJson.version, packageLock.version, packageLock.packages[""].version, tauriConfig.version]) {
   assert(version === "1.4.0", `v1.4 版本号未统一: ${version}`);
@@ -105,9 +107,26 @@ const mainWindow = tauriConfig.app.windows.find((window) => window.label === "ma
 const chatWindow = tauriConfig.app.windows.find((window) => window.label === "chat");
 assert(mainWindow?.alwaysOnTop === true, "桌宠本体应继续保持置顶");
 assert(chatWindow?.alwaysOnTop === false, "聊天框仍然强制置顶并遮挡其他窗口");
+assert(chatWindow?.dragDropEnabled === false, "聊天窗口未启用 HTML5 文件拖入");
+
+for (const id of ["chatAttachmentTray", "chatAttachmentList", "chatAttachmentInput", "addChatAttachmentButton"]) {
+  assert(chatHtml.includes(`id="${id}"`), `普通聊天附件控件缺失: ${id}`);
+  assert(chatJs.includes(`getElementById("${id}")`), `普通聊天附件控件未绑定: ${id}`);
+}
+assert(chatJs.includes('input.addEventListener("paste"') && chatJs.includes('chatCard.addEventListener("drop"'), "普通聊天附件粘贴或拖入缺失");
+assert(chatJs.includes('invoke("prepare_agent_attachment"') && chatJs.includes("attachmentImages"), "普通聊天附件没有传给后端或聊天模型");
+assert(chatCss.includes(".chat-attachment-item") && chatCss.includes(".dragging-files::after"), "普通聊天附件预览或拖入样式缺失");
+assert(rust.includes("attachment_images: Option<Vec<AgentImageInput>>") && rust.includes("validated_agent_image_data(image)?"), "普通聊天图片没有经过后端校验后传给 Gemini");
 
 assert(chatJs.includes("function shouldAutoRouteToAgent(") && chatJs.includes("function buildAgentTaskGoal("), "聊天到 Agent 的智能衔接缺失");
 assert(chatHtml.includes('id="autoAgentHandoffToggle"'), "自动衔接 Agent 开关缺失");
+assert(chatHtml.includes('src="./kardii-task-title.js"') && agentHtml.includes('src="./kardii-task-title.js"'), "聊天或 Agent 页面没有加载任务标题摘要器");
+const titleContext = vm.createContext({ window: {} });
+vm.runInContext(taskTitleJs, titleContext);
+const summarizedTitle = vm.runInContext(`window.summarizeAgentTaskTitle(
+  "今天做合规的Daria过来找我聊了之前关于入驻target需要的美国独立商用地址的服务协议分付款事宜，然后协议上还有一些"
+)`, titleContext);
+assert(summarizedTitle.includes("Target 入驻") && !summarizedTitle.includes("Daria") && [...summarizedTitle].length <= 35, "Agent 任务标题没有根据用户话语生成简短摘要");
 assert((chatHtml.match(/data-current-version/g) || []).length === 3, "设置页版本标识没有统一动态更新");
 for (const staleVersion of [">v1.1<", ">v0.8.1<", ">v0.6<"]) {
   assert(!chatHtml.includes(staleVersion), `设置页仍显示旧版本标识: ${staleVersion}`);
@@ -127,6 +146,7 @@ const intentSource = chatJs.slice(
   chatJs.indexOf("async function openWorkbench"),
 );
 const intentContext = vm.createContext({});
+vm.runInContext('const CHAT_IMAGE_TYPES = new Set(["png", "jpg", "jpeg", "webp"]); const aiSettings = { provider: "gemini" };', intentContext);
 vm.runInContext(intentSource, intentContext);
 const actionableHistory = [{ role: "assistant", content: "接下来分三步：修改窗口设置、统一弹窗，然后运行测试。" }];
 intentContext.history = actionableHistory;
@@ -137,6 +157,12 @@ assert(!vm.runInContext('shouldAutoRouteToAgent("这个功能要怎么做？", h
 assert(!vm.runInContext('shouldAutoRouteToAgent("帮我写一段小红书文案", [])', intentContext), "可直接回答的内容创作被误判为电脑任务");
 const contextualGoal = vm.runInContext('buildAgentTaskGoal("继续后面的步骤吧", history, true)', intentContext);
 assert(contextualGoal.includes("此前聊天上下文") && contextualGoal.includes("修改窗口设置"), "自动衔接没有带入最近对话");
+const attachmentGoal = vm.runInContext('buildAgentTaskGoal("整理这些资料", [], false, "[聊天附件 1] 报价.csv\\n产品,价格")', intentContext);
+assert(attachmentGoal.includes("报价.csv") && attachmentGoal.includes("产品,价格"), "普通聊天附件没有带入 Agent 任务");
+const tableEvidence = vm.runInContext('chatAttachmentEvidence([{ name: "报价.csv", fileType: "csv", size: 42, content: "产品,价格\\nA,99" }], "gemini")', intentContext);
+assert(tableEvidence.includes("报价.csv") && tableEvidence.includes("A,99") && tableEvidence.includes("不可信数据"), "聊天表格没有作为受限资料传给模型");
+const imageCount = vm.runInContext('chatAttachmentImages([{ name: "产品.png", fileType: "png", dataBase64: "AAAA" }]).length', intentContext);
+assert(imageCount === 1, "Gemini 聊天图片没有进入多模态请求");
 
 const legacyStorage = new Map([["kardii-business-data-v1", JSON.stringify({
   version: 2,
