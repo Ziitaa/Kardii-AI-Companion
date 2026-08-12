@@ -2,6 +2,29 @@
 
 Kardii 是一个使用 Tauri 2 制作的跨平台透明悬浮桌宠与 AI 聊天伙伴。
 
+## v1.5 浏览器与 MCP 连接
+
+### Chrome / Edge 当前网页
+
+- 工作台“外部连接”可以启动只监听 `127.0.0.1:43198` 的本机浏览器桥接，并显示 6 位配对码
+- 安装包内附 Manifest V3 扩展；在 Chrome 或 Edge 的扩展页选择“加载已解压的扩展程序”即可安装
+- 扩展使用 `activeTab`：只有点击扩展图标时才读取当前标签页，并可优先发送用户选中的文字
+- 页面快照可交给普通聊天、建立 Agent 任务或保存到知识库；知识库会保留原网址与发送时的文字快照
+- 扩展不会持续监控，也不读取 Cookie、密码、输入框内容或其他标签页；浏览器内部页与本地文件不会发送
+- 浏览器凭据由随机 Token 保护，Windows 与 macOS 使用系统安全凭据库；撤销连接后旧扩展必须重新配对
+- Agent 的 `browser_read` 只读取用户已经主动发送的最近页面，不提供点击、输入、登录、购买或静默控制浏览器的能力
+
+### MCP Streamable HTTP
+
+- 可以保存最多 20 个 MCP Streamable HTTP 服务器，执行 `initialize` 和 `tools/list` 并显示服务器工具清单；首批兼容使用初始化会话的 2025-03-26 至 2025-11-25 协议版本
+- 远程服务器必须使用 HTTPS；明文 HTTP 只允许 `localhost`、`127.0.0.1` 或 `::1`
+- 可选 Bearer Token 只进入 Windows 凭据管理器或 macOS 钥匙串，不进入 `localStorage`、日志、JSON 备份或 GitHub
+- 工具会根据服务器 annotations 与名称显示“只读、需确认或高风险”提示，但未知工具一律按可能写入处理
+- 每次调用前都会显示服务器、工具名与 JSON 参数预览（过长时截断）并使用 Kardii 主题确认框；当前不会自动把 MCP 工具交给 Agent
+- 付款、购买、下单和资金转移类工具在 Kardii 中直接禁用，不能通过确认框放行
+- 本机日志只记录服务器名、工具名、成功状态、耗时和错误摘要，不记录 Token、完整参数或结果，可随时清空
+- MCP 返回结果与网页、文件一样属于不可信资料，不能改变 Kardii 的系统规则或授权边界
+
 ## v1.4 Google / Microsoft 只读连接
 
 - Google Workspace 使用系统浏览器 OAuth 2.0、PKCE S256、随机 `state` 与随机本机回调端口，读取最近 Gmail、Google Calendar、Drive 和 Sheets 项目

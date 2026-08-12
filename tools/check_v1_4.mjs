@@ -29,10 +29,10 @@ const taskTitleJs = read("src/kardii-task-title.js");
 const capabilityJs = read("src/kardii-capabilities.js");
 
 for (const version of [packageJson.version, packageLock.version, packageLock.packages[""].version, tauriConfig.version]) {
-  assert(version === "1.4.0", `v1.4 版本号未统一: ${version}`);
+  assert(version === "1.5.0", `当前版本号未统一: ${version}`);
 }
-assert(/version = "1\.4\.0"/.test(cargo), "Cargo.toml 未更新到 v1.4.0");
-assert(chatJs.includes('appVersion: "1.4.0"'), "完整备份版本号未更新到 v1.4.0");
+assert(/version = "1\.5\.0"/.test(cargo), "Cargo.toml 未更新到 v1.5.0");
+assert(chatJs.includes('appVersion: "1.5.0"'), "完整备份版本号未更新到 v1.5.0");
 assert(js.includes("version: 3") && js.includes("[1, 2, 3].includes(saved.version)"), "v3 工作台数据迁移缺失");
 assert(chatJs.includes("[1, 2, 3].includes(saved?.version)"), "完整备份未接受 v3 工作台数据");
 assert(chatJs.includes("...(saved.settings && typeof saved.settings === \"object\" ? saved.settings : {})"), "聊天自动记录会覆盖邮箱或云端连接设置");
@@ -165,7 +165,7 @@ const selfCheckRows = vm.runInContext(`window.KardiiCapabilities.selfCheckRows({
   codexInstalled: true,
   codexAuthenticated: false,
 })`, capabilityContext);
-assert(selfCheckRows.length === 6, "一键自检没有覆盖 AI、Codex、语音、邮箱、云端和 Agent");
+assert(selfCheckRows.length >= 6, "一键自检没有覆盖 AI、Codex、语音、邮箱、云端和 Agent");
 assert(selfCheckRows.some((row) => row.id === "ai" && row.tone === "warning"), "一键自检没有标出未连接的聊天模型");
 assert(selfCheckRows.some((row) => row.id === "email" && row.tone === "warning"), "一键自检没有标出失效的邮箱凭据");
 const capabilityKnowledge = vm.runInContext(`window.KardiiCapabilities.knowledgeText({

@@ -249,6 +249,7 @@
                 <option value="pptx">PPT</option>
                 <option value="xlsx">Excel</option>
                 <option value="image">图片</option>
+                <option value="web">网页</option>
                 <option value="text">文本 / 代码</option>
                 <option value="archived">已归档</option>
               </select>
@@ -284,10 +285,10 @@
             <div class="connections-intro">
               <div>
                 <span class="section-kicker">EXTERNAL CONNECTIONS</span>
-                <h2>把邮箱、日历与云盘变成 Kardii 的只读资料入口。</h2>
-                <p>IMAP 支持多个邮箱；Google 与 Microsoft 使用系统浏览器 OAuth。当前版本不会发送、删除、移动或标记邮件，也不会改写日历和云端文件。</p>
+                <h2>把浏览器、邮箱、日历与云盘变成 Kardii 的资料入口。</h2>
+                <p>浏览器只在你点击扩展后读取当前页。当前版本不会发送、删除、移动或标记邮件，也不会改写日历和云端文件；网页中的文字只会作为不可信资料，不会变成自动操作指令。</p>
               </div>
-              <span class="read-only-badge">只读连接</span>
+              <span class="read-only-badge">默认只读 · 写入确认</span>
             </div>
 
             <div class="connections-layout">
@@ -382,6 +383,97 @@
               </article>
             </div>
 
+            <article class="connection-card browser-connection-card">
+              <div class="connection-card-heading">
+                <div><span class="connection-icon browser-icon">◎</span><span><strong>Chrome / Edge 当前网页</strong><small id="browserConnectionSummary">连接扩展后，由你主动发送当前页</small></span></div>
+                <span id="browserConnectionBadge" class="connection-state disconnected">未启动</span>
+              </div>
+              <div class="browser-connection-layout">
+                <section class="browser-pairing-panel">
+                  <span class="browser-panel-label">本机安全配对</span>
+                  <div class="browser-pairing-code-row">
+                    <code id="browserPairingCode">------</code>
+                    <button id="copyBrowserPairingButton" class="outline-button" type="button">复制配对码</button>
+                  </div>
+                  <ol class="browser-install-steps">
+                    <li>启动连接并点击“打开扩展文件夹”。</li>
+                    <li>在 Chrome / Edge 扩展页开启开发者模式，加载这个文件夹。</li>
+                    <li>点击扩展图标，输入上面的 6 位配对码，再发送当前网页。</li>
+                  </ol>
+                  <div class="connection-actions browser-primary-actions">
+                    <button id="stopBrowserBridgeButton" class="delete-action" type="button">停止</button>
+                    <span class="modal-action-spacer"></span>
+                    <button id="openBrowserExtensionButton" class="outline-button" type="button">打开扩展文件夹</button>
+                    <button id="startBrowserBridgeButton" class="primary-button" type="button">启动连接</button>
+                  </div>
+                  <div class="connection-maintenance-actions">
+                    <button id="regenerateBrowserPairingButton" class="ghost-action" type="button">撤销旧扩展并生成新配对码</button>
+                    <button id="refreshBrowserButton" class="ghost-action" type="button">刷新状态</button>
+                  </div>
+                </section>
+                <section class="browser-page-panel">
+                  <div id="browserPagePreview" class="browser-page-preview empty">
+                    <span class="browser-panel-label">最近收到的网页</span>
+                    <strong id="browserPageTitle">等待你从扩展发送网页</strong>
+                    <a id="browserPageUrl" tabindex="-1"></a>
+                    <p id="browserPageMeta">不会持续监控，也不会读取 Cookie、密码、表单内容或其他标签页。</p>
+                  </div>
+                  <div class="browser-page-actions">
+                    <button id="clearBrowserPageButton" class="delete-action" type="button" disabled>清除</button>
+                    <span class="modal-action-spacer"></span>
+                    <button id="saveBrowserPageButton" class="outline-button" type="button" disabled>保存到知识库</button>
+                    <button id="sendBrowserPageToAgentButton" class="outline-button" type="button" disabled>交给 Agent</button>
+                    <button id="sendBrowserPageToChatButton" class="primary-button" type="button" disabled>发给聊天</button>
+                  </div>
+                </section>
+              </div>
+              <p id="browserConnectionStatus" class="connection-status">连接只监听本机 127.0.0.1，并使用一次配对产生的随机凭据。</p>
+            </article>
+
+            <article class="connection-card mcp-connection-card">
+              <div class="connection-card-heading">
+                <div><span class="connection-icon mcp-icon">⌘</span><span><strong>MCP 工具服务器 · HTTP</strong><small id="mcpConnectionSummary">添加支持 Streamable HTTP 的 MCP 服务器</small></span></div>
+                <span id="mcpConnectionBadge" class="connection-state disconnected">未连接</span>
+              </div>
+              <div class="mcp-connection-layout">
+                <section class="mcp-config-panel">
+                  <div class="connection-account-toolbar">
+                    <select id="mcpServerSelect" aria-label="选择 MCP 服务器"></select>
+                    <button id="newMcpServerButton" class="outline-button" type="button">＋ 添加服务器</button>
+                  </div>
+                  <form id="mcpConnectionForm" class="connection-form">
+                    <label class="form-field full"><span>连接名称</span><input id="mcpNameInput" type="text" maxlength="80" placeholder="例如：本机资料工具"></label>
+                    <label class="form-field full"><span>Streamable HTTP 地址</span><input id="mcpUrlInput" type="url" maxlength="2000" spellcheck="false" placeholder="http://127.0.0.1:3000/mcp 或 https://…"></label>
+                    <label class="form-field full"><span>Bearer Token（没有可留空）</span><input id="mcpTokenInput" type="password" maxlength="8192" autocomplete="new-password" placeholder="只保存到系统安全凭据库"></label>
+                    <p class="connection-help full">远程服务器必须使用 HTTPS；HTTP 只允许本机回环地址。Kardii 不会把 Token 写进设置、日志或备份。</p>
+                    <div class="connection-actions full">
+                      <button id="removeMcpServerButton" class="delete-action" type="button">移除</button>
+                      <span class="modal-action-spacer"></span>
+                      <button id="testMcpButton" class="outline-button" type="button">测试并读取工具</button>
+                      <button id="saveMcpButton" class="primary-button" type="submit">保存连接</button>
+                    </div>
+                    <div class="connection-maintenance-actions full">
+                      <button id="clearMcpTokenButton" class="ghost-action danger" type="button">删除系统凭据中的 Token</button>
+                      <span>连接设置与凭据分开保存</span>
+                    </div>
+                    <p id="mcpConnectionStatus" class="connection-status full">工具不会自动交给 Agent；当前先在这里逐次检查参数并确认调用。</p>
+                  </form>
+                </section>
+                <section class="mcp-tool-panel">
+                  <div class="mcp-tool-heading">
+                    <div><span class="browser-panel-label">服务器工具</span><strong id="mcpToolCount">尚未读取工具清单</strong></div>
+                    <button id="clearMcpLogsButton" class="ghost-action" type="button">清空日志</button>
+                  </div>
+                  <select id="mcpToolSelect" aria-label="选择 MCP 工具" disabled><option value="">请先测试连接</option></select>
+                  <p id="mcpToolDescription" class="mcp-tool-description">未知工具一律按可能写入处理；每次调用都需要你确认。</p>
+                  <label class="mcp-arguments-field"><span>工具参数 · JSON 对象</span><textarea id="mcpArgumentsInput" rows="4" maxlength="100000" spellcheck="false">{}</textarea></label>
+                  <button id="callMcpToolButton" class="primary-button" type="button" disabled>检查参数并调用</button>
+                  <pre id="mcpToolOutput" class="mcp-tool-output">工具结果会显示在这里。</pre>
+                  <div id="mcpExecutionLog" class="mcp-execution-log"></div>
+                </section>
+              </div>
+            </article>
+
             <div class="cloud-connections-grid">
               <article class="connection-card cloud-connection-card" data-cloud-provider="google">
                 <div class="connection-card-heading">
@@ -437,7 +529,7 @@
             <div class="future-connections-grid">
               <article><span>数据权限</span><strong>默认只读</strong><p>连接仅列出最近项目，不会批量上传企业文件。</p></article>
               <article><span>内部整理</span><strong>人工确认</strong><p>选择资料后再归档到关系、项目和知识库。</p></article>
-              <article><span>对外发送</span><strong>保持关闭</strong><p>当前版本没有发送邮件、修改日历或写入云盘的能力。</p></article>
+              <article><span>MCP 工具连接</span><strong>逐次确认</strong><p>可连接 Streamable HTTP 服务器，读取工具清单并保留本机调用日志。</p></article>
             </div>
           </section>
         </div>

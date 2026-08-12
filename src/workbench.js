@@ -6,6 +6,9 @@ const BUSINESS_DATA_KEY = "kardii-business-data-v1";
 const WORKBENCH_TARGET_KEY = "kardii-workbench-open-target-v1";
 const AI_SETTINGS_KEY = "kardii-ai-settings-v1";
 const CHAT_HISTORY_KEY = "kardii-chat-history-v1";
+const BROWSER_CONTEXT_KEY = "kardii-browser-context-v1";
+const BROWSER_AGENT_REQUEST_KEY = "kardii-browser-agent-request-v1";
+const MCP_LOGS_KEY = "kardii-mcp-logs-v1";
 const STAGES = {
   lead: "潜在线索",
   contacted: "已联系",
@@ -85,6 +88,9 @@ const seedData = {
     emailAccounts: [],
     activeEmailAccountId: "",
     cloudConnections: {},
+    browserBridgeEnabled: false,
+    mcpServers: [],
+    activeMcpServerId: "",
   },
   customers: [],
   contacts: [],
@@ -116,6 +122,13 @@ let emailCredentialPresent = null;
 const emailCredentialStatuses = new Map();
 const cloudCredentialStatuses = new Map();
 let editingEmailAccountId = "";
+let browserBridgeStatus = null;
+let latestBrowserCapture = null;
+let browserPollTimer = 0;
+let editingMcpServerId = "";
+let activeMcpTools = [];
+let mcpLogs = loadMcpLogs();
+const mcpCredentialStatuses = new Map();
 
 const navItems = [...document.querySelectorAll(".nav-item")];
 const viewPanels = [...document.querySelectorAll("[data-view-panel]")];
@@ -233,6 +246,45 @@ const cloudProviderFilter = document.getElementById("cloudProviderFilter");
 const cloudServiceFilter = document.getElementById("cloudServiceFilter");
 const cloudOverviewSummary = document.getElementById("cloudOverviewSummary");
 const cloudOverviewList = document.getElementById("cloudOverviewList");
+const browserConnectionSummary = document.getElementById("browserConnectionSummary");
+const browserConnectionBadge = document.getElementById("browserConnectionBadge");
+const browserConnectionStatus = document.getElementById("browserConnectionStatus");
+const browserPairingCode = document.getElementById("browserPairingCode");
+const copyBrowserPairingButton = document.getElementById("copyBrowserPairingButton");
+const startBrowserBridgeButton = document.getElementById("startBrowserBridgeButton");
+const stopBrowserBridgeButton = document.getElementById("stopBrowserBridgeButton");
+const openBrowserExtensionButton = document.getElementById("openBrowserExtensionButton");
+const regenerateBrowserPairingButton = document.getElementById("regenerateBrowserPairingButton");
+const refreshBrowserButton = document.getElementById("refreshBrowserButton");
+const browserPagePreview = document.getElementById("browserPagePreview");
+const browserPageTitle = document.getElementById("browserPageTitle");
+const browserPageUrl = document.getElementById("browserPageUrl");
+const browserPageMeta = document.getElementById("browserPageMeta");
+const sendBrowserPageToChatButton = document.getElementById("sendBrowserPageToChatButton");
+const sendBrowserPageToAgentButton = document.getElementById("sendBrowserPageToAgentButton");
+const saveBrowserPageButton = document.getElementById("saveBrowserPageButton");
+const clearBrowserPageButton = document.getElementById("clearBrowserPageButton");
+const mcpConnectionSummary = document.getElementById("mcpConnectionSummary");
+const mcpConnectionBadge = document.getElementById("mcpConnectionBadge");
+const mcpConnectionStatus = document.getElementById("mcpConnectionStatus");
+const mcpConnectionForm = document.getElementById("mcpConnectionForm");
+const mcpServerSelect = document.getElementById("mcpServerSelect");
+const newMcpServerButton = document.getElementById("newMcpServerButton");
+const removeMcpServerButton = document.getElementById("removeMcpServerButton");
+const clearMcpTokenButton = document.getElementById("clearMcpTokenButton");
+const mcpNameInput = document.getElementById("mcpNameInput");
+const mcpUrlInput = document.getElementById("mcpUrlInput");
+const mcpTokenInput = document.getElementById("mcpTokenInput");
+const saveMcpButton = document.getElementById("saveMcpButton");
+const testMcpButton = document.getElementById("testMcpButton");
+const mcpToolCount = document.getElementById("mcpToolCount");
+const mcpToolSelect = document.getElementById("mcpToolSelect");
+const mcpToolDescription = document.getElementById("mcpToolDescription");
+const mcpArgumentsInput = document.getElementById("mcpArgumentsInput");
+const callMcpToolButton = document.getElementById("callMcpToolButton");
+const mcpToolOutput = document.getElementById("mcpToolOutput");
+const mcpExecutionLog = document.getElementById("mcpExecutionLog");
+const clearMcpLogsButton = document.getElementById("clearMcpLogsButton");
 
 function dateInputValue(date) {
   const value = new Date(date);
@@ -281,6 +333,49 @@ function normalizeCloudConnection(value, provider) {
     lastError: String(value.lastError || "").slice(0, 1000),
     services: Array.isArray(value.services) ? value.services.slice(0, 10) : [],
   };
+}
+
+function normalizeMcpServer(value, fallbackId = "mcp-primary") {
+  if (!value || typeof value !== "object") return null;
+  const serverId = String(value.serverId || fallbackId).trim();
+  if (!/^[a-zA-Z0-9_-]{1,48}$/.test(serverId)) return null;
+  const tools = Array.isArray(value.tools) ? value.tools.slice(0, 200).filter((tool) => tool && typeof tool === "object" && tool.name).map((tool) => ({
+    name: String(tool.name).slice(0, 200),
+    description: String(tool.description || "").slice(0, 2_000),
+    inputSchema: tool.inputSchema && typeof tool.inputSchema === "object" ? tool.inputSchema : { type: "object" },
+    readOnlyHint: tool.readOnlyHint === true,
+    destructiveHint: tool.destructiveHint === true,
+  })) : [];
+  return {
+    serverId,
+    name: String(value.name || "MCP 工具服务器").slice(0, 80),
+    url: String(value.url || "").slice(0, 2_000),
+    protocolVersion: String(value.protocolVersion || "").slice(0, 80),
+    serverName: String(value.serverName || "").slice(0, 200),
+    serverVersion: String(value.serverVersion || "").slice(0, 100),
+    tools,
+    lastTestAt: String(value.lastTestAt || ""),
+    lastError: String(value.lastError || "").slice(0, 1_000),
+  };
+}
+
+function loadMcpLogs() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(MCP_LOGS_KEY) || "[]");
+    if (!Array.isArray(saved)) return [];
+    return saved.slice(0, 100).map((log) => ({
+      id: String(log.id || crypto.randomUUID()),
+      serverId: String(log.serverId || ""),
+      serverName: String(log.serverName || "").slice(0, 80),
+      toolName: String(log.toolName || "").slice(0, 200),
+      success: log.success === true,
+      durationMs: Math.max(0, Number(log.durationMs) || 0),
+      error: String(log.error || "").slice(0, 500),
+      createdAt: String(log.createdAt || new Date().toISOString()),
+    }));
+  } catch {
+    return [];
+  }
 }
 
 function loadData() {
@@ -351,6 +446,14 @@ function loadData() {
       const connection = normalizeCloudConnection(saved.settings?.cloudConnections?.[provider], provider);
       if (connection) cloudConnections[provider] = connection;
     }
+    const mcpServers = (Array.isArray(saved.settings?.mcpServers) ? saved.settings.mcpServers : [])
+      .map((server, index) => normalizeMcpServer(server, `mcp-${index + 1}`))
+      .filter(Boolean)
+      .filter((server, index, servers) => servers.findIndex((item) => item.serverId === server.serverId) === index)
+      .slice(0, 20);
+    const activeMcpServerId = mcpServers.some((server) => server.serverId === saved.settings?.activeMcpServerId)
+      ? saved.settings.activeMcpServerId
+      : mcpServers[0]?.serverId || "";
     const normalized = {
       version: 3,
       settings: {
@@ -358,6 +461,9 @@ function loadData() {
         emailAccounts,
         activeEmailAccountId,
         cloudConnections,
+        browserBridgeEnabled: saved.settings?.browserBridgeEnabled === true,
+        mcpServers,
+        activeMcpServerId,
       },
       customers,
       contacts,
@@ -811,6 +917,7 @@ function formatFileSize(size) {
 
 function knowledgeTypeGroup(fileType) {
   if (["png", "jpg", "jpeg", "webp"].includes(fileType)) return "image";
+  if (fileType === "web") return "web";
   return KNOWLEDGE_TEXT_TYPES.has(fileType) ? "text" : fileType;
 }
 
@@ -1005,13 +1112,542 @@ function renderCloudConnections() {
   `).join("") || emptyMarkup("还没有云端概览。连接账号后点击“同步概览”。", "所有连接默认只读");
 }
 
+function setBrowserConnectionStatus(message, kind = "") {
+  browserConnectionStatus.textContent = message;
+  browserConnectionStatus.className = `connection-status${kind ? ` ${kind}` : ""}`;
+}
+
+function browserCaptureText(capture = latestBrowserCapture) {
+  if (!capture) return "";
+  return String(capture.selectedText || capture.content || "").trim();
+}
+
+function renderBrowserConnection() {
+  const status = browserBridgeStatus;
+  const running = status?.running === true;
+  const paired = running && status?.paired === true;
+  const pairingLocked = Number(status?.pairingLockedUntil || 0) * 1_000 > Date.now();
+  browserConnectionBadge.textContent = !status ? "检查中" : paired ? "已配对" : pairingLocked ? "暂时锁定" : running ? "等待配对" : "未启动";
+  browserConnectionBadge.className = `connection-state ${!status ? "testing" : paired ? "connected" : running ? "testing" : "disconnected"}`;
+  browserConnectionSummary.textContent = paired
+    ? `扩展已配对${status.lastSeenAt ? ` · 最近连接 ${new Date(status.lastSeenAt * 1_000).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}` : ""}`
+    : pairingLocked ? "错误尝试过多，请一分钟后使用新的配对码" : running ? "本机连接已启动，等待扩展配对" : "连接扩展后，由你主动发送当前页";
+  browserPairingCode.textContent = paired ? "••••••" : running ? String(status.pairingCode || "------") : "------";
+  copyBrowserPairingButton.disabled = !running || paired || pairingLocked;
+  startBrowserBridgeButton.disabled = running;
+  stopBrowserBridgeButton.disabled = !running;
+  regenerateBrowserPairingButton.disabled = !running;
+
+  const capture = latestBrowserCapture;
+  const hasCapture = Boolean(capture?.id && browserCaptureText(capture));
+  browserPagePreview.classList.toggle("empty", !hasCapture);
+  browserPageTitle.textContent = hasCapture ? capture.title || "未命名网页" : "等待你从扩展发送网页";
+  browserPageUrl.textContent = hasCapture ? capture.url || "" : "";
+  browserPageUrl.href = hasCapture ? capture.url || "" : "";
+  if (hasCapture) {
+    const selected = String(capture.selectedText || "").trim();
+    const count = browserCaptureText(capture).length.toLocaleString("zh-CN");
+    const received = capture.receivedAt
+      ? new Date(capture.receivedAt * 1_000).toLocaleString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+      : "刚刚";
+    browserPageMeta.textContent = `${selected ? "已优先采用选中文字" : "已提取页面正文"} · ${count} 字 · ${received}${capture.description ? `\n${capture.description}` : ""}`;
+  } else {
+    browserPageMeta.textContent = "不会持续监控，也不会读取 Cookie、密码、表单内容或其他标签页。";
+  }
+  [sendBrowserPageToChatButton, sendBrowserPageToAgentButton, saveBrowserPageButton, clearBrowserPageButton]
+    .forEach((button) => { button.disabled = !hasCapture; });
+}
+
+async function refreshBrowserConnection({ start = false, quiet = false } = {}) {
+  refreshBrowserButton.disabled = true;
+  try {
+    browserBridgeStatus = start
+      ? await invoke("start_browser_bridge")
+      : await invoke("browser_bridge_status");
+    if (browserBridgeStatus.latestCaptureId) {
+      if (latestBrowserCapture?.id !== browserBridgeStatus.latestCaptureId) {
+        latestBrowserCapture = await invoke("get_browser_capture");
+        if (!quiet && latestBrowserCapture) setBrowserConnectionStatus(`已收到网页“${latestBrowserCapture.title || "未命名网页"}”。`, "success");
+      }
+    } else {
+      latestBrowserCapture = null;
+    }
+    if (!quiet && !latestBrowserCapture) {
+      setBrowserConnectionStatus(
+        browserBridgeStatus.running
+          ? "连接已启动。安装扩展、输入配对码，然后在浏览器中主动发送当前页。"
+          : "连接只监听本机 127.0.0.1，并使用一次配对产生的随机凭据。",
+        browserBridgeStatus.running ? "success" : "",
+      );
+    }
+  } catch (error) {
+    browserBridgeStatus = { running: false, paired: false };
+    setBrowserConnectionStatus(String(error), "error");
+  } finally {
+    refreshBrowserButton.disabled = false;
+    renderConnections();
+  }
+}
+
+async function startBrowserConnection() {
+  startBrowserBridgeButton.disabled = true;
+  setBrowserConnectionStatus("正在启动本机浏览器连接…");
+  await refreshBrowserConnection({ start: true });
+  if (browserBridgeStatus?.running) {
+    data.settings.browserBridgeEnabled = true;
+    saveData();
+  }
+}
+
+async function stopBrowserConnection() {
+  stopBrowserBridgeButton.disabled = true;
+  try {
+    browserBridgeStatus = await invoke("stop_browser_bridge");
+    data.settings.browserBridgeEnabled = false;
+    saveData();
+    setBrowserConnectionStatus("浏览器连接已停止。扩展无法再向 Kardii 发送网页。", "success");
+  } catch (error) {
+    setBrowserConnectionStatus(String(error), "error");
+  } finally {
+    renderConnections();
+  }
+}
+
+async function copyBrowserPairingCode() {
+  const code = String(browserBridgeStatus?.pairingCode || "");
+  if (!/^\d{6}$/.test(code)) return;
+  try {
+    await invoke("write_clipboard_text", { text: code });
+    setBrowserConnectionStatus("配对码已复制。打开浏览器扩展后粘贴即可。", "success");
+  } catch (error) {
+    setBrowserConnectionStatus(String(error), "error");
+  }
+}
+
+async function openBrowserExtensionFolder() {
+  openBrowserExtensionButton.disabled = true;
+  try {
+    await invoke("open_browser_extension_folder");
+    setBrowserConnectionStatus("扩展文件夹已打开。请在 Chrome / Edge 的扩展页选择“加载已解压的扩展程序”。", "success");
+  } catch (error) {
+    setBrowserConnectionStatus(String(error), "error");
+  } finally {
+    openBrowserExtensionButton.disabled = false;
+  }
+}
+
+async function regenerateBrowserPairingCode() {
+  const confirmed = await window.kardiiConfirm({
+    title: "撤销已配对的浏览器扩展？",
+    message: "旧扩展会立即失效。你需要使用新的 6 位配对码重新连接。",
+    confirmLabel: "撤销并重新生成",
+    tone: "danger",
+  });
+  if (!confirmed) return;
+  try {
+    browserBridgeStatus = await invoke("regenerate_browser_pairing");
+    setBrowserConnectionStatus("旧连接已撤销。请用新的配对码重新连接扩展。", "success");
+  } catch (error) {
+    setBrowserConnectionStatus(String(error), "error");
+  }
+  renderConnections();
+}
+
+async function sendBrowserPageToChat() {
+  if (!latestBrowserCapture) return;
+  try {
+    localStorage.setItem(BROWSER_CONTEXT_KEY, JSON.stringify(latestBrowserCapture));
+    await openChat();
+    setBrowserConnectionStatus("网页已准备到聊天框。输入问题后，它才会随本轮问题交给当前 AI。", "success");
+  } catch (error) {
+    setBrowserConnectionStatus(`无法把网页交给聊天：${String(error)}`, "error");
+  }
+}
+
+async function openAgent() {
+  const agentWindow = (await getAllWindows()).find((item) => item.label === "agent");
+  if (!agentWindow) throw new Error("没有找到 Kardii Agent 窗口。");
+  await agentWindow.show();
+  await agentWindow.unminimize();
+  await agentWindow.setFocus();
+}
+
+async function sendBrowserPageToAgent() {
+  if (!latestBrowserCapture) return;
+  try {
+    localStorage.setItem(BROWSER_AGENT_REQUEST_KEY, JSON.stringify({
+      captureId: latestBrowserCapture.id,
+      title: latestBrowserCapture.title,
+      url: latestBrowserCapture.url,
+      createdAt: new Date().toISOString(),
+    }));
+    await openAgent();
+    setBrowserConnectionStatus("已创建网页处理请求，Agent 会先读取这次主动发送的页面，再制定计划。", "success");
+  } catch (error) {
+    setBrowserConnectionStatus(`无法交给 Agent：${String(error)}`, "error");
+  }
+}
+
+function saveBrowserPageToKnowledge() {
+  const capture = latestBrowserCapture;
+  const content = browserCaptureText(capture);
+  if (!capture || !content) return;
+  const now = new Date().toISOString();
+  const existing = data.knowledge.find((item) => item.browserCaptureId === capture.id);
+  const draft = {
+    title: capture.title || "未命名网页",
+    fileName: capture.title || capture.url,
+    filePath: "",
+    sourcePath: capture.url,
+    storedInKardii: true,
+    fileType: "web",
+    fileSize: new Blob([content]).size,
+    content,
+    charCount: content.length,
+    pageCount: 1,
+    warning: "网页内容是发送时的本机快照，后续可能与原网页不同。",
+    status: "active",
+    tags: "网页",
+    summary: capture.description || "由 Kardii Browser Connector 主动保存的网页资料。",
+    keyPoints: "",
+    risks: "",
+    actions: "",
+    analyzedAt: "",
+    linkedCustomerId: "",
+    linkedProjectId: "",
+    reportId: "",
+    browserUrl: capture.url,
+    browserCaptureId: capture.id,
+    capturedAt: capture.capturedAt || now,
+    updatedAt: now,
+  };
+  if (existing) Object.assign(existing, draft);
+  else data.knowledge.unshift({ id: crypto.randomUUID(), ...draft, createdAt: now });
+  if (!saveData()) return;
+  navigate("knowledge");
+  showToast(existing ? "网页知识已更新" : "网页已保存到知识库");
+}
+
+async function clearBrowserPage() {
+  try {
+    browserBridgeStatus = await invoke("clear_browser_capture");
+    latestBrowserCapture = null;
+    renderConnections();
+    setBrowserConnectionStatus("Kardii 中的最近网页快照已清除；浏览器原页面没有变化。", "success");
+  } catch (error) {
+    setBrowserConnectionStatus(String(error), "error");
+  }
+}
+
+function mcpServers() {
+  return Array.isArray(data.settings?.mcpServers) ? data.settings.mcpServers : [];
+}
+
+function activeMcpServer() {
+  const serverId = editingMcpServerId || data.settings?.activeMcpServerId || "";
+  return mcpServers().find((server) => server.serverId === serverId) || null;
+}
+
+function setMcpConnectionStatus(message, kind = "") {
+  mcpConnectionStatus.textContent = message;
+  mcpConnectionStatus.className = `connection-status full${kind ? ` ${kind}` : ""}`;
+}
+
+function saveMcpLogs() {
+  mcpLogs = mcpLogs.slice(0, 100);
+  localStorage.setItem(MCP_LOGS_KEY, JSON.stringify(mcpLogs));
+  renderMcpLogs();
+}
+
+function addMcpLog({ server, toolName, success, durationMs = 0, error = "" }) {
+  mcpLogs.unshift({
+    id: crypto.randomUUID(),
+    serverId: server?.serverId || "",
+    serverName: server?.name || "MCP",
+    toolName: String(toolName || "未知工具"),
+    success: success === true,
+    durationMs: Math.max(0, Number(durationMs) || 0),
+    error: String(error || "").slice(0, 500),
+    createdAt: new Date().toISOString(),
+  });
+  saveMcpLogs();
+}
+
+function renderMcpLogs() {
+  const server = activeMcpServer();
+  const logs = mcpLogs.filter((log) => !server || log.serverId === server.serverId).slice(0, 12);
+  mcpExecutionLog.innerHTML = logs.map((log) => `
+    <div class="mcp-log-item ${log.success ? "" : "error"}" title="${escapeHtml(log.error || "")}">
+      <span>${log.success ? "成功" : "失败"}</span>
+      <strong>${escapeHtml(log.toolName)}</strong>
+      <time>${escapeHtml(new Date(log.createdAt).toLocaleString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }))}${log.durationMs ? ` · ${log.durationMs}ms` : ""}</time>
+    </div>
+  `).join("") || '<div class="mcp-log-item"><span>—</span><strong>还没有工具调用记录</strong><time>仅保存在本机</time></div>';
+}
+
+function mcpToolRisk(tool) {
+  if (!tool) return "unknown";
+  const text = `${tool.name || ""} ${tool.description || ""}`;
+  if (/(?:^|[^a-z0-9])(?:purchase|payment|pay|checkout|place[_ -]?order|buy|transfer[_ -]?(?:funds?|money)|wire[_ -]?transfer|withdraw)(?:$|[^a-z0-9])|支付|购买|付款|转账|汇款|下单/i.test(text)) return "blocked";
+  if (tool.destructiveHint || /(?:^|[^a-z0-9])(?:delete|remove|erase|destroy|drop|truncate|revoke)(?:$|[^a-z0-9])|删除|撤销|销毁|清空/i.test(text)) return "destructive";
+  if (tool.readOnlyHint) return "read";
+  return "write";
+}
+
+function renderMcpToolDetails() {
+  const tool = activeMcpTools.find((item) => item.name === mcpToolSelect.value) || null;
+  const risk = mcpToolRisk(tool);
+  callMcpToolButton.disabled = !tool || !activeMcpServer() || risk === "blocked";
+  if (!tool) {
+    mcpToolDescription.textContent = "未知工具一律按可能写入处理；每次调用都需要你确认。";
+    return;
+  }
+  const label = risk === "read"
+    ? "服务器标记为只读"
+    : risk === "blocked"
+      ? "付款、购买或资金转移类工具已在 Kardii 中禁用"
+      : risk === "destructive" ? "可能删除或产生不可逆影响" : "未证明只读，按可能写入处理";
+  mcpToolDescription.textContent = `${label} · ${tool.description || "服务器没有提供工具说明"}`;
+}
+
+function renderMcpConnection() {
+  const servers = mcpServers();
+  const server = activeMcpServer();
+  const isNew = editingMcpServerId && !servers.some((item) => item.serverId === editingMcpServerId);
+  mcpServerSelect.innerHTML = [
+    ...servers.map((item) => `<option value="${escapeHtml(item.serverId)}">${escapeHtml(item.name || item.serverName || "MCP 服务器")}</option>`),
+    ...(isNew ? [`<option value="${escapeHtml(editingMcpServerId)}">新 MCP 服务器（尚未保存）</option>`] : []),
+  ].join("") || '<option value="">尚未添加 MCP 服务器</option>';
+  mcpServerSelect.value = editingMcpServerId || data.settings.activeMcpServerId || "";
+  const healthy = Boolean(server?.lastTestAt && !server.lastError);
+  mcpConnectionBadge.textContent = healthy ? "已验证" : server?.lastError ? "需检查" : server ? "未测试" : "未连接";
+  mcpConnectionBadge.className = `connection-state ${healthy ? "connected" : server?.lastError ? "testing" : "disconnected"}`;
+  mcpConnectionSummary.textContent = healthy
+    ? `${server.serverName || server.name} ${server.serverVersion || ""} · ${server.tools.length} 个工具`
+    : server ? server.url || "等待填写地址" : "添加支持 Streamable HTTP 的 MCP 服务器";
+  removeMcpServerButton.disabled = !server;
+  clearMcpTokenButton.disabled = !server || mcpCredentialStatuses.get(server.serverId) !== true;
+
+  activeMcpTools = Array.isArray(server?.tools) ? server.tools : [];
+  const selectedTool = mcpToolSelect.value;
+  mcpToolSelect.innerHTML = activeMcpTools.length
+    ? activeMcpTools.map((tool) => `<option value="${escapeHtml(tool.name)}">${escapeHtml(tool.name)} · ${mcpToolRisk(tool) === "read" ? "只读" : mcpToolRisk(tool) === "blocked" ? "已禁用" : mcpToolRisk(tool) === "destructive" ? "高风险" : "需确认"}</option>`).join("")
+    : '<option value="">请先测试连接</option>';
+  if (activeMcpTools.some((tool) => tool.name === selectedTool)) mcpToolSelect.value = selectedTool;
+  mcpToolSelect.disabled = activeMcpTools.length === 0;
+  mcpToolCount.textContent = activeMcpTools.length ? `${activeMcpTools.length} 个工具 · 调用前逐次确认` : "尚未读取工具清单";
+  renderMcpToolDetails();
+  renderMcpLogs();
+}
+
+function loadMcpConnectionForm() {
+  if (!editingMcpServerId) editingMcpServerId = data.settings.activeMcpServerId || "";
+  const server = activeMcpServer();
+  mcpNameInput.value = server?.name || "";
+  mcpUrlInput.value = server?.url || "";
+  mcpTokenInput.value = "";
+  const hasToken = server ? mcpCredentialStatuses.get(server.serverId) : false;
+  mcpTokenInput.placeholder = hasToken ? "已保存在系统安全凭据库；留空保持不变" : "没有 Token 可留空";
+  renderMcpConnection();
+}
+
+async function refreshMcpCredentialStatuses() {
+  await Promise.all(mcpServers().map(async (server) => {
+    const present = await invoke("has_mcp_token", { serverId: server.serverId }).catch(() => false);
+    mcpCredentialStatuses.set(server.serverId, present === true);
+  }));
+  loadMcpConnectionForm();
+}
+
+function validatedMcpUrl(value) {
+  let parsed;
+  try {
+    parsed = new URL(String(value || "").trim());
+  } catch {
+    throw new Error("MCP 地址格式无效。");
+  }
+  if (parsed.username || parsed.password || parsed.hash) throw new Error("MCP 地址不能包含账号、密码或片段。");
+  const hostname = parsed.hostname.toLowerCase();
+  const loopback = ["localhost", "127.0.0.1", "[::1]", "::1"].includes(hostname);
+  if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && loopback)) {
+    throw new Error("远程 MCP 必须使用 HTTPS；HTTP 只允许 127.0.0.1、localhost 或 ::1。");
+  }
+  return parsed.href.slice(0, 2_000);
+}
+
+async function saveMcpServer({ test = false } = {}) {
+  const name = mcpNameInput.value.trim() || "MCP 工具服务器";
+  if (!mcpUrlInput.value.trim()) throw new Error("请填写 MCP Streamable HTTP 地址。");
+  const url = validatedMcpUrl(mcpUrlInput.value);
+  const serverId = editingMcpServerId || `mcp-${crypto.randomUUID()}`;
+  let server = mcpServers().find((item) => item.serverId === serverId);
+  const changedUrl = Boolean(server && server.url !== url);
+  const token = mcpTokenInput.value.trim();
+  if (changedUrl) {
+    await invoke("delete_mcp_token", { serverId });
+    mcpCredentialStatuses.set(serverId, false);
+  }
+  if (!server) {
+    server = normalizeMcpServer({ serverId, name, url }, serverId);
+    data.settings.mcpServers.unshift(server);
+  } else {
+    server.name = name.slice(0, 80);
+    server.url = url.slice(0, 2_000);
+  }
+  if (changedUrl) {
+    server.tools = [];
+    server.lastTestAt = "";
+    server.lastError = "";
+  }
+  if (token) {
+    await invoke("save_mcp_token", { serverId, token });
+    mcpCredentialStatuses.set(serverId, true);
+  }
+  editingMcpServerId = serverId;
+  data.settings.activeMcpServerId = serverId;
+  saveData();
+  mcpTokenInput.value = "";
+  loadMcpConnectionForm();
+  if (!test) setMcpConnectionStatus("MCP 连接设置已保存；Token 不会进入 Kardii 数据或备份。", "success");
+  return server;
+}
+
+async function testMcpConnection() {
+  testMcpButton.disabled = true;
+  saveMcpButton.disabled = true;
+  setMcpConnectionStatus("正在执行 MCP initialize 与 tools/list…");
+  let server = null;
+  try {
+    server = await saveMcpServer({ test: true });
+    const result = await invoke("test_mcp_connection", {
+      request: { serverId: server.serverId, url: server.url },
+    });
+    server.protocolVersion = result.protocolVersion || "";
+    server.serverName = result.serverName || server.name;
+    server.serverVersion = result.serverVersion || "";
+    server.tools = Array.isArray(result.tools) ? result.tools : [];
+    server.lastTestAt = new Date((result.testedAt || Math.floor(Date.now() / 1_000)) * 1_000).toISOString();
+    server.lastError = "";
+    saveData();
+    loadMcpConnectionForm();
+    mcpToolOutput.textContent = `连接成功：${server.serverName} ${server.serverVersion}\n协议：${server.protocolVersion}\n工具：${server.tools.length} 个`;
+    setMcpConnectionStatus(`连接成功，已读取 ${server.tools.length} 个工具。每次调用仍需你确认。`, "success");
+  } catch (error) {
+    if (server) {
+      server.lastError = String(error).slice(0, 1_000);
+      saveData();
+    }
+    setMcpConnectionStatus(String(error), "error");
+    mcpToolOutput.textContent = String(error);
+  } finally {
+    testMcpButton.disabled = false;
+    saveMcpButton.disabled = false;
+    renderConnections();
+  }
+}
+
+async function removeMcpServer() {
+  const server = activeMcpServer();
+  if (!server) return;
+  const confirmed = await window.kardiiConfirm({
+    title: `移除 MCP 连接“${server.name}”？`,
+    message: "系统安全凭据库中的 Token 也会删除；已经生成的本机调用日志会保留到你手动清空。",
+    confirmLabel: "移除连接",
+    tone: "danger",
+  });
+  if (!confirmed) return;
+  try {
+    await invoke("delete_mcp_token", { serverId: server.serverId });
+  } catch (error) {
+    setMcpConnectionStatus(`系统凭据未能删除，连接暂不移除：${String(error)}`, "error");
+    return;
+  }
+  data.settings.mcpServers = mcpServers().filter((item) => item.serverId !== server.serverId);
+  mcpCredentialStatuses.delete(server.serverId);
+  editingMcpServerId = data.settings.mcpServers[0]?.serverId || "";
+  data.settings.activeMcpServerId = editingMcpServerId;
+  saveData();
+  loadMcpConnectionForm();
+  setMcpConnectionStatus("MCP 连接与凭据已移除。", "success");
+}
+
+async function clearMcpToken() {
+  const server = activeMcpServer();
+  if (!server || mcpCredentialStatuses.get(server.serverId) !== true) return;
+  const confirmed = await window.kardiiConfirm({
+    title: `删除“${server.name}”的 MCP Token？`,
+    message: "Token 会从 Windows 凭据管理器或 macOS 钥匙串删除。服务器地址与本机调用日志会保留。",
+    confirmLabel: "删除 Token",
+    tone: "danger",
+  });
+  if (!confirmed) return;
+  try {
+    await invoke("delete_mcp_token", { serverId: server.serverId });
+    mcpCredentialStatuses.set(server.serverId, false);
+    server.lastTestAt = "";
+    server.lastError = "凭据已删除，请重新测试连接。";
+    saveData();
+    loadMcpConnectionForm();
+    setMcpConnectionStatus("MCP Token 已从系统安全凭据库删除。", "success");
+  } catch (error) {
+    setMcpConnectionStatus(String(error), "error");
+  }
+}
+
+async function callSelectedMcpTool() {
+  const server = activeMcpServer();
+  const tool = activeMcpTools.find((item) => item.name === mcpToolSelect.value);
+  if (!server || !tool) return;
+  let argumentsValue;
+  try {
+    argumentsValue = JSON.parse(mcpArgumentsInput.value.trim() || "{}");
+    if (!argumentsValue || Array.isArray(argumentsValue) || typeof argumentsValue !== "object") throw new Error("参数必须是 JSON 对象。");
+  } catch (error) {
+    setMcpConnectionStatus(`参数格式错误：${String(error)}`, "error");
+    return;
+  }
+  const risk = mcpToolRisk(tool);
+  if (risk === "blocked") {
+    setMcpConnectionStatus("Kardii 不调用付款、购买或资金转移类 MCP 工具。", "error");
+    return;
+  }
+  const argsPreview = JSON.stringify(argumentsValue, null, 2).slice(0, 1_400);
+  const confirmed = await window.kardiiConfirm({
+    title: `${risk === "read" ? "调用只读 MCP 工具" : risk === "destructive" ? "调用高风险 MCP 工具" : "调用可能写入的 MCP 工具"}“${tool.name}”？`,
+    message: `服务器：${server.name}\n地址：${server.url}\n\n参数：\n${argsPreview}${JSON.stringify(argumentsValue).length > 1_400 ? "\n…（预览已截断）" : ""}\n\nKardii 无法保证第三方服务器如何实现这个工具。`,
+    confirmLabel: risk === "destructive" ? "我已检查，仍要调用" : "确认调用",
+    tone: risk === "read" ? "default" : "danger",
+  });
+  if (!confirmed) return;
+  callMcpToolButton.disabled = true;
+  mcpToolOutput.textContent = "正在调用工具…";
+  const started = Date.now();
+  try {
+    const result = await invoke("call_mcp_tool", {
+      request: { serverId: server.serverId, url: server.url, toolName: tool.name, arguments: argumentsValue },
+    });
+    const output = String(result.content || JSON.stringify(result.structuredContent || {}, null, 2));
+    mcpToolOutput.textContent = output || "工具调用完成，但没有返回可显示的内容。";
+    addMcpLog({ server, toolName: tool.name, success: result.isError !== true, durationMs: result.durationMs || Date.now() - started, error: result.isError ? output : "" });
+    setMcpConnectionStatus(result.isError ? "MCP 工具返回了错误结果；详情已显示并记入日志。" : "MCP 工具调用完成；结果只显示在本机。", result.isError ? "error" : "success");
+  } catch (error) {
+    mcpToolOutput.textContent = String(error);
+    addMcpLog({ server, toolName: tool.name, success: false, durationMs: Date.now() - started, error: String(error) });
+    setMcpConnectionStatus(String(error), "error");
+  } finally {
+    renderMcpToolDetails();
+  }
+}
+
 function renderConnections() {
   const config = emailConnectionConfig();
   emailCredentialPresent = activeEmailCredentialPresent();
   const connected = Boolean(config && emailCredentialPresent === true && !config.paused);
   const checking = Boolean(config && emailCredentialPresent === null);
   const connectedCount = [...emailCredentialStatuses.values()].filter(Boolean).length
-    + [...cloudCredentialStatuses.values()].filter(Boolean).length;
+    + [...cloudCredentialStatuses.values()].filter(Boolean).length
+    + (browserBridgeStatus?.paired ? 1 : 0)
+    + mcpServers().filter((server) => server.lastTestAt && !server.lastError).length;
   connectionNavStatus.textContent = String(connectedCount);
   renderEmailAccountSelect();
   emailConnectionSummary.textContent = config
@@ -1030,6 +1666,8 @@ function renderConnections() {
     : config ? "尚未同步邮件" : "连接后可手动同步";
   renderEmailInbox();
   renderCloudConnections();
+  renderBrowserConnection();
+  renderMcpConnection();
 }
 
 function loadEmailConnectionForm() {
@@ -1605,7 +2243,7 @@ function knowledgePanelMarkup(item) {
         <span>${analyzedAt ? `上次分析：${escapeHtml(analyzedAt)}` : "先在本机提取文字，再使用当前 AI 分析相关内容"}</span>
       </div>
       <div class="knowledge-file-actions">
-        <button type="button" data-action="open-knowledge-file">打开原文件</button>
+        <button type="button" data-action="open-knowledge-file">${item.browserUrl ? "打开原网页" : "打开原文件"}</button>
         <button type="button" data-action="run-knowledge-analysis" ${running ? "disabled" : ""}>${running ? "正在分析…" : (analyzedAt ? "重新分析" : "AI 分析")}</button>
       </div>
     </div>
@@ -3008,7 +3646,8 @@ document.addEventListener("click", (event) => {
   if (action === "run-knowledge-analysis") runKnowledgeAnalysis();
   if (action === "open-knowledge-file") {
     const item = data.knowledge.find((entry) => entry.id === editingId);
-    if (item?.filePath) invoke("open_local_file", { path: item.filePath }).catch((error) => showKnowledgeAnalysisError(String(error)));
+    if (item?.browserUrl) invoke("open_external_url", { url: item.browserUrl }).catch((error) => showKnowledgeAnalysisError(String(error)));
+    else if (item?.filePath) invoke("open_local_file", { path: item.filePath }).catch((error) => showKnowledgeAnalysisError(String(error)));
   }
   if (action === "open-knowledge-source") {
     navigate("knowledge");
@@ -3136,6 +3775,56 @@ syncMicrosoftButton.addEventListener("click", () => syncCloudProvider("microsoft
 disconnectMicrosoftButton.addEventListener("click", () => disconnectCloudProvider("microsoft"));
 cloudProviderFilter.addEventListener("change", renderCloudConnections);
 cloudServiceFilter.addEventListener("change", renderCloudConnections);
+startBrowserBridgeButton.addEventListener("click", startBrowserConnection);
+stopBrowserBridgeButton.addEventListener("click", stopBrowserConnection);
+copyBrowserPairingButton.addEventListener("click", copyBrowserPairingCode);
+openBrowserExtensionButton.addEventListener("click", openBrowserExtensionFolder);
+regenerateBrowserPairingButton.addEventListener("click", regenerateBrowserPairingCode);
+refreshBrowserButton.addEventListener("click", () => refreshBrowserConnection());
+sendBrowserPageToChatButton.addEventListener("click", sendBrowserPageToChat);
+sendBrowserPageToAgentButton.addEventListener("click", sendBrowserPageToAgent);
+saveBrowserPageButton.addEventListener("click", saveBrowserPageToKnowledge);
+clearBrowserPageButton.addEventListener("click", clearBrowserPage);
+mcpConnectionForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  saveMcpButton.disabled = true;
+  saveMcpServer().catch((error) => setMcpConnectionStatus(String(error), "error")).finally(() => { saveMcpButton.disabled = false; });
+});
+testMcpButton.addEventListener("click", testMcpConnection);
+newMcpServerButton.addEventListener("click", () => {
+  if (mcpServers().length >= 20) {
+    setMcpConnectionStatus("最多保存 20 个 MCP 服务器，请先移除不再使用的连接。", "error");
+    return;
+  }
+  editingMcpServerId = `mcp-${crypto.randomUUID()}`;
+  loadMcpConnectionForm();
+  setMcpConnectionStatus("正在添加 MCP 服务器。填写地址后先测试工具清单。");
+});
+mcpServerSelect.addEventListener("change", () => {
+  editingMcpServerId = mcpServerSelect.value;
+  if (mcpServers().some((server) => server.serverId === editingMcpServerId)) {
+    data.settings.activeMcpServerId = editingMcpServerId;
+    saveData();
+  }
+  loadMcpConnectionForm();
+  mcpToolOutput.textContent = "工具结果会显示在这里。";
+});
+removeMcpServerButton.addEventListener("click", removeMcpServer);
+clearMcpTokenButton.addEventListener("click", clearMcpToken);
+mcpToolSelect.addEventListener("change", renderMcpToolDetails);
+callMcpToolButton.addEventListener("click", callSelectedMcpTool);
+clearMcpLogsButton.addEventListener("click", async () => {
+  if (!mcpLogs.length) return;
+  const confirmed = await window.kardiiConfirm({
+    title: "清空 MCP 本机调用日志？",
+    message: "只会删除服务器名称、工具名称、成功状态和时间；外部 MCP 服务器上的数据不会改变。",
+    confirmLabel: "清空日志",
+    tone: "danger",
+  });
+  if (!confirmed) return;
+  mcpLogs = [];
+  saveMcpLogs();
+});
 knowledgeQuestion.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) askKnowledgeBase();
 });
@@ -3172,8 +3861,10 @@ window.addEventListener("storage", (event) => {
   if (event.key === BUSINESS_DATA_KEY) {
     data = loadData();
     editingEmailAccountId = data.settings.activeEmailAccountId || "";
+    editingMcpServerId = data.settings.activeMcpServerId || "";
     loadEmailConnectionForm();
     loadCloudConnectionForms();
+    loadMcpConnectionForm();
     renderAll();
   }
   if (event.key === WORKBENCH_TARGET_KEY && event.newValue) {
@@ -3183,7 +3874,13 @@ window.addEventListener("storage", (event) => {
 
 loadEmailConnectionForm();
 loadCloudConnectionForms();
+loadMcpConnectionForm();
 navigate("dashboard");
 renderAll();
 consumeWorkbenchTarget();
 refreshEmailCredentialStatus();
+void refreshMcpCredentialStatuses();
+void refreshBrowserConnection({ start: data.settings.browserBridgeEnabled === true, quiet: true });
+browserPollTimer = window.setInterval(() => {
+  if (browserBridgeStatus?.running) void refreshBrowserConnection({ quiet: true });
+}, 2_500);

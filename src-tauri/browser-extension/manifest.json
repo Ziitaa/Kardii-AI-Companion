@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Kardii Browser Connector",
+  "version": "1.0.0",
+  "description": "只在你点击时，把当前网页的可读文字发送到本机 Kardii。",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:43198/*"
+  ],
+  "action": {
+    "default_title": "发送当前网页给 Kardii",
+    "default_popup": "popup.html"
+  }
+}

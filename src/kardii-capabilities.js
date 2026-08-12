@@ -1,5 +1,5 @@
 (() => {
-  const VERSION = "1.4.0";
+  const VERSION = "1.5.0";
 
   const FEATURES = [
     {
@@ -87,6 +87,34 @@
       promptFact: "外部连接支持 IMAP 邮箱、Google Workspace（Gmail、Calendar、Drive、Sheets）和 Microsoft 365（Outlook、Calendar、OneDrive、Excel、SharePoint）的只读同步；当前不能发送邮件、修改日历或写入云盘。",
     },
     {
+      id: "browser",
+      icon: "◎",
+      group: "资料与工作",
+      title: "连接 Chrome / Edge 当前网页",
+      summary: "安装 Kardii Browser Connector 后，由你点击把当前页或选中文字交给聊天、Agent 或知识库。",
+      steps: [
+        "打开工作台的“外部连接”，启动浏览器连接并打开扩展文件夹。",
+        "在 Chrome / Edge 扩展页加载文件夹，用 6 位配对码连接。",
+        "在目标网页点击扩展并发送，再选择聊天、Agent 或知识库。",
+      ],
+      example: "请总结我刚刚从浏览器扩展发送的网页，并列出三条需要核实的信息。",
+      promptFact: "Kardii Browser Connector 只在用户主动点击时读取 Chrome / Edge 当前页的可读文字或选中文字，可交给聊天、Agent 或保存到知识库；它不持续监控，不读取 Cookie、密码、表单内容或其他标签页，也不能自动点击、登录、购买或执行网页指令。",
+    },
+    {
+      id: "mcp",
+      icon: "⌘",
+      group: "资料与工作",
+      title: "连接 MCP 工具服务器",
+      summary: "连接 Streamable HTTP MCP 服务器，查看工具说明与参数，并逐次确认手动调用。",
+      steps: [
+        "在工作台“外部连接”添加 MCP 服务器地址和可选 Token。",
+        "先测试连接并核对服务器返回的工具清单。",
+        "选择工具、填写 JSON 参数，检查风险提示后逐次确认调用。",
+      ],
+      example: "请告诉我当前保存了几个 MCP 连接，以及调用第三方工具时有哪些安全限制。",
+      promptFact: "Kardii 支持连接使用初始化会话的 Streamable HTTP MCP 服务器（2025-03-26 至 2025-11-25）并读取工具清单；远程地址必须使用 HTTPS，本机 HTTP 仅允许回环地址，Bearer Token 保存在系统凭据库。当前 MCP 工具只可在连接中心手动逐次确认调用，尚未自动交给 Agent；付款、购买、下单和资金转移类工具直接禁用，第三方工具的真实行为需由用户自行核对。",
+    },
+    {
       id: "tools",
       icon: "⌘",
       group: "设置与数据",
@@ -149,6 +177,8 @@
     "普通聊天支持上传、拖入或粘贴图片与表格。",
     "工作台增加多邮箱与 Google / Microsoft 只读连接。",
     "新增可搜索帮助、一键自检、快捷入口和逐步高亮引导。",
+    "新增 Chrome / Edge 当前网页连接，可把主动发送的页面交给聊天、Agent 或知识库。",
+    "新增 MCP Streamable HTTP 连接中心，支持工具发现、逐次确认调用与本机日志。",
     "聊天窗口不再强制置顶，确认窗口统一为 Kardii 主题。",
   ];
 
@@ -208,6 +238,24 @@
       actionLabel: "打开外部连接",
     },
     {
+      id: "browser-pairing",
+      title: "浏览器扩展连接不上 Kardii",
+      symptom: "扩展提示连接不到 Kardii、配对码不正确或旧连接已失效。",
+      keywords: "浏览器 chrome edge 扩展 当前网页 配对码 连接不上 失效",
+      steps: ["打开工作台的外部连接并点击“启动连接”。", "确认扩展是从 Kardii 打开的文件夹加载，输入当前显示的 6 位配对码。", "如果撤销过旧连接，请在扩展中使用新配对码重新连接。"],
+      action: "connections",
+      actionLabel: "管理浏览器连接",
+    },
+    {
+      id: "browser-stale-page",
+      title: "Kardii 仍显示上一次网页",
+      symptom: "切换标签页后，Kardii 没有自动换成新页面。",
+      keywords: "浏览器 网页 旧页面 没更新 当前页 切换 标签页",
+      steps: ["Kardii 不会持续监控浏览器，这是预期的隐私保护。", "切换到新网页后重新点击扩展。", "再次点击“发送当前网页给 Kardii”。"],
+      action: "connections",
+      actionLabel: "查看最近网页",
+    },
+    {
       id: "voice-model",
       title: "麦克风无法录音或识别",
       symptom: "点击麦克风后提示语音模型没有准备好。",
@@ -252,6 +300,9 @@
     const emailConnected = status.emailConnected == null ? null : Number(status.emailConnected || 0);
     const cloudConfigured = Number(status.cloudConfigured || 0);
     const cloudConnected = status.cloudConnected == null ? null : Number(status.cloudConnected || 0);
+    const browserStatus = status.browserPaired ? "浏览器已连接" : status.browserRunning ? "浏览器等待配对" : "浏览器未启动";
+    const mcpConfigured = Number(status.mcpConfigured || 0);
+    const mcpConnected = Number(status.mcpConnected || 0);
     return [
       {
         id: "model",
@@ -274,8 +325,8 @@
       {
         id: "connections",
         label: "外部连接",
-        value: `${connectionStatus(emailConfigured, emailConnected, "邮箱")} · ${connectionStatus(cloudConfigured, cloudConnected, "云端")}`,
-        tone: (emailConnected || 0) + (cloudConnected || 0) > 0 ? "success" : "neutral",
+        value: `${browserStatus} · ${connectionStatus(emailConfigured, emailConnected, "邮箱")} · ${connectionStatus(cloudConfigured, cloudConnected, "云端")} · ${connectionStatus(mcpConfigured, mcpConnected, "MCP")}`,
+        tone: status.browserPaired || (emailConnected || 0) + (cloudConnected || 0) + mcpConnected > 0 ? "success" : "neutral",
       },
     ];
   }
@@ -287,6 +338,8 @@
     const cloudConnected = status.cloudConnected == null ? null : Number(status.cloudConnected || 0);
     const voiceReady = status.voiceModelState === "ready";
     const codexReady = status.codexInstalled && status.codexAuthenticated;
+    const mcpConfigured = Number(status.mcpConfigured || 0);
+    const mcpConnected = Number(status.mcpConnected || 0);
     return [
       {
         id: "ai",
@@ -333,6 +386,24 @@
         actionLabel: cloudConfigured ? "管理" : "去连接",
       },
       {
+        id: "browser",
+        title: "Chrome / Edge 当前网页",
+        detail: status.browserPaired
+          ? `扩展已连接${status.browserCaptureTitle ? ` · 最近：${status.browserCaptureTitle}` : ""}`
+          : status.browserRunning ? "本机连接已启动，等待扩展配对" : "尚未启动浏览器连接",
+        tone: status.browserPaired ? "success" : status.browserRunning ? "warning" : "neutral",
+        action: "connections",
+        actionLabel: status.browserPaired ? "查看" : "去连接",
+      },
+      {
+        id: "mcp",
+        title: "MCP 工具服务器",
+        detail: connectionStatus(mcpConfigured, mcpConnected, "MCP"),
+        tone: mcpConnected > 0 ? "success" : mcpConfigured > 0 ? "warning" : "neutral",
+        action: "connections",
+        actionLabel: mcpConfigured ? "管理" : "去连接",
+      },
+      {
         id: "agent",
         title: "聊天与 Agent 衔接",
         detail: status.autoAgentHandoff ? "智能判断已开启" : "当前只会手动切换",
@@ -365,7 +436,7 @@
 
   function isCapabilityQuestion(value) {
     const text = String(value || "").toLowerCase();
-    return /(?:你|kardii).{0,8}(?:会什么|能做什么|有什么功能|支持什么|怎么用|使用说明|帮助)|(?:功能|能力|使用说明|怎么使用|如何使用|已连接|连接状态|登录状态|支持.*文件|支持.*图片|支持.*表格)|(?:新手引导|更新介绍|版本介绍|一键自检|常见问题|故障排查|帮助面板)|(?:邮箱|邮件|google|microsoft|云端|云盘|日历|codex).{0,14}(?:连接|登录|配置|可用|状态|同步)|(?:图片|表格|文件).{0,12}(?:上传|支持|识别|读取)/i.test(text);
+    return /(?:你|kardii).{0,8}(?:会什么|能做什么|有什么功能|支持什么|怎么用|使用说明|帮助)|(?:功能|能力|使用说明|怎么使用|如何使用|已连接|连接状态|登录状态|支持.*文件|支持.*图片|支持.*表格)|(?:新手引导|更新介绍|版本介绍|一键自检|常见问题|故障排查|帮助面板)|(?:邮箱|邮件|google|microsoft|云端|云盘|日历|codex|chrome|edge|浏览器|网页|扩展|mcp).{0,14}(?:连接|登录|配置|可用|状态|同步|读取|发送|工具|调用)|(?:图片|表格|文件|网页).{0,12}(?:上传|支持|识别|读取|发送)/i.test(text);
   }
 
   window.KardiiCapabilities = Object.freeze({
