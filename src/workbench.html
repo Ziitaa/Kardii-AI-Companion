@@ -605,7 +605,10 @@
         </div>
         <div class="bundle-analysis-actions">
           <p id="bundleStatus">文件尚未保存。可以先让 AI 综合分析，也可以直接确认保存原件。</p>
-          <button id="analyzeBundleButton" class="outline-button" type="button">AI 综合分析</button>
+          <div class="bundle-analysis-buttons">
+            <button id="ocrBundleButton" class="outline-button" type="button">识别扫描件 / 图片</button>
+            <button id="analyzeBundleButton" class="outline-button" type="button">AI 综合分析</button>
+          </div>
         </div>
         <div id="bundleDraftFields" class="form-fields bundle-draft-fields hidden">
           <div class="form-field full"><label for="bundleDraftTitle">成果标题</label><input id="bundleDraftTitle" type="text" maxlength="160"></div>

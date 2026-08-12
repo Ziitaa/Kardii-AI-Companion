@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Kardii Browser Connector",
-  "version": "1.0.0",
-  "description": "只在你点击时，把当前网页的可读文字发送到本机 Kardii。",
+  "version": "1.6.0",
+  "description": "由你主动发送当前网页，并逐步确认 Kardii 提议的受控网页操作。",
   "permissions": [
     "activeTab",
     "scripting",

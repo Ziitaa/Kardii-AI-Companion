@@ -758,6 +758,7 @@ button { cursor: pointer; }
 .bundle-analysis-actions { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 11px 12px; background: #fbf5f7; border: 1px solid #ecdce2; border-radius: 10px; }
 .bundle-analysis-actions p { margin: 0; color: #846c76; font-size: 9px; line-height: 1.5; }
 .bundle-analysis-actions button { white-space: nowrap; }
+.bundle-analysis-buttons { display: flex; align-items: center; gap: 8px; }
 .bundle-draft-fields { margin-top: 14px; padding-top: 14px; border-top: 1px solid #eceef1; }
 .entity-timeline { margin-top: 18px; padding-top: 16px; border-top: 1px solid #eceef1; }
 .timeline-heading { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px; }

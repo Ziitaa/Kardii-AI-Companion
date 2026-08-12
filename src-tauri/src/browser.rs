@@ -38,6 +38,23 @@ struct BrowserCaptureInput {
     language: String,
     #[serde(default)]
     captured_at: String,
+    #[serde(default)]
+    targets: Vec<BrowserInteractiveElement>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserInteractiveElement {
+    pub id: String,
+    pub role: String,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub input_type: String,
+    #[serde(default)]
+    pub href: String,
+    #[serde(default)]
+    pub disabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -53,6 +70,50 @@ pub struct BrowserCapture {
     pub captured_at: String,
     pub received_at: u64,
     pub source: String,
+    pub targets: Vec<BrowserInteractiveElement>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserActionRequest {
+    pub capture_id: String,
+    pub action_type: String,
+    #[serde(default)]
+    pub target_id: String,
+    #[serde(default)]
+    pub value: String,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub direction: String,
+    #[serde(default)]
+    pub amount: i32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserPendingAction {
+    pub id: String,
+    pub capture_id: String,
+    pub page_title: String,
+    pub page_url: String,
+    pub action_type: String,
+    pub target_id: String,
+    pub target_label: String,
+    pub value: String,
+    pub url: String,
+    pub direction: String,
+    pub amount: i32,
+    pub created_at: u64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserActionResult {
+    pub action_id: String,
+    pub success: bool,
+    #[serde(default)]
+    pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -70,6 +131,7 @@ pub struct BrowserBridgeStatus {
     pub latest_url: String,
     pub latest_captured_at: String,
     pub latest_content_chars: usize,
+    pub pending_action: bool,
 }
 
 struct BrowserBridgeRuntime {
@@ -82,6 +144,8 @@ struct BrowserBridgeRuntime {
     last_seen_at: Option<u64>,
     capture_count: u64,
     latest_capture: Option<BrowserCapture>,
+    pending_action: Option<BrowserPendingAction>,
+    action_result: Option<BrowserActionResult>,
     stop: Option<Arc<AtomicBool>>,
     thread: Option<JoinHandle<()>>,
 }
@@ -98,6 +162,8 @@ impl BrowserBridgeRuntime {
             last_seen_at: None,
             capture_count: 0,
             latest_capture: None,
+            pending_action: None,
+            action_result: None,
             stop: None,
             thread: None,
         }
@@ -120,6 +186,7 @@ impl BrowserBridgeRuntime {
             latest_content_chars: latest
                 .map(|item| item.selected_text.chars().count().max(item.content.chars().count()))
                 .unwrap_or(0),
+            pending_action: self.pending_action.is_some(),
         }
     }
 }
@@ -186,6 +253,72 @@ fn clean_text(value: &str, max_chars: usize) -> String {
         .chars()
         .take(max_chars)
         .collect()
+}
+
+fn safe_web_url(value: &str) -> Option<String> {
+    let url = reqwest::Url::parse(value.trim()).ok()?;
+    if !matches!(url.scheme(), "http" | "https")
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return None;
+    }
+    Some(clean_text(url.as_str(), 2_000))
+}
+
+fn clean_browser_target(value: BrowserInteractiveElement) -> Option<BrowserInteractiveElement> {
+    let id = clean_text(&value.id, 40);
+    let role = clean_text(&value.role, 20).to_ascii_lowercase();
+    if id.is_empty()
+        || !id.chars().all(|character| character.is_ascii_alphanumeric() || character == '-')
+        || !matches!(role.as_str(), "link" | "button" | "input" | "textarea" | "select" | "checkbox" | "radio")
+    {
+        return None;
+    }
+    Some(BrowserInteractiveElement {
+        id,
+        role,
+        label: clean_text(&value.label, 300),
+        input_type: clean_text(&value.input_type, 30).to_ascii_lowercase(),
+        href: if value.href.trim().is_empty() { String::new() } else { safe_web_url(&value.href)? },
+        disabled: value.disabled,
+    })
+}
+
+fn contains_blocked_commerce_term(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    let contains_blocked_word = lower
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .any(|word| matches!(word, "pay" | "buy" | "refund"));
+    contains_blocked_word || [
+        "purchase", "payment", "checkout", "place order", "place_order", "buy now",
+        "submit order", "submit_order", "add to cart", "add-to-cart", "transfer funds",
+        "wire transfer", "withdraw", "charge card", "支付", "购买", "付款", "结账",
+        "下单", "提交订单", "加入购物车", "转账", "汇款", "提现",
+    ].iter().any(|term| lower.contains(term))
+}
+
+fn contains_blocked_account_action(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    ["sign in", "signin", "log in", "login", "sign up", "register", "登录", "登入", "注册"]
+        .iter()
+        .any(|term| lower.contains(term))
+}
+
+fn contains_sensitive_input_term(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    [
+        "password", "passcode", "one-time", "otp", "verification code", "cvv", "cvc",
+        "credit card", "card number", "security code", "api key", "token", "密码", "验证码",
+        "信用卡", "银行卡", "安全码", "密钥",
+    ].iter().any(|term| lower.contains(term))
+}
+
+fn dangerous_download_url(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    [".exe", ".msi", ".dmg", ".pkg", ".sh", ".bat", ".cmd", ".ps1", ".scr", ".com", ".jar"]
+        .iter()
+        .any(|extension| lower.split(|character| character == '?' || character == '#').next().unwrap_or(&lower).ends_with(extension))
 }
 
 fn header_end(buffer: &[u8]) -> Option<usize> {
@@ -333,7 +466,7 @@ fn handle_request(mut stream: TcpStream, state: Arc<Mutex<BrowserBridgeRuntime>>
         write_response(
             &mut stream,
             "200 OK",
-            json!({ "app": "Kardii", "bridgeVersion": 1, "paired": authorized }),
+            json!({ "app": "Kardii", "bridgeVersion": 2, "paired": authorized }),
             origin.as_deref(),
         );
         return;
@@ -388,6 +521,58 @@ fn handle_request(mut stream: TcpStream, state: Arc<Mutex<BrowserBridgeRuntime>>
         return;
     }
 
+    if request.path == "/action" && request.method == "GET" {
+        let mut runtime = state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if !valid_token(&request, &runtime.token) {
+            write_response(&mut stream, "401 Unauthorized", json!({ "error": "浏览器连接已失效，请重新配对。" }), Some(origin_value));
+            return;
+        }
+        runtime.paired = true;
+        runtime.last_seen_at = Some(now_epoch());
+        write_response(
+            &mut stream,
+            "200 OK",
+            json!({ "action": runtime.pending_action.clone() }),
+            Some(origin_value),
+        );
+        return;
+    }
+
+    if request.path == "/action-result" && request.method == "POST" {
+        let mut runtime = state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if !valid_token(&request, &runtime.token) {
+            write_response(&mut stream, "401 Unauthorized", json!({ "error": "浏览器连接已失效，请重新配对。" }), Some(origin_value));
+            return;
+        }
+        let mut result: BrowserActionResult = match serde_json::from_slice(&request.body) {
+            Ok(result) => result,
+            Err(_) => {
+                write_response(&mut stream, "400 Bad Request", json!({ "error": "浏览器操作结果格式无效。" }), Some(origin_value));
+                return;
+            }
+        };
+        let matches_pending = runtime.pending_action.as_ref()
+            .is_some_and(|action| action.id == result.action_id);
+        if !matches_pending {
+            write_response(&mut stream, "409 Conflict", json!({ "error": "这一步操作已经失效或不属于当前任务。" }), Some(origin_value));
+            return;
+        }
+        let original_capture_id = runtime.pending_action.as_ref()
+            .map(|action| action.capture_id.clone())
+            .unwrap_or_default();
+        result.message = clean_text(&result.message, 1_000);
+        runtime.pending_action = None;
+        if result.success
+            && runtime.latest_capture.as_ref().is_some_and(|capture| capture.id == original_capture_id)
+        {
+            runtime.latest_capture = None;
+        }
+        runtime.action_result = Some(result);
+        runtime.last_seen_at = Some(now_epoch());
+        write_response(&mut stream, "200 OK", json!({ "accepted": true }), Some(origin_value));
+        return;
+    }
+
     if request.path == "/capture" && request.method == "POST" {
         let mut runtime = state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         if !valid_token(&request, &runtime.token) {
@@ -412,6 +597,11 @@ fn handle_request(mut stream: TcpStream, state: Arc<Mutex<BrowserBridgeRuntime>>
             }
         };
         let received_at = now_epoch();
+        let targets = payload.targets
+            .into_iter()
+            .take(120)
+            .filter_map(clean_browser_target)
+            .collect();
         let capture = BrowserCapture {
             id: format!("browser-{received_at}-{:08x}", rand::thread_rng().gen::<u32>()),
             title: clean_text(&payload.title, 300),
@@ -423,6 +613,7 @@ fn handle_request(mut stream: TcpStream, state: Arc<Mutex<BrowserBridgeRuntime>>
             captured_at: clean_text(&payload.captured_at, 80),
             received_at,
             source: "kardii-browser-extension".into(),
+            targets,
         };
         if capture.title.is_empty() || (capture.selected_text.is_empty() && capture.content.is_empty()) {
             write_response(&mut stream, "400 Bad Request", json!({ "error": "当前页面没有提取到可读文字。" }), Some(origin_value));
@@ -474,6 +665,8 @@ pub fn start_browser_bridge() -> Result<BrowserBridgeStatus, String> {
     runtime.pairing_failures = 0;
     runtime.pairing_locked_until = None;
     runtime.pairing_code = pairing_code();
+    runtime.pending_action = None;
+    runtime.action_result = None;
     runtime.stop = Some(stop);
     runtime.thread = Some(handle);
     Ok(runtime.status())
@@ -489,6 +682,8 @@ pub fn stop_browser_bridge() -> BrowserBridgeStatus {
         }
         runtime.running = false;
         runtime.paired = false;
+        runtime.pending_action = None;
+        runtime.action_result = None;
         runtime.thread.take()
     };
     if let Some(handle) = handle {
@@ -521,6 +716,8 @@ pub fn regenerate_browser_pairing() -> Result<BrowserBridgeStatus, String> {
     runtime.pairing_failures = 0;
     runtime.pairing_locked_until = None;
     runtime.last_seen_at = None;
+    runtime.pending_action = None;
+    runtime.action_result = None;
     Ok(runtime.status())
 }
 
@@ -533,12 +730,150 @@ pub fn get_browser_capture() -> Option<BrowserCapture> {
         .clone()
 }
 
+fn validate_browser_action(
+    request: BrowserActionRequest,
+    capture: &BrowserCapture,
+) -> Result<BrowserPendingAction, String> {
+    if request.capture_id.trim() != capture.id {
+        return Err("网页快照已经变化。请从目标标签页重新发送，再重试这一步。".into());
+    }
+    let action_type = request.action_type.trim().to_ascii_lowercase();
+    if !matches!(action_type.as_str(), "click" | "fill" | "select" | "scroll" | "navigate" | "download") {
+        return Err("浏览器操作类型不受支持。".into());
+    }
+    let target_id = clean_text(&request.target_id, 40);
+    let target = (!target_id.is_empty())
+        .then(|| capture.targets.iter().find(|item| item.id == target_id))
+        .flatten();
+    let target_label = target.map(|item| item.label.clone()).unwrap_or_default();
+    let target_href = target.map(|item| item.href.as_str()).unwrap_or_default();
+    if contains_blocked_commerce_term(&format!(
+        "{} {} {} {}",
+        target_label, target_href, request.url, request.value
+    )) {
+        return Err("Kardii 禁止执行付款、购买、下单或资金转移操作。".into());
+    }
+    if contains_blocked_account_action(&capture.url) {
+        return Err("当前页面属于登录、注册或账户验证流程，Kardii 不会在这里执行网页操作。".into());
+    }
+    match action_type.as_str() {
+        "click" => {
+            let target = target.ok_or_else(|| "点击操作缺少有效的页面目标。".to_string())?;
+            if target.disabled || !matches!(target.role.as_str(), "link" | "button" | "checkbox" | "radio") {
+                return Err("这个页面目标不能安全点击。".into());
+            }
+            if contains_blocked_account_action(&format!("{} {}", target.label, target.href)) {
+                return Err("Kardii 不会执行登录、注册或账户验证步骤。".into());
+            }
+        }
+        "fill" => {
+            let target = target.ok_or_else(|| "填写操作缺少有效的输入目标。".to_string())?;
+            if target.disabled || !matches!(target.role.as_str(), "input" | "textarea") {
+                return Err("这个页面目标不是可填写的普通输入框。".into());
+            }
+            if contains_sensitive_input_term(&format!("{} {}", target.label, target.input_type))
+                || matches!(target.input_type.as_str(), "password" | "hidden" | "file")
+            {
+                return Err("Kardii 不会填写密码、验证码、支付卡、Token 或文件输入框。".into());
+            }
+            if request.value.is_empty() || request.value.chars().count() > 2_000 {
+                return Err("要填写的内容为空或超过 2,000 字。".into());
+            }
+        }
+        "select" => {
+            let target = target.ok_or_else(|| "选择操作缺少有效的下拉框目标。".to_string())?;
+            if target.disabled || target.role != "select" || request.value.chars().count() > 300 {
+                return Err("这个页面目标不是可安全操作的下拉框。".into());
+            }
+        }
+        "download" => {
+            let target = target.ok_or_else(|| "下载操作缺少有效的链接目标。".to_string())?;
+            if target.disabled || target.role != "link" || target.href.is_empty() || dangerous_download_url(&target.href) {
+                return Err("这个下载链接不可用，或文件类型可能直接执行，Kardii 已拒绝。".into());
+            }
+        }
+        "navigate" => {
+            let url = safe_web_url(&request.url).ok_or_else(|| "导航地址必须是安全的 http 或 https 网址。".to_string())?;
+            if contains_blocked_commerce_term(&url) {
+                return Err("Kardii 不会导航到付款、购买或资金转移步骤。".into());
+            }
+            if contains_blocked_account_action(&url) {
+                return Err("Kardii 不会导航到登录、注册或账户验证步骤。".into());
+            }
+        }
+        "scroll" => {
+            if !matches!(request.direction.as_str(), "up" | "down") {
+                return Err("滚动方向只能是 up 或 down。".into());
+            }
+        }
+        _ => unreachable!(),
+    }
+    Ok(BrowserPendingAction {
+        id: format!("action-{}-{:08x}", now_epoch(), rand::thread_rng().gen::<u32>()),
+        capture_id: capture.id.clone(),
+        page_title: capture.title.clone(),
+        page_url: capture.url.clone(),
+        action_type,
+        target_id,
+        target_label,
+        value: clean_text(&request.value, 2_000),
+        url: if request.url.trim().is_empty() { String::new() } else { safe_web_url(&request.url).unwrap_or_default() },
+        direction: clean_text(&request.direction, 10).to_ascii_lowercase(),
+        amount: request.amount.clamp(200, 2_000),
+        created_at: now_epoch(),
+    })
+}
+
+#[tauri::command]
+pub async fn execute_browser_action(request: BrowserActionRequest) -> Result<BrowserActionResult, String> {
+    let action_id = {
+        let mut runtime = bridge_state().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if !runtime.running || !runtime.paired {
+            return Err("浏览器扩展尚未连接。请先在工作台“外部连接”中完成配对。".into());
+        }
+        if runtime.pending_action.is_some() {
+            return Err("浏览器中还有一步待处理操作，请先在扩展中执行或拒绝。".into());
+        }
+        let capture = runtime.latest_capture.as_ref()
+            .ok_or_else(|| "还没有网页快照，请先从目标标签页发送当前网页。".to_string())?;
+        let action = validate_browser_action(request, capture)?;
+        let action_id = action.id.clone();
+        runtime.action_result = None;
+        runtime.pending_action = Some(action);
+        action_id
+    };
+    for _ in 0..600 {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let result = {
+            let mut runtime = bridge_state().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            if runtime.action_result.as_ref().is_some_and(|result| result.action_id == action_id) {
+                runtime.action_result.take()
+            } else {
+                None
+            }
+        };
+        if let Some(result) = result {
+            if result.success {
+                return Ok(result);
+            }
+            return Err(if result.message.is_empty() { "用户在浏览器扩展中拒绝了这一步。".into() } else { result.message });
+        }
+    }
+    let mut runtime = bridge_state().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if runtime.pending_action.as_ref().is_some_and(|action| action.id == action_id) {
+        runtime.pending_action = None;
+    }
+    Err("等待浏览器扩展执行超时。请重新发送网页后再试。".into())
+}
+
 #[tauri::command]
 pub fn clear_browser_capture() -> BrowserBridgeStatus {
     let mut runtime = bridge_state()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     runtime.latest_capture = None;
+    runtime.pending_action = None;
+    runtime.action_result = None;
     runtime.status()
 }
 

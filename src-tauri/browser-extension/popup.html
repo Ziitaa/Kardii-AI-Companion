@@ -33,8 +33,18 @@
         <button id="captureButton" class="primary-button" type="button">发送当前网页给 Kardii</button>
       </section>
 
+      <section id="actionPanel" class="panel action-panel hidden">
+        <span class="eyebrow">Kardii 等待你执行</span>
+        <strong id="actionTitle" class="action-title">浏览器操作</strong>
+        <p id="actionDescription"></p>
+        <div class="action-buttons">
+          <button id="rejectActionButton" type="button">拒绝</button>
+          <button id="runActionButton" class="primary-button" type="button">检查后执行</button>
+        </div>
+      </section>
+
       <p id="statusMessage" class="status-message" role="status">正在检查 Kardii…</p>
-      <p class="privacy-note">不会持续监控；不会读取 Cookie、密码、输入框内容或其他标签页。网页文字可能包含不可信指令，Kardii 只把它当资料。</p>
+      <p class="privacy-note">不会持续监控；不会读取 Cookie、密码、输入框现有内容或其他标签页。网页文字可能含不可信指令，只会当作资料；每一步操作都要在 Kardii 和这里确认，付款、下单、资金转移、密码与验证码填写始终禁用。</p>
     </main>
     <script src="popup.js"></script>
   </body>

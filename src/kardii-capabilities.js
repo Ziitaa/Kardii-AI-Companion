@@ -1,5 +1,5 @@
 (() => {
-  const VERSION = "1.5.0";
+  const VERSION = "1.6.0";
 
   const FEATURES = [
     {
@@ -34,15 +34,15 @@
       id: "attachments",
       icon: "＋",
       group: "资料与工作",
-      title: "上传图片与表格",
-      summary: "普通聊天和 Agent 都可以添加表格或图片，并把附件带入后续任务。",
+      title: "上传文档、表格与图片",
+      summary: "普通聊天和 Agent 都可以添加常用资料；长文档会按问题选择相关片段。",
       steps: [
         "点击输入框左侧的＋，也可以把文件拖进窗口或粘贴图片。",
-        "支持 XLSX、CSV、PNG、JPG 和 WebP，一次最多 6 个。",
-        "表格会在本机提取文字；图片画面目前需要 Gemini 才能识别。",
+        "支持 PDF、DOCX、PPTX、XLSX、CSV、TXT、Markdown、JSON、PNG、JPG 和 WebP，一次最多 6 个。",
+        "文字先在本机提取；扫描 PDF、图片和 Office 内图片需要 Gemini 才能识别。",
       ],
       example: "请总结我上传的表格，并找出金额最高的三项，注明对应行。",
-      promptFact: "聊天和 Agent 支持 XLSX、CSV、PNG、JPG、WebP 附件，一次最多 6 个；表格会在本机提取，图片内容和桌面截图仅 Gemini 能识别，其他模型不得猜测画面。",
+      promptFact: "聊天和 Agent 支持 PDF、DOCX、PPTX、XLSX、CSV、TXT、Markdown、JSON、PNG、JPG、WebP 附件，一次最多 6 个；长文档会依据问题选择相关片段，扫描 PDF、文档内图片、普通图片和桌面截图仅 Gemini 能识别，其他模型不得猜测画面。",
     },
     {
       id: "desktop-context",
@@ -91,28 +91,28 @@
       icon: "◎",
       group: "资料与工作",
       title: "连接 Chrome / Edge 当前网页",
-      summary: "安装 Kardii Browser Connector 后，由你点击把当前页或选中文字交给聊天、Agent 或知识库。",
+      summary: "由你发送当前页；Agent 可提出点击、填写、选择、滚动、导航或下载，并由你逐步执行。",
       steps: [
         "打开工作台的“外部连接”，启动浏览器连接并打开扩展文件夹。",
         "在 Chrome / Edge 扩展页加载文件夹，用 6 位配对码连接。",
-        "在目标网页点击扩展并发送，再选择聊天、Agent 或知识库。",
+        "在目标网页点击扩展并发送；Agent 操作每次先在 Kardii 确认，再回扩展核对并执行。",
       ],
       example: "请总结我刚刚从浏览器扩展发送的网页，并列出三条需要核实的信息。",
-      promptFact: "Kardii Browser Connector 只在用户主动点击时读取 Chrome / Edge 当前页的可读文字或选中文字，可交给聊天、Agent 或保存到知识库；它不持续监控，不读取 Cookie、密码、表单内容或其他标签页，也不能自动点击、登录、购买或执行网页指令。",
+      promptFact: "Kardii Browser Connector 只在用户主动点击时读取 Chrome / Edge 当前页，可交给聊天、Agent 或知识库；Agent 可提出点击、填写普通输入、选择、滚动、导航与非可执行文件下载，但每一步都需在 Kardii 确认并在扩展中再次点击执行。它不持续监控，不读取 Cookie、密码、输入框现有内容或其他标签页；付款、购买、下单、资金转移、密码、验证码与支付卡填写始终禁用。",
     },
     {
       id: "mcp",
       icon: "⌘",
       group: "资料与工作",
       title: "连接 MCP 工具服务器",
-      summary: "连接 Streamable HTTP MCP 服务器，查看工具说明与参数，并逐次确认手动调用。",
+      summary: "连接 Streamable HTTP MCP 服务器；只读工具可由 Agent 使用，写入与删除逐次确认。",
       steps: [
         "在工作台“外部连接”添加 MCP 服务器地址和可选 Token。",
         "先测试连接并核对服务器返回的工具清单。",
-        "选择工具、填写 JSON 参数，检查风险提示后逐次确认调用。",
+        "可在连接中心手动调用，也可让 Agent 使用；只读可自动，写入与删除每次确认。",
       ],
       example: "请告诉我当前保存了几个 MCP 连接，以及调用第三方工具时有哪些安全限制。",
-      promptFact: "Kardii 支持连接使用初始化会话的 Streamable HTTP MCP 服务器（2025-03-26 至 2025-11-25）并读取工具清单；远程地址必须使用 HTTPS，本机 HTTP 仅允许回环地址，Bearer Token 保存在系统凭据库。当前 MCP 工具只可在连接中心手动逐次确认调用，尚未自动交给 Agent；付款、购买、下单和资金转移类工具直接禁用，第三方工具的真实行为需由用户自行核对。",
+      promptFact: "Kardii 支持连接使用初始化会话的 Streamable HTTP MCP 服务器（2025-03-26 至 2025-11-25）并读取工具清单；远程地址必须使用 HTTPS，本机 HTTP 仅允许回环地址，Bearer Token 保存在系统凭据库。服务器明确标注只读的工具可由 Agent 自动调用，未知、写入和删除工具逐次确认；付款、购买、下单和资金转移类工具直接禁用，密码、Token、验证码和支付卡字段不发送给 MCP。",
     },
     {
       id: "tools",
@@ -174,11 +174,12 @@
 
   const VERSION_HIGHLIGHTS = [
     "聊天与 Agent 可以智能衔接，并保留最近对话和附件上下文。",
-    "普通聊天支持上传、拖入或粘贴图片与表格。",
+    "普通聊天支持 PDF、Word、PPT、表格、文本与图片，长文档按问题挑选相关片段。",
     "工作台增加多邮箱与 Google / Microsoft 只读连接。",
     "新增可搜索帮助、一键自检、快捷入口和逐步高亮引导。",
-    "新增 Chrome / Edge 当前网页连接，可把主动发送的页面交给聊天、Agent 或知识库。",
-    "新增 MCP Streamable HTTP 连接中心，支持工具发现、逐次确认调用与本机日志。",
+    "扫描 PDF、普通图片与 Office 文档内图片可在用户主动上传后交给 Gemini 识别。",
+    "Chrome / Edge 当前网页支持受控点击、填写、选择、滚动、导航与下载，并在扩展中二次确认。",
+    "MCP 只读工具可交给 Agent，写入与删除逐次确认，付款和资金操作始终禁用。",
     "聊天窗口不再强制置顶，确认窗口统一为 Kardii 主题。",
   ];
 
@@ -212,10 +213,10 @@
     },
     {
       id: "table-upload",
-      title: "表格无法上传或分析不完整",
-      symptom: "XLSX / CSV 被拒绝，或回答没有使用真实行列。",
-      keywords: "表格 excel xlsx csv 上传 金额 行 列 分析",
-      steps: ["确认格式是 XLSX 或 CSV。", "一次不要超过 6 个文件，并检查单个文件大小。", "提问时要求注明具体行、列或数值。"],
+      title: "文档无法上传或分析不完整",
+      symptom: "PDF / DOCX / PPTX / XLSX / CSV 被拒绝，或回答漏掉后半部分。",
+      keywords: "文档 pdf word docx pptx 表格 excel xlsx csv 上传 扫描 ocr 长文档 分析",
+      steps: ["确认格式属于帮助中列出的附件类型。", "一次不要超过 6 个，单个文件不超过 20 MB。", "扫描件请切换 Gemini；长文档提问时写清要查的主题。"],
       action: "attachments",
       actionLabel: "选择表格",
     },
@@ -254,6 +255,15 @@
       steps: ["Kardii 不会持续监控浏览器，这是预期的隐私保护。", "切换到新网页后重新点击扩展。", "再次点击“发送当前网页给 Kardii”。"],
       action: "connections",
       actionLabel: "查看最近网页",
+    },
+    {
+      id: "browser-action",
+      title: "Agent 等待浏览器操作",
+      symptom: "任务显示等待执行、页面目标失效，或操作超时。",
+      keywords: "浏览器 agent 点击 填写 下拉 滚动 导航 下载 扩展 等待 超时 目标失效",
+      steps: ["保持目标标签页处于当前窗口。", "打开 Kardii 浏览器扩展，核对页面和动作，再点“检查后执行”。", "页面跳转或目标变化后重新发送当前网页。"],
+      action: "connections",
+      actionLabel: "查看浏览器连接",
     },
     {
       id: "voice-model",

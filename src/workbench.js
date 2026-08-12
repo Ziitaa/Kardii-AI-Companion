@@ -193,6 +193,7 @@ const bundleProjectSelect = document.getElementById("bundleProjectSelect");
 const bundleStatus = document.getElementById("bundleStatus");
 const bundleDraftFields = document.getElementById("bundleDraftFields");
 const analyzeBundleButton = document.getElementById("analyzeBundleButton");
+const ocrBundleButton = document.getElementById("ocrBundleButton");
 const saveBundleButton = document.getElementById("saveBundleButton");
 const bundleIncludeChat = document.getElementById("bundleIncludeChat");
 const bundleChatSummary = document.getElementById("bundleChatSummary");
@@ -1388,7 +1389,7 @@ function renderMcpLogs() {
 function mcpToolRisk(tool) {
   if (!tool) return "unknown";
   const text = `${tool.name || ""} ${tool.description || ""}`;
-  if (/(?:^|[^a-z0-9])(?:purchase|payment|pay|checkout|place[_ -]?order|buy|transfer[_ -]?(?:funds?|money)|wire[_ -]?transfer|withdraw)(?:$|[^a-z0-9])|支付|购买|付款|转账|汇款|下单/i.test(text)) return "blocked";
+  if (/(?:^|[^a-z0-9])(?:purchase|payment|pay|charge|payout|refund|checkout|(?:place|submit)[_ -]?order|buy|transfer[_ -]?(?:funds?|money)|wire[_ -]?transfer|withdraw)(?:$|[^a-z0-9])|支付|购买|付款|退款|转账|汇款|下单|提交订单/i.test(text)) return "blocked";
   if (tool.destructiveHint || /(?:^|[^a-z0-9])(?:delete|remove|erase|destroy|drop|truncate|revoke)(?:$|[^a-z0-9])|删除|撤销|销毁|清空/i.test(text)) return "destructive";
   if (tool.readOnlyHint) return "read";
   return "write";
@@ -1624,7 +1625,13 @@ async function callSelectedMcpTool() {
   const started = Date.now();
   try {
     const result = await invoke("call_mcp_tool", {
-      request: { serverId: server.serverId, url: server.url, toolName: tool.name, arguments: argumentsValue },
+      request: {
+        serverId: server.serverId,
+        url: server.url,
+        toolName: tool.name,
+        arguments: argumentsValue,
+        allowWrite: risk !== "read",
+      },
     });
     const output = String(result.content || JSON.stringify(result.structuredContent || {}, null, 2));
     mcpToolOutput.textContent = output || "工具调用完成，但没有返回可显示的内容。";
@@ -3263,6 +3270,19 @@ async function importKnowledgeFiles() {
   }
 }
 
+function renderPendingBundleFiles() {
+  bundleFileList.innerHTML = pendingBundleFiles.map((file) => `
+    <div class="bundle-file">
+      <span class="bundle-file-badge">${escapeHtml(file.fileType || "file")}</span>
+      <div><strong>${escapeHtml(file.name)}</strong><span>${formatFileSize(file.size)} · ${(Number(file.charCount) || 0).toLocaleString("zh-CN")} 字</span></div>
+      <small>${escapeHtml(file.warning || "已在本机读取，尚未保存")}</small>
+    </div>
+  `).join("");
+  const ocrCount = pendingBundleFiles.filter((file) => file.needsOcr === true && file.ocrToken).length;
+  ocrBundleButton.disabled = ocrCount === 0;
+  ocrBundleButton.textContent = ocrCount ? `识别扫描件 / 图片（${ocrCount}）` : "无需视觉识别";
+}
+
 function openBundlePreview(files, emailUid = "") {
   pendingBundleFiles = [...new Map(files.map((file) => {
     const normalized = { ...file, sourcePath: file.sourcePath || file.path };
@@ -3295,14 +3315,11 @@ function openBundlePreview(files, emailUid = "") {
   const matchedProject = data.projects.find((item) => String(item.name || "").trim().length >= 2 && searchable.includes(String(item.name).trim().toLowerCase()));
   bundleRelationSelect.value = matchedRelationship?.id || "";
   bundleProjectSelect.value = matchedProject?.id || "";
-  bundleFileList.innerHTML = pendingBundleFiles.map((file) => `
-    <div class="bundle-file">
-      <span class="bundle-file-badge">${escapeHtml(file.fileType || "file")}</span>
-      <div><strong>${escapeHtml(file.name)}</strong><span>${formatFileSize(file.size)} · ${(Number(file.charCount) || 0).toLocaleString("zh-CN")} 字</span></div>
-      <small>${escapeHtml(file.warning || "已在本机读取，尚未保存")}</small>
-    </div>
-  `).join("");
-  bundleStatus.textContent = `已读取 ${pendingBundleFiles.length} 份资料。原件尚未复制进 Kardii，先检查文件和关联对象。`;
+  renderPendingBundleFiles();
+  const ocrCount = pendingBundleFiles.filter((file) => file.needsOcr === true && file.ocrToken).length;
+  bundleStatus.textContent = ocrCount
+    ? `已读取 ${pendingBundleFiles.length} 份资料，其中 ${ocrCount} 份含扫描页或图片。建议先视觉识别，再综合分析。`
+    : `已读取 ${pendingBundleFiles.length} 份资料。原件尚未复制进 Kardii，先检查文件和关联对象。`;
   bundleStatus.className = "";
   bundleDraftFields.classList.add("hidden");
   ["bundleDraftTitle", "bundleDraftSummary", "bundleDraftKeyPoints", "bundleDraftCommitments", "bundleDraftQuestions", "bundleDraftRisks", "bundleDraftActions"]
@@ -3409,6 +3426,50 @@ function closeBundlePreview() {
   setBundleNewRelationVisible(false);
 }
 
+async function ocrPendingBundle() {
+  const candidates = pendingBundleFiles.filter((file) => file.needsOcr === true && file.ocrToken);
+  if (!candidates.length) return;
+  const ai = currentResearchAiConfig();
+  if (ai.provider !== "gemini") {
+    bundleStatus.textContent = "扫描件、图片和文档内图片识别目前需要在聊天设置中选择 Gemini。";
+    bundleStatus.className = "error";
+    return;
+  }
+  ocrBundleButton.disabled = true;
+  analyzeBundleButton.disabled = true;
+  bundleStatus.className = "";
+  try {
+    for (let index = 0; index < candidates.length; index += 1) {
+      const file = candidates[index];
+      bundleStatus.textContent = `正在识别 ${index + 1}/${candidates.length}：${file.name}。资料只在你点击后发送给 Gemini。`;
+      const result = await invoke("analyze_imported_knowledge_visual", {
+        request: {
+          ocrToken: file.ocrToken,
+          provider: ai.provider,
+          model: ai.model,
+          ollamaBaseUrl: ai.ollamaBaseUrl,
+        },
+      });
+      const original = String(file.content || "");
+      const placeholderOnly = /^\[(?:图片附件|扫描版 PDF|DOCX 图片型文档|PPTX 图片型文档|XLSX 图片型文档)\]/.test(original.trim());
+      file.content = placeholderOnly
+        ? String(result.content || "")
+        : `${original}\n\n[文档内图片视觉识别]\n${String(result.content || "")}`;
+      file.charCount = file.content.length;
+      file.warning = String(result.warning || "已完成视觉识别，请检查关键内容。");
+      file.needsOcr = false;
+      renderPendingBundleFiles();
+    }
+    bundleStatus.textContent = `已完成 ${candidates.length} 份资料的视觉识别。请检查后再分析或保存。`;
+  } catch (error) {
+    bundleStatus.textContent = String(error);
+    bundleStatus.className = "error";
+  } finally {
+    renderPendingBundleFiles();
+    analyzeBundleButton.disabled = false;
+  }
+}
+
 async function analyzePendingBundle() {
   if (!pendingBundleFiles.length) return;
   const ai = currentResearchAiConfig();
@@ -3417,6 +3478,7 @@ async function analyzePendingBundle() {
     return;
   }
   analyzeBundleButton.disabled = true;
+  ocrBundleButton.disabled = true;
   analyzeBundleButton.textContent = "正在综合分析…";
   bundleStatus.textContent = `正在比较 ${pendingBundleFiles.length} 份文件${bundleIncludeChat.checked ? "和当前聊天" : ""}；分析结果只会作为草稿，保存前仍可修改。`;
   try {
@@ -3448,6 +3510,7 @@ async function analyzePendingBundle() {
   } finally {
     analyzeBundleButton.disabled = false;
     analyzeBundleButton.textContent = pendingBundleAnalysis ? "重新分析" : "AI 综合分析";
+    if (pendingBundleFiles.length) renderPendingBundleFiles();
   }
 }
 
@@ -3459,6 +3522,7 @@ async function savePendingBundle() {
   if (!pendingBundleFiles.length) return;
   saveBundleButton.disabled = true;
   analyzeBundleButton.disabled = true;
+  ocrBundleButton.disabled = true;
   bundleStatus.textContent = "正在把确认过的原件复制进 Kardii 本地文件库…";
   const previousKnowledge = structuredClone(data.knowledge);
   const previousReports = structuredClone(data.reports);
@@ -3586,6 +3650,7 @@ async function savePendingBundle() {
   } finally {
     saveBundleButton.disabled = false;
     analyzeBundleButton.disabled = false;
+    if (pendingBundleFiles.length) renderPendingBundleFiles();
   }
 }
 
@@ -3698,6 +3763,7 @@ document.getElementById("importKnowledgeButton").addEventListener("click", impor
 document.getElementById("askKnowledgeButton").addEventListener("click", askKnowledgeBase);
 document.getElementById("bundleCloseButton").addEventListener("click", closeBundlePreview);
 document.getElementById("bundleCancelButton").addEventListener("click", closeBundlePreview);
+ocrBundleButton.addEventListener("click", ocrPendingBundle);
 analyzeBundleButton.addEventListener("click", analyzePendingBundle);
 saveBundleButton.addEventListener("click", savePendingBundle);
 bundleBackdrop.addEventListener("mousedown", (event) => {

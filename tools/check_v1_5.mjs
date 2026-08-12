@@ -28,11 +28,11 @@ const capabilityJs = read("src/kardii-capabilities.js");
 const readme = read("README.md");
 
 for (const version of [packageJson.version, packageLock.version, packageLock.packages[""].version, tauriConfig.version]) {
-  assert(version === "1.5.0", `v1.5 版本号未统一: ${version}`);
+  assert(version === "1.6.0", `当前版本号未统一: ${version}`);
 }
-assert(/version = "1\.5\.0"/.test(cargo), "Cargo.toml 未更新到 v1.5.0");
-assert(chatJs.includes('appVersion: "1.5.0"'), "完整备份版本号未更新到 v1.5.0");
-assert(capabilityJs.includes('const VERSION = "1.5.0"'), "功能清单版本未更新到 v1.5.0");
+assert(/version = "1\.6\.0"/.test(cargo), "Cargo.toml 未更新到 v1.6.0");
+assert(chatJs.includes('appVersion: "1.6.0"'), "完整备份版本号未更新到 v1.6.0");
+assert(capabilityJs.includes('const VERSION = "1.6.0"'), "功能清单版本未更新到 v1.6.0");
 
 for (const command of [
   "start_browser_bridge", "stop_browser_bridge", "browser_bridge_status",
@@ -118,18 +118,18 @@ assert(workbenchJs.includes("MCP_LOGS_KEY") && workbenchJs.includes("durationMs"
 const normalizeMcpSource = workbenchJs.slice(workbenchJs.indexOf("function normalizeMcpServer"), workbenchJs.indexOf("function loadMcpLogs"));
 assert(!/token\s*:/.test(normalizeMcpSource), "MCP Token 不应进入工作台服务器数据模型");
 const agentAllowedTools = rust.slice(rust.indexOf("let allowed_tools = ["), rust.indexOf("if !allowed_tools.contains"));
-assert(!agentAllowedTools.includes("mcp"), "v1.5 不应在没有逐次确认层时把 MCP 自动交给 Agent");
+assert(agentAllowedTools.includes("mcp_call"), "v1.6 应把受控 MCP 工具交给 Agent");
 
 const capabilityContext = vm.createContext({ window: {} });
 vm.runInContext(capabilityJs, capabilityContext);
 const capabilityIds = vm.runInContext("window.KardiiCapabilities.features.map((item) => item.id)", capabilityContext);
 assert(capabilityIds.includes("browser") && capabilityIds.includes("mcp"), "共享功能清单缺少浏览器或 MCP");
 const knowledge = vm.runInContext(`window.KardiiCapabilities.knowledgeText({
-  appVersion: "1.5.0", browserRunning: true, browserPaired: true,
+  appVersion: "1.6.0", browserRunning: true, browserPaired: true,
   browserCaptureTitle: "测试网页", mcpConfigured: 1, mcpConnected: 1
 })`, capabilityContext);
 assert(knowledge.includes("浏览器已连接") && knowledge.includes("MCP1 个已连接"), "功能认知没有包含浏览器或 MCP 动态状态");
-assert(knowledge.includes("不持续监控") && knowledge.includes("尚未自动交给 Agent"), "功能认知没有准确说明浏览器或 MCP 限制");
+assert(knowledge.includes("不持续监控") && knowledge.includes("逐次确认"), "功能认知没有准确说明浏览器或 MCP 限制");
 assert(readme.includes("v1.5 浏览器与 MCP 连接") && readme.includes("Streamable HTTP"), "README 缺少 v1.5 安装与安全说明");
 
 console.log("Kardii v1.5 browser and MCP connection checks passed.");

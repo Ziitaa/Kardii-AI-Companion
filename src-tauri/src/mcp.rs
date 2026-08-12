@@ -22,6 +22,8 @@ pub struct McpCallRequest {
     tool_name: String,
     #[serde(default)]
     arguments: Value,
+    #[serde(default)]
+    allow_write: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -52,6 +54,44 @@ pub struct McpCallResult {
     pub structured_content: Option<Value>,
     pub is_error: bool,
     pub duration_ms: u128,
+}
+
+fn mcp_tool_risk(tool: &McpToolInfo) -> &'static str {
+    let text = format!("{} {}", tool.name, tool.description).to_ascii_lowercase();
+    let contains_blocked_word = text
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .any(|word| matches!(word, "pay" | "buy"));
+    if contains_blocked_word || [
+        "purchase", "payment", "checkout", "place order", "place_order", "submit order",
+        "submit_order", "buy now", "transfer funds", "transfer money", "wire transfer",
+        "withdraw", "charge", "payout", "refund", "支付", "购买", "付款", "结账",
+        "下单", "提交订单", "转账", "汇款", "提现", "退款",
+    ].iter().any(|term| text.contains(term)) {
+        "blocked"
+    } else if tool.destructive_hint || [
+        "delete", "remove", "erase", "destroy", "drop", "truncate", "revoke", "删除",
+        "撤销", "销毁", "清空",
+    ].iter().any(|term| text.contains(term)) {
+        "destructive"
+    } else if tool.read_only_hint {
+        "read"
+    } else {
+        "write"
+    }
+}
+
+fn mcp_arguments_contain_secret(value: &Value) -> bool {
+    match value {
+        Value::Object(map) => map.iter().any(|(key, value)| {
+            let lower = key.to_ascii_lowercase().replace('-', "_").replace(' ', "_");
+            ["password", "passcode", "secret", "token", "api_key", "apikey", "otp", "cvv", "cvc", "card_number"]
+                .iter()
+                .any(|blocked| lower.contains(blocked))
+                || mcp_arguments_contain_secret(value)
+        }),
+        Value::Array(items) => items.iter().any(mcp_arguments_contain_secret),
+        _ => false,
+    }
 }
 
 struct McpSession {
@@ -354,9 +394,22 @@ pub async fn call_mcp_tool(request: McpCallRequest) -> Result<McpCallResult, Str
             return Err(error);
         }
     };
-    if !tools.iter().any(|tool| tool.name == tool_name) {
+    let Some(tool) = tools.iter().find(|tool| tool.name == tool_name) else {
         close_mcp_session(&session).await;
         return Err("所选工具不在服务器刚刚返回的工具清单中，已拒绝调用。".into());
+    };
+    let risk = mcp_tool_risk(tool);
+    if risk == "blocked" {
+        close_mcp_session(&session).await;
+        return Err("Kardii 禁止调用付款、购买、下单或资金转移类 MCP 工具。".into());
+    }
+    if risk != "read" && !request.allow_write {
+        close_mcp_session(&session).await;
+        return Err("这个 MCP 工具未证明只读，需要用户对本次写入或删除操作单独确认。".into());
+    }
+    if mcp_arguments_contain_secret(&request.arguments) {
+        close_mcp_session(&session).await;
+        return Err("MCP 参数包含密码、Token、验证码或支付卡等敏感字段，Kardii 已拒绝发送。".into());
     }
     let call = json!({
         "jsonrpc": "2.0",
