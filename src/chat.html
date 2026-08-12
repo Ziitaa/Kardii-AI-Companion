@@ -5,21 +5,25 @@
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <title>和 Kardii 聊天</title>
     <link rel="stylesheet" href="./chat.css">
+    <link rel="stylesheet" href="./kardii-dialog.css">
   </head>
   <body>
     <main class="chat-card" aria-label="Kardii 聊天窗口">
       <header data-tauri-drag-region>
         <div class="avatar">K</div>
-        <div>
+        <div class="chat-identity">
           <strong>Kardii</strong>
           <span id="activeModelBadge" class="active-model-badge">DeepSeek</span>
         </div>
-        <button id="agentCenterButton" class="icon-button agent-center-button" type="button" aria-label="Agent 任务中心" title="打开 Agent 任务中心">✦</button>
-        <button id="workbenchButton" class="icon-button workbench-button" type="button" aria-label="工作台" title="打开工作台">▦</button>
-        <button id="toolsButton" class="icon-button tools-button" type="button" aria-label="桌面工具">⌘</button>
-        <button id="profileButton" class="icon-button profile-button" type="button" aria-label="个性与记忆">♡</button>
-        <button id="settingsButton" class="icon-button settings-button" type="button" aria-label="AI 设置">⚙</button>
-        <button id="closeButton" class="icon-button" type="button" aria-label="关闭">×</button>
+        <div class="header-actions" aria-label="Kardii 快捷功能">
+          <button id="agentCenterButton" class="icon-button agent-center-button" type="button" aria-label="Agent 任务中心" title="Agent 任务中心">✦</button>
+          <button id="workbenchButton" class="icon-button workbench-button" type="button" aria-label="工作台" title="工作台">▦</button>
+          <button id="toolsButton" class="icon-button tools-button" type="button" aria-label="桌面工具" title="桌面工具">⌘</button>
+          <button id="profileButton" class="icon-button profile-button" type="button" aria-label="个性与记忆" title="个性与记忆">♡</button>
+          <button id="settingsButton" class="icon-button settings-button" type="button" aria-label="AI 设置" title="AI 与语音设置">⚙</button>
+          <button id="helpButton" class="icon-button help-button" type="button" aria-label="帮助与使用说明" title="帮助与使用说明">?</button>
+          <button id="closeButton" class="icon-button close-chat-button" type="button" aria-label="关闭" title="关闭">×</button>
+        </div>
       </header>
 
       <section id="messages" class="messages" aria-live="polite"></section>
@@ -46,10 +50,17 @@
         </div>
       </div>
 
+      <section id="chatAttachmentTray" class="chat-attachment-tray hidden" aria-label="聊天附件">
+        <div id="chatAttachmentList" class="chat-attachment-list"></div>
+        <p id="chatAttachmentHint">支持 XLSX、CSV、PNG、JPG、WebP；最多 6 个</p>
+      </section>
+
       <form id="chatForm">
+        <input id="chatAttachmentInput" type="file" accept=".xlsx,.csv,image/png,image/jpeg,image/webp" multiple hidden>
+        <button id="addChatAttachmentButton" type="button" aria-label="添加表格或图片" title="添加表格或图片，也可以拖入文件或粘贴图片">＋</button>
         <textarea id="messageInput" rows="1" maxlength="4000" placeholder="问问 Kardii……" aria-label="消息"></textarea>
         <button id="agentModeButton" type="button" aria-label="切换 Agent 模式" title="交给 Agent 执行">A</button>
-       <button id="awarenessButton" type="button" aria-label="查看桌面上下文" title="选择一个窗口让 Kardii 看看">👁</button>
+        <button id="awarenessButton" type="button" aria-label="查看桌面上下文" title="选择一个窗口让 Kardii 看看">👁</button>
         <button id="micButton" type="button" aria-label="开始语音输入" title="语音输入">🎙</button>
         <button id="stopButton" class="hidden" type="button" aria-label="停止回答">■</button>
         <button id="sendButton" type="submit" aria-label="发送">➤</button>
@@ -64,7 +75,7 @@
           </div>
           <div class="settings-section-title ai-section-title">
             <strong>聊天模型</strong>
-            <span>v1.1</span>
+            <span data-current-version>v1.4.0</span>
           </div>
           <label for="providerSelect">AI 服务</label>
           <select id="providerSelect" class="settings-input">
@@ -84,7 +95,7 @@
               <input id="ollamaBaseUrlInput" class="settings-input" value="http://127.0.0.1:11434" autocomplete="off">
               <button id="refreshOllamaButton" class="secondary-button" type="button">刷新模型</button>
             </div>
-            <p class="ollama-note">需要先安装并运行 Ollama，再在 Ollama 中下载至少一个模型。v0.7 只连接这台电脑。</p>
+            <p class="ollama-note">需要先安装并运行 Ollama，再在 Ollama 中下载至少一个模型。Kardii 只连接这台电脑。</p>
           </div>
 
           <label for="responseLengthSelect">回答长度</label>
@@ -95,6 +106,14 @@
             <option value="8000">超长 · 费用更高</option>
           </select>
           <p class="provider-description">“自动完整”会在模型因长度停止时自动续写并拼接，避免回答停在半句话。</p>
+
+          <label class="voice-toggle-row auto-agent-toggle" for="autoAgentHandoffToggle">
+            <span>
+              <strong>自动衔接 Agent</strong>
+              <small>问问题时正常聊天；明确要求开始、执行或操作时，带着最近对话转入 Agent</small>
+            </span>
+            <input id="autoAgentHandoffToggle" type="checkbox" checked>
+          </label>
 
           <div id="apiKeySection">
             <label id="apiKeyLabel" for="apiKeyInput">API Key</label>
@@ -122,27 +141,28 @@
             <p class="ollama-note">登录由官方 Codex 在浏览器中完成。Kardii 不读取账号密码或登录令牌，使用量计入你的 ChatGPT/Codex 额度。</p>
           </div>
           <button id="clearHistoryButton" class="clear-history-button" type="button">清空聊天记录</button>
+          <button id="reopenOnboardingButton" class="guide-settings-button" type="button">重新查看新手引导与本次更新</button>
           <div class="settings-section-title">
-  <strong>应用更新</strong>
-  <span>v0.8.1</span>
-</div>
+            <strong>应用更新</strong>
+            <span data-current-version>v1.4.0</span>
+          </div>
 
-<div class="update-card">
-  <div class="update-information">
-    <strong id="appVersionLabel">当前版本：正在读取……</strong>
-    <span id="updateStatus" class="update-status">可以手动检查 Kardii 的新版本。</span>
-    <span id="updateNotes" class="update-notes hidden"></span>
-  </div>
+          <div class="update-card">
+            <div class="update-information">
+              <strong id="appVersionLabel">当前版本：正在读取……</strong>
+              <span id="updateStatus" class="update-status">可以手动检查 Kardii 的新版本。</span>
+              <span id="updateNotes" class="update-notes hidden"></span>
+            </div>
 
-  <div class="update-actions">
-    <button id="checkUpdateButton" class="secondary-button" type="button">检查更新</button>
-    <button id="installUpdateButton" class="primary-button hidden" type="button">下载并安装</button>
-  </div>
-</div>
+            <div class="update-actions">
+              <button id="checkUpdateButton" class="secondary-button" type="button">检查更新</button>
+              <button id="installUpdateButton" class="primary-button hidden" type="button">下载并安装</button>
+            </div>
+          </div>
 
           <div class="settings-section-title">
             <strong>离线语音</strong>
-            <span>v0.6</span>
+            <span data-current-version>v1.4.0</span>
           </div>
           <p class="voice-privacy">录音只在这台电脑上识别，不会上传。第一次需要联网下载约 160 MB，安装后占用约 230 MB。</p>
           <div class="voice-model-card">
@@ -278,6 +298,87 @@
           <div id="toolLogList" class="tool-log-list"></div>
         </div>
       </section>
+      <section id="helpPanel" class="settings-panel help-panel hidden" aria-label="帮助与使用说明">
+        <div class="settings-box help-box">
+          <div class="settings-title help-title">
+            <div>
+              <strong>帮助与使用说明</strong>
+              <span>忘记时随时回来看看</span>
+            </div>
+            <button id="helpCloseButton" class="icon-button" type="button" aria-label="关闭帮助">×</button>
+          </div>
+
+          <section class="help-hero">
+            <div>
+              <span class="help-kicker">KARDII GUIDE</span>
+              <h2>想做什么，就从对应功能开始</h2>
+              <p>这里的内容和 Kardii 自己掌握的功能清单来自同一份资料。</p>
+            </div>
+            <div class="help-hero-side">
+              <span id="helpVersionBadge" class="help-version">v1.4.0</span>
+              <button id="startTourButton" type="button">播放新手引导</button>
+              <button id="showWhatsNewButton" type="button">查看本次更新</button>
+            </div>
+          </section>
+
+          <label class="help-search" for="helpSearchInput">
+            <span>⌕</span>
+            <input id="helpSearchInput" type="search" placeholder="搜索功能或问题，例如：图片、Agent、邮箱">
+          </label>
+
+          <div class="help-section-heading">
+            <div><strong>当前状态</strong><span id="helpStatusTime">正在读取……</span></div>
+            <button id="refreshHelpStatusButton" class="secondary-button" type="button">一键自检</button>
+          </div>
+          <div id="helpStatusList" class="help-status-list" aria-live="polite"></div>
+          <div id="helpSelfCheckList" class="help-self-check-list"></div>
+
+          <div class="help-section-heading help-feature-heading">
+            <div><strong>按任务查看</strong><span>展开后只看两三步</span></div>
+          </div>
+          <div id="helpFeatureList" class="help-feature-list"></div>
+
+          <div class="help-section-heading help-troubleshooting-heading">
+            <div><strong>常见问题</strong><span>搜索会同时筛选这里</span></div>
+          </div>
+          <div id="helpTroubleshootingList" class="help-troubleshooting-list"></div>
+          <div id="helpSearchEmpty" class="help-search-empty hidden">没有找到相关说明，换一个更短的关键词试试。</div>
+
+          <section class="help-whats-new">
+            <div class="help-section-heading">
+              <div><strong>这个版本新增了什么</strong><span>v1.4</span></div>
+            </div>
+            <ul id="helpVersionHighlights"></ul>
+          </section>
+        </div>
+      </section>
+      <section id="welcomePanel" class="welcome-panel hidden" role="dialog" aria-modal="true" aria-labelledby="welcomeTitle">
+        <div class="welcome-card">
+          <div class="welcome-badge-row"><span class="help-kicker">WHAT'S NEW</span><span id="welcomeVersionBadge" class="help-version">v1.4.0</span></div>
+          <h2 id="welcomeTitle">Kardii 已经准备好继续陪你工作了</h2>
+          <p>这次除了新功能，也补上了可以随时重看的使用说明。</p>
+          <ul id="welcomeHighlights"></ul>
+          <div class="welcome-actions">
+            <button id="dismissWelcomeButton" class="secondary-button" type="button">直接使用</button>
+            <button id="startWelcomeTourButton" class="primary-button" type="button">开始 1 分钟引导</button>
+          </div>
+        </div>
+      </section>
+      <section id="tourOverlay" class="tour-overlay hidden" aria-label="Kardii 新手引导">
+        <div class="tour-shield"></div>
+        <div id="tourSpotlight" class="tour-spotlight"></div>
+        <div id="tourPopover" class="tour-popover" role="dialog" aria-live="polite">
+          <span id="tourProgress" class="tour-progress">1 / 6</span>
+          <strong id="tourTitle"></strong>
+          <p id="tourDescription"></p>
+          <div class="tour-actions">
+            <button id="skipTourButton" type="button">跳过</button>
+            <span></span>
+            <button id="previousTourButton" type="button">上一步</button>
+            <button id="nextTourButton" type="button">下一步</button>
+          </div>
+        </div>
+      </section>
       <section id="awarenessPanel" class="settings-panel awareness-panel hidden" aria-label="桌面上下文">
         <div class="settings-box awareness-box">
           <div class="settings-title">
@@ -335,6 +436,9 @@
         </div>
       </section>
     </main>
+    <script src="./kardii-task-title.js"></script>
+    <script src="./kardii-capabilities.js"></script>
+    <script src="./kardii-dialog.js"></script>
     <script src="./chat.js"></script>
   </body>
 </html>

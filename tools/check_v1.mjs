@@ -7,12 +7,13 @@ const assert = (condition, message) => {
   if (!condition) throw new Error(message);
 };
 
-for (const file of ["src/agent.js", "src/chat.js", "src/workbench.js"]) {
+for (const file of ["src/agent.js", "src/chat.js", "src/workbench.js", "src/kardii-dialog.js", "src/kardii-task-title.js"]) {
   execFileSync(process.execPath, ["--check", new URL(`../${file}`, import.meta.url).pathname], { stdio: "pipe" });
 }
 
 const agentHtml = read("src/agent.html");
 const agentJs = read("src/agent.js");
+const taskTitleJs = read("src/kardii-task-title.js");
 const rust = read("src-tauri/src/lib.rs");
 const config = JSON.parse(read("src-tauri/tauri.conf.json"));
 const capability = JSON.parse(read("src-tauri/capabilities/default.json"));
@@ -33,9 +34,9 @@ for (const command of ["create_agent_plan", "decide_agent_action", "run_web_sear
   assert(agentJs.includes(`invoke("${command}"`), `Agent UI does not call command: ${command}`);
 }
 
-assert(config.version === "1.3.1", "tauri.conf.json version is not 1.3.1");
-assert(packageJson.version === "1.3.1", "package.json version is not 1.3.1");
-assert(/version = "1\.3\.1"/.test(cargo), "Cargo.toml version is not 1.3.1");
+assert(config.version === "1.4.0", "tauri.conf.json version is not 1.4.0");
+assert(packageJson.version === "1.4.0", "package.json version is not 1.4.0");
+assert(/version = "1\.4\.0"/.test(cargo), "Cargo.toml version is not 1.4.0");
 assert(config.app.windows.some((window) => window.label === "agent" && window.url === "agent.html"), "Agent window is missing from Tauri config");
 assert(capability.windows.includes("agent"), "Agent window is missing from capabilities");
 assert(chatHtml.includes('id="agentModeButton"') && chatHtml.includes('id="agentCenterButton"'), "Chat Agent entry points are missing");
@@ -46,7 +47,7 @@ for (const seededText of ["Target 入驻", "欧洲市场启动", "分销合作�
 }
 const fieldMarkup = workbenchJs.slice(workbenchJs.indexOf("function fieldMarkup"), workbenchJs.indexOf("function currentResearchAiConfig"));
 assert(!fieldMarkup.includes("placeholder="), "Workbench modal fields still render placeholder text");
-assert(workbenchJs.includes("settings: { autoCaptureEnabled: false }"), "Business auto-capture is not opt-in for new users");
+assert(/settings:\s*\{\s*autoCaptureEnabled: false,/.test(workbenchJs), "Business auto-capture is not opt-in for new users");
 assert(read("src/chat.js").includes("businessData.settings?.autoCaptureEnabled !== true"), "Chat does not respect the business auto-capture toggle");
 
 class FakeClassList {
@@ -125,6 +126,14 @@ const runtimeContext = vm.createContext({
   setInterval: () => 1,
   clearTimeout() {},
 });
+vm.runInContext(taskTitleJs, runtimeContext);
+const summarizedTitle = vm.runInContext(`window.summarizeAgentTaskTitle(
+  "今天做合规的Daria过来找我聊了之前关于入驻target需要的美国独立商用地址的服务协议分付款事宜，然后协议上还有一些"
+)`, runtimeContext);
+assert(
+  summarizedTitle.includes("Target 入驻") && summarizedTitle.includes("付款事宜") && !summarizedTitle.includes("Daria") && [...summarizedTitle].length <= 35,
+  `Agent task title was not summarized: ${summarizedTitle}`,
+);
 vm.runInContext(agentJs, runtimeContext);
 const createdTaskId = vm.runInContext('createTask("整理一份旅行清单", 7).id', runtimeContext);
 const storedTasks = JSON.parse(localStorage.getItem("kardii-agent-tasks-v1"));
@@ -156,5 +165,11 @@ const skillTask = JSON.parse(localStorage.getItem("kardii-agent-tasks-v1")).find
 assert(skillTask.skillId === "skill-1" && skillTask.skillSnapshot.includes("先分类"), "Agent skill snapshot was not attached to task");
 const dailyNext = vm.runInContext(`nextAutomationRun({ schedule: "daily", time: "09:00" }, new Date("2026-08-04T10:00:00"))`, runtimeContext);
 assert(new Date(dailyNext).getTime() > new Date("2026-08-04T10:00:00").getTime(), "Daily automation did not advance to a future run");
+const attachmentEvidence = vm.runInContext(`questionAttachmentEvidence([
+  { name: "brief.pdf", fileType: "pdf", size: 1200, content: "产品要求：保留原有结构。" },
+  { name: "product.png", fileType: "png", size: 2400, content: "" }
+], "图片中可见一个黑色储物箱。")`, runtimeContext);
+assert(attachmentEvidence.includes("brief.pdf") && attachmentEvidence.includes("保留原有结构"), "Agent file attachment content was not preserved");
+assert(attachmentEvidence.includes("product.png") && attachmentEvidence.includes("图片识别结果"), "Agent image attachment analysis was not preserved");
 
 console.log(`Kardii v1.1 checks passed (${referencedIds.length} Agent UI bindings).`);

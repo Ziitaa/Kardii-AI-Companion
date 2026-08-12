@@ -525,21 +525,33 @@ button { cursor: pointer; }
 .connection-help { margin: 0; color: #9a8790; font-size: 8px; line-height: 1.5; }
 .connection-actions { display: flex; align-items: center; gap: 7px; margin-top: 2px; }
 .connection-actions button:disabled, .connection-card-heading button:disabled { cursor: wait; opacity: 0.55; }
+.connection-account-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; margin-bottom: 11px; }
+.connection-account-toolbar select, .email-inbox-toolbar input, .email-inbox-toolbar select, .cloud-overview-filters select { min-width: 0; padding: 8px 9px; color: var(--ink); background: #fafafb; border: 1px solid #e2e5e9; border-radius: 8px; }
+.connection-maintenance-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 2px; }
+.connection-maintenance-actions button { padding: 5px 2px; color: #8c939b; font-size: 8px; background: transparent; border: 0; }
+.connection-maintenance-actions button.danger { color: #a34f62; }
+.connection-maintenance-actions button:disabled { opacity: 0.45; }
 .connection-status { min-height: 17px; margin: 0; color: #8b929b; font-size: 8px; line-height: 1.5; }
 .connection-status.success { color: #4d8167; }
 .connection-status.error { color: #aa4760; }
 .email-sync-note { display: grid; gap: 3px; margin-bottom: 11px; padding: 10px 11px; color: #647383; background: #f5f8fa; border: 1px solid #e0e7ec; border-radius: 9px; }
 .email-sync-note strong { font-size: 9px; }
 .email-sync-note span { font-size: 8px; line-height: 1.5; }
+.email-inbox-toolbar { display: grid; grid-template-columns: minmax(150px, 1fr) auto auto; gap: 7px; margin-bottom: 9px; }
+.email-inbox-toolbar input, .email-inbox-toolbar select { font-size: 8px; }
+.email-inbox-toolbar input[type="date"] { grid-column: 1 / -1; }
 .email-inbox-list { display: grid; gap: 8px; max-height: 480px; overflow-y: auto; }
 .email-message-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; padding: 11px; background: #fbfbfc; border: 1px solid #e6e8eb; border-radius: 9px; }
 .email-message-card.archived { background: #f6faf7; border-color: #dbe9e0; }
+.email-message-card.source-deleted { border-style: dashed; }
 .email-message-main { min-width: 0; }
 .email-message-main strong, .email-message-main span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .email-message-main strong { font-size: 10px; }
 .email-message-main .email-type-badge { display: inline-block; margin-right: 5px; padding: 2px 5px; overflow: visible; color: #9a6741; font-size: 7px; vertical-align: 1px; background: #faeddc; border-radius: 5px; }
+.email-message-main .email-source-badge { display: inline-block; margin-right: 5px; padding: 2px 5px; overflow: visible; color: #8f5968; font-size: 7px; vertical-align: 1px; background: #f7e9ee; border-radius: 5px; }
 .email-message-main span { margin-top: 3px; color: #8b929b; font-size: 8px; }
 .email-message-main p { margin: 6px 0 0; overflow: hidden; color: #69737e; font-size: 8px; line-height: 1.55; }
+.email-message-main .email-attachment-warning { display: block; margin-top: 5px; color: #a06b3d; font-size: 7px; line-height: 1.45; }
 .email-message-meta { display: flex; grid-column: 1 / -1; align-items: center; justify-content: space-between; gap: 10px; color: #9ba1a8; font-size: 8px; }
 .email-message-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .email-message-actions { display: flex; align-items: flex-start; gap: 5px; }
@@ -547,6 +559,27 @@ button { cursor: pointer; }
 .email-message-card button:disabled { color: #688071; border-color: #d5e4db; cursor: default; }
 .email-message-card .email-delete-button { padding-inline: 7px; color: #a34f62; border-color: #ecd6dc; }
 .email-message-card .email-delete-button:hover { background: #fdf1f4; }
+.cloud-connections-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 14px; }
+.cloud-connection-card { min-width: 0; }
+.connection-icon.google-icon { color: #3f75c5; background: #edf3fc; }
+.connection-icon.microsoft-icon { color: #477c72; background: #eaf4f1; }
+.cloud-check-option { display: flex; align-items: center; gap: 7px; color: #697481; font-size: 8px; line-height: 1.4; }
+.cloud-check-option input { flex: 0 0 auto; width: 13px; height: 13px; accent-color: #a75e78; }
+.cloud-overview-card { margin-top: 14px; }
+.cloud-overview-filters { display: flex; gap: 6px; }
+.cloud-overview-filters select { font-size: 8px; }
+.cloud-overview-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; max-height: 360px; overflow-y: auto; }
+.cloud-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 9px 10px; color: #52606f; text-align: left; background: #fafbfc; border: 1px solid #e4e8ec; border-radius: 8px; }
+.cloud-item:hover { background: #fff; border-color: #d4dde5; }
+.cloud-item:disabled { cursor: default; opacity: 0.75; }
+.cloud-item-service { padding: 3px 5px; color: #5d7184; font-size: 7px; background: #eaf0f5; border-radius: 5px; }
+.cloud-item-service.google { color: #436b9b; background: #eaf1fa; }
+.cloud-item-service.microsoft { color: #47786e; background: #e8f2ef; }
+.cloud-item-main { min-width: 0; }
+.cloud-item-main strong, .cloud-item-main small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cloud-item-main strong { font-size: 9px; }
+.cloud-item-main small { margin-top: 3px; color: #929aa3; font-size: 7px; }
+.cloud-item time { color: #9da4ac; font-size: 7px; white-space: nowrap; }
 .future-connections-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
 .future-connections-grid article { padding: 12px 13px; background: rgba(255, 255, 255, 0.65); border: 1px dashed #dfe3e7; border-radius: 10px; }
 .future-connections-grid span, .future-connections-grid strong { display: block; }
@@ -679,8 +712,9 @@ button { cursor: pointer; }
 .bundle-chat-option span, .bundle-chat-option strong, .bundle-chat-option small { display: block; }
 .bundle-chat-option strong { font-size: 9px; }
 .bundle-chat-option small { margin-top: 2px; color: #939ba4; font-size: 8px; }
-.bundle-chat-option:has(input:disabled) { cursor: not-allowed; opacity: 0.6; }
-.bundle-followup-option { grid-template-columns: auto minmax(0, 1fr) 130px; }
+.bundle-chat-option:has(> input:first-child:disabled) { cursor: not-allowed; opacity: 0.6; }
+.bundle-followup-option { display: grid; grid-template-columns: auto minmax(0, 1fr) 130px; }
+.bundle-followup-option label { cursor: pointer; }
 .bundle-followup-date { width: 130px; padding: 7px 8px; color: #596574; background: #fff; border: 1px solid #dbe2e8; border-radius: 7px; }
 .bundle-analysis-actions { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 11px 12px; background: #fbf5f7; border: 1px solid #ecdce2; border-radius: 10px; }
 .bundle-analysis-actions p { margin: 0; color: #846c76; font-size: 9px; line-height: 1.5; }
@@ -711,6 +745,7 @@ button { cursor: pointer; }
   .intelligence-grid { grid-template-columns: 1fr; }
   .knowledge-layout { grid-template-columns: 1fr; }
   .connections-layout { grid-template-columns: 1fr; }
+  .cloud-connections-grid, .cloud-overview-list { grid-template-columns: 1fr; }
   .future-connections-grid { grid-template-columns: 1fr; }
   .report-grid { grid-template-columns: 1fr; }
   .knowledge-qa { position: static; }
