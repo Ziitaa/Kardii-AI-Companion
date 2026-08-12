@@ -26,6 +26,7 @@ const saveKeyButton = document.getElementById("saveKeyButton");
 const testKeyButton = document.getElementById("testKeyButton");
 const deleteKeyButton = document.getElementById("deleteKeyButton");
 const clearHistoryButton = document.getElementById("clearHistoryButton");
+const reopenOnboardingButton = document.getElementById("reopenOnboardingButton");
 const appVersionLabel = document.getElementById("appVersionLabel");
 const updateStatus = document.getElementById("updateStatus");
 const updateNotes = document.getElementById("updateNotes");
@@ -142,6 +143,26 @@ const helpStatusList = document.getElementById("helpStatusList");
 const helpFeatureList = document.getElementById("helpFeatureList");
 const helpVersionHighlights = document.getElementById("helpVersionHighlights");
 const refreshHelpStatusButton = document.getElementById("refreshHelpStatusButton");
+const startTourButton = document.getElementById("startTourButton");
+const showWhatsNewButton = document.getElementById("showWhatsNewButton");
+const helpSearchInput = document.getElementById("helpSearchInput");
+const helpSelfCheckList = document.getElementById("helpSelfCheckList");
+const helpTroubleshootingList = document.getElementById("helpTroubleshootingList");
+const helpSearchEmpty = document.getElementById("helpSearchEmpty");
+const welcomePanel = document.getElementById("welcomePanel");
+const welcomeVersionBadge = document.getElementById("welcomeVersionBadge");
+const welcomeHighlights = document.getElementById("welcomeHighlights");
+const dismissWelcomeButton = document.getElementById("dismissWelcomeButton");
+const startWelcomeTourButton = document.getElementById("startWelcomeTourButton");
+const tourOverlay = document.getElementById("tourOverlay");
+const tourSpotlight = document.getElementById("tourSpotlight");
+const tourPopover = document.getElementById("tourPopover");
+const tourProgress = document.getElementById("tourProgress");
+const tourTitle = document.getElementById("tourTitle");
+const tourDescription = document.getElementById("tourDescription");
+const skipTourButton = document.getElementById("skipTourButton");
+const previousTourButton = document.getElementById("previousTourButton");
+const nextTourButton = document.getElementById("nextTourButton");
 
 const HISTORY_KEY = "kardii-chat-history-v1";
 const RESPONSE_LENGTH_KEY = "kardii-response-length";
@@ -158,6 +179,7 @@ const AUTOMATIONS_KEY = "kardii-automations-v1";
 const AGENT_TARGET_KEY = "kardii-agent-open-target-v1";
 const AGENT_MODE_KEY = "kardii-chat-agent-mode-v1";
 const AUTO_AGENT_HANDOFF_KEY = "kardii-auto-agent-handoff-v1";
+const ONBOARDING_SEEN_PREFIX = "kardii-onboarding-seen-v1-";
 const MAX_SAVED_MESSAGES = 50;
 const MAX_CHAT_ATTACHMENTS = 6;
 const MAX_CHAT_ATTACHMENT_BYTES = 20 * 1024 * 1024;
@@ -230,6 +252,9 @@ let pendingChatAttachments = [];
 let chatAttachmentProcessing = false;
 let chatDragDepth = 0;
 let appVersion = window.KardiiCapabilities?.version || "1.4.0";
+let onboardingScheduled = false;
+let tourStepIndex = 0;
+let activeTourTarget = null;
 let capabilityRuntime = {
   emailConnected: null,
   cloudConnected: null,
@@ -238,6 +263,39 @@ let capabilityRuntime = {
   codexAuthenticated: false,
   checkedAt: null,
 };
+
+const TOUR_STEPS = Object.freeze([
+  {
+    selector: "#messageInput",
+    title: "先像平常一样聊天",
+    description: "直接提问、写内容或分析资料。明确说“开始执行”时，Kardii 还能自动把后续交给 Agent。",
+  },
+  {
+    selector: "#addChatAttachmentButton",
+    title: "添加图片或表格",
+    description: "点击＋选择 XLSX、CSV、PNG、JPG 或 WebP，也可以把文件拖进聊天框或直接粘贴图片。",
+  },
+  {
+    selector: "#agentModeButton",
+    title: "需要时强制使用 Agent",
+    description: "智能模式会自动判断执行请求；点击 A 可以强制把下一条消息交给 Agent 规划和执行。",
+  },
+  {
+    selector: "#awarenessButton",
+    title: "让 Kardii 看一个窗口",
+    description: "你亲自选择窗口并检查预览后，截图才会附到下一条消息；不会持续监控桌面。",
+  },
+  {
+    selector: "#workbenchButton",
+    title: "长期资料放进工作台",
+    description: "关系、项目、待办、知识库、邮箱和云端连接都集中在这里整理。",
+  },
+  {
+    selector: "#helpButton",
+    title: "忘记时点这里",
+    description: "问号里可以搜索功能、运行一键自检、查看常见问题，并随时重新播放这段引导。",
+  },
+]);
 
 function normalizedAgentHandoffText(value) {
   return String(value || "")
@@ -849,6 +907,60 @@ function renderHelpStatus() {
     ? `更新于 ${capabilityRuntime.checkedAt.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`
     : "打开后自动检测";
   helpVersionBadge.textContent = `v${appVersion}`;
+  renderHelpSelfCheck();
+}
+
+function runHelpAction(action) {
+  if (action === "attachments") {
+    hideHelp();
+    chatAttachmentInput.click();
+    return;
+  }
+  if (action === "connections") {
+    localStorage.setItem(WORKBENCH_TARGET_KEY, JSON.stringify({ view: "connections" }));
+    hideHelp();
+    void openWorkbench();
+    return;
+  }
+  if (action === "profile") {
+    showProfile();
+    setTimeout(() => document.querySelector(".full-backup-actions")?.scrollIntoView({ behavior: "smooth", block: "center" }), 0);
+    return;
+  }
+
+  showSettings();
+  if (action === "voice") {
+    setTimeout(() => voiceModelLabel.closest(".voice-model-card")?.scrollIntoView({ behavior: "smooth", block: "center" }), 0);
+  } else if (action === "agent-settings") {
+    setTimeout(() => autoAgentHandoffToggle.closest("label")?.scrollIntoView({ behavior: "smooth", block: "center" }), 0);
+  }
+}
+
+function renderHelpSelfCheck() {
+  if (!window.KardiiCapabilities?.selfCheckRows) return;
+  helpSelfCheckList.replaceChildren();
+  window.KardiiCapabilities.selfCheckRows(currentCapabilityStatus()).forEach((row) => {
+    const item = document.createElement("div");
+    item.className = "help-self-check-item";
+    item.dataset.tone = row.tone;
+
+    const dot = document.createElement("span");
+    dot.className = "help-self-check-dot";
+    const copy = document.createElement("span");
+    copy.className = "help-self-check-copy";
+    const title = document.createElement("strong");
+    title.textContent = row.title;
+    const detail = document.createElement("span");
+    detail.textContent = row.detail;
+    detail.title = row.detail;
+    copy.append(title, detail);
+    const action = document.createElement("button");
+    action.type = "button";
+    action.textContent = row.actionLabel;
+    action.addEventListener("click", () => runHelpAction(row.action));
+    item.append(dot, copy, action);
+    helpSelfCheckList.appendChild(item);
+  });
 }
 
 function useHelpExample(example) {
@@ -867,6 +979,7 @@ function renderHelpFeatures() {
     if (feature.group !== previousGroup) {
       const group = document.createElement("div");
       group.className = "help-group-label";
+      group.dataset.helpGroup = feature.group;
       group.textContent = feature.group;
       helpFeatureList.appendChild(group);
       previousGroup = feature.group;
@@ -875,6 +988,8 @@ function renderHelpFeatures() {
     const details = document.createElement("details");
     details.className = "help-feature-card";
     details.dataset.featureId = feature.id;
+    details.dataset.helpGroup = feature.group;
+    details.dataset.searchText = [feature.title, feature.summary, feature.example, ...feature.steps].join(" ").toLowerCase();
     details.open = index === 0;
 
     const summary = document.createElement("summary");
@@ -917,7 +1032,75 @@ function renderHelpFeatures() {
     item.textContent = highlight;
     helpVersionHighlights.appendChild(item);
   });
+  renderHelpTroubleshooting();
   renderHelpStatus();
+  filterHelpContent(helpSearchInput.value);
+}
+
+function renderHelpTroubleshooting() {
+  helpTroubleshootingList.replaceChildren();
+  (window.KardiiCapabilities?.troubleshooting || []).forEach((problem) => {
+    const details = document.createElement("details");
+    details.className = "help-troubleshooting-card";
+    details.dataset.problemId = problem.id;
+    details.dataset.searchText = [problem.title, problem.symptom, problem.keywords, ...problem.steps].join(" ").toLowerCase();
+
+    const summary = document.createElement("summary");
+    const copy = document.createElement("span");
+    const title = document.createElement("strong");
+    title.textContent = problem.title;
+    const symptom = document.createElement("small");
+    symptom.textContent = problem.symptom;
+    copy.append(title, symptom);
+    const chevron = document.createElement("span");
+    chevron.className = "help-feature-chevron";
+    chevron.textContent = "›";
+    summary.append(copy, chevron);
+
+    const body = document.createElement("div");
+    body.className = "help-troubleshooting-body";
+    const steps = document.createElement("ol");
+    problem.steps.forEach((step) => {
+      const item = document.createElement("li");
+      item.textContent = step;
+      steps.appendChild(item);
+    });
+    const action = document.createElement("button");
+    action.type = "button";
+    action.className = "help-try-button";
+    action.textContent = problem.actionLabel;
+    action.addEventListener("click", () => runHelpAction(problem.action));
+    body.append(steps, action);
+    details.append(summary, body);
+    helpTroubleshootingList.appendChild(details);
+  });
+}
+
+function filterHelpContent(value = "") {
+  const tokens = String(value).trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const matches = (element) => !tokens.length || tokens.every((token) => element.dataset.searchText.includes(token));
+  let visibleFeatures = 0;
+  let visibleProblems = 0;
+
+  helpFeatureList.querySelectorAll(".help-feature-card").forEach((card) => {
+    const visible = matches(card);
+    card.classList.toggle("hidden", !visible);
+    if (visible) visibleFeatures += 1;
+  });
+  helpFeatureList.querySelectorAll(".help-group-label").forEach((label) => {
+    const visibleInGroup = [...helpFeatureList.querySelectorAll(".help-feature-card")]
+      .some((card) => card.dataset.helpGroup === label.dataset.helpGroup && !card.classList.contains("hidden"));
+    label.classList.toggle("hidden", !visibleInGroup);
+  });
+  helpTroubleshootingList.querySelectorAll(".help-troubleshooting-card").forEach((card) => {
+    const visible = matches(card);
+    card.classList.toggle("hidden", !visible);
+    if (visible) visibleProblems += 1;
+  });
+
+  helpPanel.querySelector(".help-feature-heading")?.classList.toggle("hidden", visibleFeatures === 0);
+  helpPanel.querySelector(".help-troubleshooting-heading")?.classList.toggle("hidden", visibleProblems === 0);
+  helpSearchEmpty.classList.toggle("hidden", visibleFeatures + visibleProblems > 0);
 }
 
 function dismissHeaderPanels() {
@@ -953,6 +1136,114 @@ function showHelp() {
 
 function hideHelp() {
   closeHeaderPanel(helpPanel, helpButton);
+}
+
+function onboardingSeenKey() {
+  return `${ONBOARDING_SEEN_PREFIX}${appVersion}`;
+}
+
+function renderWelcome() {
+  if (!window.KardiiCapabilities) return;
+  welcomeVersionBadge.textContent = `v${appVersion}`;
+  welcomeHighlights.replaceChildren();
+  window.KardiiCapabilities.versionHighlights.forEach((highlight) => {
+    const item = document.createElement("li");
+    item.textContent = highlight;
+    welcomeHighlights.appendChild(item);
+  });
+}
+
+function showWelcome({ force = false } = {}) {
+  if (!force && localStorage.getItem(onboardingSeenKey()) === "seen") return;
+  dismissHeaderPanels();
+  if (!awarenessPanel.classList.contains("hidden")) hideAwareness();
+  renderWelcome();
+  welcomePanel.classList.remove("hidden");
+  setTimeout(() => startWelcomeTourButton.focus(), 0);
+}
+
+function hideWelcome({ remember = true } = {}) {
+  if (remember) localStorage.setItem(onboardingSeenKey(), "seen");
+  welcomePanel.classList.add("hidden");
+  input.focus();
+}
+
+function scheduleWelcome() {
+  if (onboardingScheduled) return;
+  onboardingScheduled = true;
+  setTimeout(() => showWelcome(), 650);
+}
+
+function clearTourTarget() {
+  activeTourTarget?.classList.remove("tour-target-active");
+  activeTourTarget = null;
+}
+
+function updateTourStep() {
+  if (tourOverlay.classList.contains("hidden")) return;
+  const step = TOUR_STEPS[tourStepIndex];
+  const target = document.querySelector(step.selector);
+  if (!target) {
+    if (tourStepIndex < TOUR_STEPS.length - 1) {
+      tourStepIndex += 1;
+      updateTourStep();
+    } else {
+      finishTour();
+    }
+    return;
+  }
+
+  clearTourTarget();
+  activeTourTarget = target;
+  activeTourTarget.classList.add("tour-target-active");
+  tourProgress.textContent = `${tourStepIndex + 1} / ${TOUR_STEPS.length}`;
+  tourTitle.textContent = step.title;
+  tourDescription.textContent = step.description;
+  previousTourButton.disabled = tourStepIndex === 0;
+  nextTourButton.textContent = tourStepIndex === TOUR_STEPS.length - 1 ? "完成" : "下一步";
+
+  const cardRect = chatCard.getBoundingClientRect();
+  const targetRect = target.getBoundingClientRect();
+  const padding = 6;
+  const left = Math.max(5, targetRect.left - cardRect.left - padding);
+  const top = Math.max(5, targetRect.top - cardRect.top - padding);
+  const width = Math.min(cardRect.width - left - 5, targetRect.width + padding * 2);
+  const height = Math.min(cardRect.height - top - 5, targetRect.height + padding * 2);
+  tourSpotlight.style.left = `${left}px`;
+  tourSpotlight.style.top = `${top}px`;
+  tourSpotlight.style.width = `${Math.max(20, width)}px`;
+  tourSpotlight.style.height = `${Math.max(20, height)}px`;
+
+  requestAnimationFrame(() => {
+    if (tourOverlay.classList.contains("hidden")) return;
+    const popoverRect = tourPopover.getBoundingClientRect();
+    const centeredLeft = left + width / 2 - popoverRect.width / 2;
+    const popoverLeft = Math.min(Math.max(10, centeredLeft), cardRect.width - popoverRect.width - 10);
+    const below = top + height + 10;
+    const above = top - popoverRect.height - 10;
+    const popoverTop = below + popoverRect.height <= cardRect.height - 10
+      ? below
+      : Math.max(10, above);
+    tourPopover.style.left = `${popoverLeft}px`;
+    tourPopover.style.top = `${popoverTop}px`;
+  });
+}
+
+function startTour() {
+  hideWelcome({ remember: true });
+  dismissHeaderPanels();
+  if (!awarenessPanel.classList.contains("hidden")) hideAwareness();
+  tourStepIndex = 0;
+  tourOverlay.classList.remove("hidden");
+  updateTourStep();
+  setTimeout(() => nextTourButton.focus(), 0);
+}
+
+function finishTour() {
+  localStorage.setItem(onboardingSeenKey(), "seen");
+  tourOverlay.classList.add("hidden");
+  clearTourTarget();
+  input.focus();
 }
 
 function setProfileStatus(text, type = "") {
@@ -1949,6 +2240,7 @@ function updateReplyActions() {
 }
 
 function addMessage(text, sender) {
+  if (sender === "user") messagesElement.querySelector(".chat-quick-start")?.remove();
   const bubble = document.createElement("div");
   bubble.className = `message ${sender}`;
   bubble.textContent = text;
@@ -1957,10 +2249,64 @@ function addMessage(text, sender) {
   return bubble;
 }
 
+function renderQuickStart() {
+  const quickStart = document.createElement("div");
+  quickStart.className = "chat-quick-start";
+  const actions = [
+    {
+      title: "直接问 Kardii",
+      description: "问功能、写内容或分析问题",
+      run: () => {
+        agentMode = false;
+        localStorage.setItem(AGENT_MODE_KEY, "chat");
+        renderAgentMode();
+        input.value = "你现在会什么？请把我能直接用和还需要设置的功能分开告诉我。";
+        resizeInput();
+        input.focus();
+      },
+    },
+    {
+      title: "交给 Agent",
+      description: "规划后开始执行一个任务",
+      run: () => {
+        agentMode = true;
+        localStorage.setItem(AGENT_MODE_KEY, "agent");
+        renderAgentMode();
+        input.value = "帮我整理今天最应该先做的三件事，然后开始执行。";
+        resizeInput();
+        input.focus();
+      },
+    },
+    {
+      title: "上传资料",
+      description: "添加图片、XLSX 或 CSV",
+      run: () => chatAttachmentInput.click(),
+    },
+    {
+      title: "打开工作台",
+      description: "查看项目、待办和知识库",
+      run: () => void openWorkbench(),
+    },
+  ];
+  actions.forEach((action) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    const title = document.createElement("strong");
+    title.textContent = action.title;
+    const description = document.createElement("span");
+    description.textContent = action.description;
+    button.append(title, description);
+    button.addEventListener("click", action.run);
+    quickStart.appendChild(button);
+  });
+  messagesElement.appendChild(quickStart);
+}
+
 function renderConversation() {
   messagesElement.replaceChildren();
   if (conversation.length === 0) {
     addMessage("嗨！今天需要我帮你做什么？", "kardii");
+    renderQuickStart();
     updateReplyActions();
     return;
   }
@@ -1991,10 +2337,14 @@ async function loadAppVersion() {
     appVersionLabel.textContent = `当前版本：${version}`;
     currentVersionBadges.forEach((badge) => { badge.textContent = `v${version}`; });
     helpVersionBadge.textContent = `v${appVersion}`;
+    renderWelcome();
     renderHelpStatus();
+    scheduleWelcome();
   } catch (error) {
     appVersionLabel.textContent = "当前版本：读取失败";
     setUpdateStatus(String(error), "error");
+    renderWelcome();
+    scheduleWelcome();
   }
 }
 
@@ -3387,9 +3737,27 @@ workbenchButton.addEventListener("click", openWorkbench);
 agentCenterButton.addEventListener("click", openAgentCenter);
 helpButton.addEventListener("click", showHelp);
 helpCloseButton.addEventListener("click", hideHelp);
+helpSearchInput.addEventListener("input", () => filterHelpContent(helpSearchInput.value));
 refreshHelpStatusButton.addEventListener("click", () => {
   helpStatusTime.textContent = "正在检测……";
   void refreshCapabilityRuntime();
+});
+startTourButton.addEventListener("click", startTour);
+showWhatsNewButton.addEventListener("click", () => showWelcome({ force: true }));
+dismissWelcomeButton.addEventListener("click", () => hideWelcome({ remember: true }));
+startWelcomeTourButton.addEventListener("click", startTour);
+reopenOnboardingButton.addEventListener("click", () => showWelcome({ force: true }));
+skipTourButton.addEventListener("click", finishTour);
+previousTourButton.addEventListener("click", () => {
+  tourStepIndex = Math.max(0, tourStepIndex - 1);
+  updateTourStep();
+});
+nextTourButton.addEventListener("click", () => {
+  if (tourStepIndex >= TOUR_STEPS.length - 1) finishTour();
+  else {
+    tourStepIndex += 1;
+    updateTourStep();
+  }
 });
 agentModeButton.addEventListener("click", () => {
   agentMode = !agentMode;
@@ -3405,13 +3773,19 @@ toolsCloseButton.addEventListener("click", hideTools);
 closeButton.addEventListener("click", closeChat);
 window.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
-  if (!permissionPanel.classList.contains("hidden")) finishPermission(false);
+  if (!tourOverlay.classList.contains("hidden")) finishTour();
+  else if (!welcomePanel.classList.contains("hidden")) hideWelcome({ remember: true });
+  else if (!permissionPanel.classList.contains("hidden")) finishPermission(false);
   else if (!awarenessPanel.classList.contains("hidden")) hideAwareness();
   else if (!helpPanel.classList.contains("hidden")) hideHelp();
   else if (!toolsPanel.classList.contains("hidden")) hideTools();
   else if (!profilePanel.classList.contains("hidden")) hideProfile();
   else if (!settingsPanel.classList.contains("hidden")) hideSettings();
   else void closeChat();
+});
+
+window.addEventListener("resize", () => {
+  if (!tourOverlay.classList.contains("hidden")) updateTourStep();
 });
 
 window.addEventListener("focus", () => {
@@ -3422,6 +3796,8 @@ window.addEventListener("focus", () => {
     && toolsPanel.classList.contains("hidden")
     && helpPanel.classList.contains("hidden")
     && permissionPanel.classList.contains("hidden")
+    && welcomePanel.classList.contains("hidden")
+    && tourOverlay.classList.contains("hidden")
   ) input.focus();
 });
 checkUpdateButton.addEventListener("click", checkForAppUpdate);

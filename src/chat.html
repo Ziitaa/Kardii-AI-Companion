@@ -141,6 +141,7 @@
             <p class="ollama-note">登录由官方 Codex 在浏览器中完成。Kardii 不读取账号密码或登录令牌，使用量计入你的 ChatGPT/Codex 额度。</p>
           </div>
           <button id="clearHistoryButton" class="clear-history-button" type="button">清空聊天记录</button>
+          <button id="reopenOnboardingButton" class="guide-settings-button" type="button">重新查看新手引导与本次更新</button>
           <div class="settings-section-title">
             <strong>应用更新</strong>
             <span data-current-version>v1.4.0</span>
@@ -313,19 +314,35 @@
               <h2>想做什么，就从对应功能开始</h2>
               <p>这里的内容和 Kardii 自己掌握的功能清单来自同一份资料。</p>
             </div>
-            <span id="helpVersionBadge" class="help-version">v1.4.0</span>
+            <div class="help-hero-side">
+              <span id="helpVersionBadge" class="help-version">v1.4.0</span>
+              <button id="startTourButton" type="button">播放新手引导</button>
+              <button id="showWhatsNewButton" type="button">查看本次更新</button>
+            </div>
           </section>
+
+          <label class="help-search" for="helpSearchInput">
+            <span>⌕</span>
+            <input id="helpSearchInput" type="search" placeholder="搜索功能或问题，例如：图片、Agent、邮箱">
+          </label>
 
           <div class="help-section-heading">
             <div><strong>当前状态</strong><span id="helpStatusTime">正在读取……</span></div>
-            <button id="refreshHelpStatusButton" class="secondary-button" type="button">刷新</button>
+            <button id="refreshHelpStatusButton" class="secondary-button" type="button">一键自检</button>
           </div>
           <div id="helpStatusList" class="help-status-list" aria-live="polite"></div>
+          <div id="helpSelfCheckList" class="help-self-check-list"></div>
 
           <div class="help-section-heading help-feature-heading">
             <div><strong>按任务查看</strong><span>展开后只看两三步</span></div>
           </div>
           <div id="helpFeatureList" class="help-feature-list"></div>
+
+          <div class="help-section-heading help-troubleshooting-heading">
+            <div><strong>常见问题</strong><span>搜索会同时筛选这里</span></div>
+          </div>
+          <div id="helpTroubleshootingList" class="help-troubleshooting-list"></div>
+          <div id="helpSearchEmpty" class="help-search-empty hidden">没有找到相关说明，换一个更短的关键词试试。</div>
 
           <section class="help-whats-new">
             <div class="help-section-heading">
@@ -333,6 +350,33 @@
             </div>
             <ul id="helpVersionHighlights"></ul>
           </section>
+        </div>
+      </section>
+      <section id="welcomePanel" class="welcome-panel hidden" role="dialog" aria-modal="true" aria-labelledby="welcomeTitle">
+        <div class="welcome-card">
+          <div class="welcome-badge-row"><span class="help-kicker">WHAT'S NEW</span><span id="welcomeVersionBadge" class="help-version">v1.4.0</span></div>
+          <h2 id="welcomeTitle">Kardii 已经准备好继续陪你工作了</h2>
+          <p>这次除了新功能，也补上了可以随时重看的使用说明。</p>
+          <ul id="welcomeHighlights"></ul>
+          <div class="welcome-actions">
+            <button id="dismissWelcomeButton" class="secondary-button" type="button">直接使用</button>
+            <button id="startWelcomeTourButton" class="primary-button" type="button">开始 1 分钟引导</button>
+          </div>
+        </div>
+      </section>
+      <section id="tourOverlay" class="tour-overlay hidden" aria-label="Kardii 新手引导">
+        <div class="tour-shield"></div>
+        <div id="tourSpotlight" class="tour-spotlight"></div>
+        <div id="tourPopover" class="tour-popover" role="dialog" aria-live="polite">
+          <span id="tourProgress" class="tour-progress">1 / 6</span>
+          <strong id="tourTitle"></strong>
+          <p id="tourDescription"></p>
+          <div class="tour-actions">
+            <button id="skipTourButton" type="button">跳过</button>
+            <span></span>
+            <button id="previousTourButton" type="button">上一步</button>
+            <button id="nextTourButton" type="button">下一步</button>
+          </div>
         </div>
       </section>
       <section id="awarenessPanel" class="settings-panel awareness-panel hidden" aria-label="桌面上下文">

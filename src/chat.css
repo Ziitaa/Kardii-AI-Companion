@@ -194,6 +194,39 @@ header strong {
   border-bottom-right-radius: 5px;
 }
 
+.chat-quick-start {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  width: min(100%, 330px);
+  margin-top: 2px;
+  align-self: flex-start;
+}
+
+.chat-quick-start button {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+  padding: 8px 9px;
+  color: #745561;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  background: linear-gradient(145deg, #fff, #fff3f8);
+  border: 1px solid #edd6df;
+  border-radius: 11px;
+  transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+}
+
+.chat-quick-start button:hover {
+  border-color: #dc91ac;
+  box-shadow: 0 6px 15px rgba(144, 75, 101, 0.09);
+  transform: translateY(-1px);
+}
+
+.chat-quick-start strong { font-size: 10px; }
+.chat-quick-start span { overflow: hidden; color: #a0838e; font-size: 8px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+
 .reply-actions {
   display: flex;
   justify-content: flex-start;
@@ -560,6 +593,22 @@ textarea {
   background: #c9576e;
   border-color: #c9576e;
 }
+
+.guide-settings-button {
+  width: 100%;
+  margin-top: 7px;
+  padding: 8px 10px;
+  color: #9a5871;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 650;
+  cursor: pointer;
+  background: linear-gradient(145deg, #fff, #fff1f6);
+  border: 1px solid #e9c9d6;
+  border-radius: 9px;
+}
+
+.guide-settings-button:hover { color: #fff; background: #d76d96; border-color: #d76d96; }
 
 .settings-section-title {
   display: flex;
@@ -1225,6 +1274,32 @@ textarea {
   line-height: 1.45;
 }
 
+.help-hero-side {
+  display: grid;
+  flex: 0 0 108px;
+  justify-items: end;
+  gap: 5px;
+}
+
+.help-hero-side button {
+  width: 100%;
+  padding: 5px 7px;
+  color: #9c5771;
+  font: inherit;
+  font-size: 8px;
+  font-weight: 650;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid #e9c8d5;
+  border-radius: 8px;
+}
+
+.help-hero-side button:hover {
+  color: #fff;
+  background: #d76d96;
+  border-color: #d76d96;
+}
+
 .help-version {
   flex: 0 0 auto;
   padding: 4px 8px;
@@ -1235,6 +1310,40 @@ textarea {
   border-radius: 999px;
   box-shadow: 0 4px 10px rgba(202, 96, 137, 0.18);
 }
+
+.help-search {
+  display: flex !important;
+  align-items: center;
+  gap: 7px;
+  margin: 10px 0 0 !important;
+  padding: 0 9px;
+  color: #bd718d !important;
+  background: #fff;
+  border: 1px solid #ead2dc;
+  border-radius: 10px;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.help-search:focus-within {
+  border-color: #db88a8;
+  box-shadow: 0 0 0 3px rgba(219, 112, 153, 0.11);
+}
+
+.help-search > span { flex: 0 0 auto; font-size: 13px; }
+
+.help-search input {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 0;
+  color: #654b55;
+  font: inherit;
+  font-size: 10px;
+  background: transparent;
+  border: 0;
+  outline: 0;
+}
+
+.help-search input::placeholder { color: #b398a2; }
 
 .help-section-heading {
   display: flex;
@@ -1294,6 +1403,63 @@ textarea {
 .help-status-item[data-tone="success"] > span:last-child { color: #4f8462; }
 .help-status-item[data-tone="warning"] { background: #fff9f3; border-color: #efdcc8; }
 .help-status-item[data-tone="warning"] > span:last-child { color: #a36f48; }
+
+.help-self-check-list {
+  display: grid;
+  gap: 5px;
+  margin-top: 7px;
+}
+
+.help-self-check-item {
+  display: grid;
+  grid-template-columns: 7px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid #eedbe3;
+  border-radius: 9px;
+}
+
+.help-self-check-dot {
+  width: 7px;
+  height: 7px;
+  background: #bca7af;
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px rgba(188, 167, 175, 0.12);
+}
+
+.help-self-check-item[data-tone="success"] .help-self-check-dot {
+  background: #68a87d;
+  box-shadow: 0 0 0 3px rgba(104, 168, 125, 0.13);
+}
+
+.help-self-check-item[data-tone="warning"] .help-self-check-dot {
+  background: #d7955f;
+  box-shadow: 0 0 0 3px rgba(215, 149, 95, 0.14);
+}
+
+.help-self-check-copy {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.help-self-check-copy strong { color: #72545f; font-size: 9px; }
+.help-self-check-copy span { overflow: hidden; color: #a0828d; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+
+.help-self-check-item button {
+  padding: 4px 7px;
+  color: #a35773;
+  font: inherit;
+  font-size: 8px;
+  cursor: pointer;
+  background: #fff5f8;
+  border: 1px solid #ebcbd7;
+  border-radius: 7px;
+}
+
+.help-self-check-item button:hover { color: #fff; background: #d76d96; border-color: #d76d96; }
 
 .help-feature-heading { margin-top: 17px; }
 
@@ -1399,6 +1565,66 @@ textarea {
 
 .help-try-button:hover { color: #fff; background: #d76d96; border-color: #d76d96; }
 
+.help-troubleshooting-heading { margin-top: 17px; }
+
+.help-troubleshooting-list {
+  display: grid;
+  gap: 7px;
+  margin-top: 7px;
+}
+
+.help-troubleshooting-card {
+  overflow: hidden;
+  background: rgba(255, 252, 248, 0.9);
+  border: 1px solid #ead8cd;
+  border-radius: 11px;
+}
+
+.help-troubleshooting-card summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.help-troubleshooting-card summary::-webkit-details-marker { display: none; }
+
+.help-troubleshooting-card summary > span:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.help-troubleshooting-card summary strong { color: #71574e; font-size: 9px; }
+.help-troubleshooting-card summary small { color: #a28a80; font-size: 8px; line-height: 1.35; }
+.help-troubleshooting-card[open] .help-feature-chevron { transform: rotate(90deg); }
+
+.help-troubleshooting-body {
+  padding: 0 10px 10px;
+  border-top: 1px solid #f0e3db;
+}
+
+.help-troubleshooting-body ol {
+  margin: 8px 0 7px;
+  padding-left: 17px;
+  color: #806c63;
+  font-size: 9px;
+  line-height: 1.55;
+}
+
+.help-search-empty {
+  margin-top: 9px;
+  padding: 12px;
+  color: #9b7d88;
+  font-size: 9px;
+  text-align: center;
+  background: #fff;
+  border: 1px dashed #e5c8d3;
+  border-radius: 10px;
+}
+
 .help-whats-new {
   margin-top: 16px;
   padding: 0 11px 9px;
@@ -1409,6 +1635,106 @@ textarea {
 
 .help-whats-new .help-section-heading { margin-top: 0; padding-top: 10px; }
 .help-whats-new ul { margin: 8px 0 0; padding-left: 17px; color: #886c76; font-size: 9px; line-height: 1.55; }
+
+.welcome-panel {
+  position: absolute;
+  inset: 0;
+  z-index: 65;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(73, 49, 59, 0.4);
+  border-radius: 22px;
+  backdrop-filter: blur(8px);
+}
+
+.welcome-card {
+  width: min(100%, 342px);
+  max-height: calc(100% - 16px);
+  padding: 19px;
+  overflow-y: auto;
+  background: linear-gradient(150deg, #fff, #fff1f7);
+  border: 1px solid rgba(237, 186, 206, 0.94);
+  border-radius: 19px;
+  box-shadow: 0 22px 55px rgba(74, 42, 55, 0.3);
+}
+
+.welcome-badge-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.welcome-card h2 { margin: 10px 0 6px; color: #62434f; font-size: 17px; line-height: 1.3; }
+.welcome-card > p { margin: 0; color: #927481; font-size: 10px; line-height: 1.5; }
+.welcome-card ul { margin: 12px 0 0; padding: 11px 11px 11px 27px; color: #765a65; font-size: 10px; line-height: 1.55; background: rgba(255, 255, 255, 0.76); border: 1px solid #eed7e0; border-radius: 12px; }
+
+.welcome-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+  margin-top: 14px;
+}
+
+.welcome-actions button { padding: 8px 10px; font: inherit; font-size: 10px; cursor: pointer; border-radius: 9px; }
+
+.tour-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 80;
+  overflow: hidden;
+  pointer-events: none;
+  border-radius: 22px;
+}
+
+.tour-shield { position: absolute; inset: 0; z-index: 2; pointer-events: auto; }
+
+.tour-spotlight {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+  border: 2px solid #f5a2c2;
+  border-radius: 12px;
+  box-shadow: 0 0 0 200vmax rgba(56, 36, 44, 0.58), 0 0 0 5px rgba(245, 162, 194, 0.18), 0 0 24px rgba(246, 143, 184, 0.82);
+  transition: left 220ms ease, top 220ms ease, width 220ms ease, height 220ms ease;
+}
+
+.tour-popover {
+  position: absolute;
+  z-index: 3;
+  display: grid;
+  width: min(292px, calc(100% - 24px));
+  gap: 5px;
+  padding: 13px;
+  pointer-events: auto;
+  background: linear-gradient(145deg, #fff, #fff2f7);
+  border: 1px solid #efbfd1;
+  border-radius: 14px;
+  box-shadow: 0 16px 36px rgba(61, 37, 46, 0.3);
+  transition: left 220ms ease, top 220ms ease;
+}
+
+.tour-progress { color: #bd6586; font-size: 8px; font-weight: 800; letter-spacing: 0.7px; }
+.tour-popover > strong { color: #634650; font-size: 12px; }
+.tour-popover > p { margin: 0; color: #8f737d; font-size: 9px; line-height: 1.5; }
+
+.tour-actions {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+}
+
+.tour-actions button {
+  padding: 5px 7px;
+  color: #9b5e75;
+  font: inherit;
+  font-size: 8px;
+  font-weight: 650;
+  cursor: pointer;
+  background: #fff;
+  border: 1px solid #e8c7d4;
+  border-radius: 7px;
+}
+
+.tour-actions button:last-child { color: #fff; background: #d76d96; border-color: #d76d96; }
+.tour-actions button:disabled { cursor: default; opacity: 0.42; }
 
 @media (max-width: 380px) {
   body { padding: 6px; }
@@ -1427,13 +1753,23 @@ textarea {
   .profile-button { font-size: 17px; }
   .close-chat-button { font-size: 19px; }
   .help-status-list { grid-template-columns: 1fr; }
+  .help-hero { display: grid; }
+  .help-hero-side { width: 100%; grid-template-columns: auto 1fr 1fr; align-items: center; justify-items: stretch; }
+  .help-hero-side .help-version { justify-self: start; }
+  .chat-quick-start { grid-template-columns: 1fr; }
+  .welcome-panel { padding: 10px; }
+  .welcome-card { padding: 15px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .header-actions .icon-button,
+  .chat-quick-start button,
   .help-feature-card,
-  .help-feature-chevron { transition: none; }
+  .help-feature-chevron,
+  .tour-spotlight,
+  .tour-popover { transition: none; }
   .header-actions .icon-button:hover,
   .header-actions .icon-button:focus-visible,
   .header-actions .icon-button.is-active { transform: none; }
+  .chat-quick-start button:hover { transform: none; }
 }

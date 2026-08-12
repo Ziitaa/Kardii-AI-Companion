@@ -128,13 +128,103 @@
       example: "请告诉我你现在记住了哪些关于我的信息，以及这些记忆保存在哪里。",
       promptFact: "个性设置包括称呼、6 种性格和自定义相处方式；最多保存 20 条本机长期记忆，并支持迁移码与完整备份，API Key 和登录令牌不会导出。",
     },
+    {
+      id: "guidance",
+      icon: "?",
+      group: "设置与数据",
+      title: "帮助、自检与新手引导",
+      summary: "随时搜索使用方法、运行连接自检，或重新播放逐步高亮引导。",
+      steps: [
+        "点击顶部的问号打开帮助面板。",
+        "使用搜索框查找功能或常见问题，也可以点击“一键自检”。",
+        "需要重新熟悉界面时，点击“播放新手引导”。",
+      ],
+      example: "请根据 Kardii 当前状态，告诉我有哪些功能还没有配置，以及应该从哪里设置。",
+      promptFact: "顶部问号提供可搜索帮助、一键连接自检、版本更新介绍和可重复播放的逐步高亮引导；空聊天页也有直接问答、Agent、上传资料和工作台快捷入口。",
+    },
   ];
 
   const VERSION_HIGHLIGHTS = [
     "聊天与 Agent 可以智能衔接，并保留最近对话和附件上下文。",
     "普通聊天支持上传、拖入或粘贴图片与表格。",
     "工作台增加多邮箱与 Google / Microsoft 只读连接。",
+    "新增可搜索帮助、一键自检、快捷入口和逐步高亮引导。",
     "聊天窗口不再强制置顶，确认窗口统一为 Kardii 主题。",
+  ];
+
+  const TROUBLESHOOTING = [
+    {
+      id: "ai-not-ready",
+      title: "Kardii 无法回答或提示未连接",
+      symptom: "发送按钮不可用，或提示缺少 API Key、模型或登录。",
+      keywords: "ai 模型 api key deepseek gemini ollama codex 无法回答 未连接",
+      steps: ["打开齿轮。", "确认当前 AI 服务已经保存 Key、启动本机模型或完成 ChatGPT 登录。", "点击对应的测试连接。"],
+      action: "settings",
+      actionLabel: "打开 AI 设置",
+    },
+    {
+      id: "codex-login",
+      title: "Codex 登录失效或找不到",
+      symptom: "Codex 显示未安装、尚未登录或连接失败。",
+      keywords: "codex chatgpt 登录 验证码 cli 安装 失效",
+      steps: ["打开齿轮并选择 Codex。", "先确认 Codex CLI 已安装。", "点击“使用 ChatGPT 登录”，完成后刷新状态。"],
+      action: "settings",
+      actionLabel: "查看 Codex 状态",
+    },
+    {
+      id: "image-unreadable",
+      title: "图片上传了但 Kardii 看不懂",
+      symptom: "能看到文件名，但无法描述图片画面。",
+      keywords: "图片 png jpg jpeg webp 看不懂 无法识别 gemini 上传",
+      steps: ["把聊天模型切换到 Gemini。", "重新添加 PNG、JPG 或 WebP。", "提出能从画面中核对的具体问题。"],
+      action: "settings",
+      actionLabel: "切换到 Gemini",
+    },
+    {
+      id: "table-upload",
+      title: "表格无法上传或分析不完整",
+      symptom: "XLSX / CSV 被拒绝，或回答没有使用真实行列。",
+      keywords: "表格 excel xlsx csv 上传 金额 行 列 分析",
+      steps: ["确认格式是 XLSX 或 CSV。", "一次不要超过 6 个文件，并检查单个文件大小。", "提问时要求注明具体行、列或数值。"],
+      action: "attachments",
+      actionLabel: "选择表格",
+    },
+    {
+      id: "agent-handoff",
+      title: "执行请求没有进入 Agent",
+      symptom: "Kardii 只给了建议，没有建立执行任务。",
+      keywords: "agent 自动切换 自动衔接 执行 开始 任务 a",
+      steps: ["在齿轮中开启“自动衔接 Agent”。", "使用“开始执行、打开、下载、整理成任务”等明确表达。", "也可以点击输入框旁的 A 强制交给 Agent。"],
+      action: "agent-settings",
+      actionLabel: "查看 Agent 设置",
+    },
+    {
+      id: "email-stale",
+      title: "邮箱内容没有更新或仍显示旧邮件",
+      symptom: "源邮箱已经变化，但 Kardii 工作台仍是旧快照。",
+      keywords: "邮箱 邮件 imap 同步 删除 旧邮件 缓存 163 gmail",
+      steps: ["打开工作台的外部连接并手动同步。", "需要删除 Kardii 本地快照时使用本地删除按钮。", "Kardii 的只读连接不会删除或修改源邮箱。"],
+      action: "connections",
+      actionLabel: "打开外部连接",
+    },
+    {
+      id: "voice-model",
+      title: "麦克风无法录音或识别",
+      symptom: "点击麦克风后提示语音模型没有准备好。",
+      keywords: "语音 麦克风 录音 离线模型 下载 160mb 识别",
+      steps: ["打开齿轮中的离线语音。", "下载并等待模型显示“已准备好”。", "检查系统麦克风权限后重新录音。"],
+      action: "voice",
+      actionLabel: "查看离线语音",
+    },
+    {
+      id: "data-migration",
+      title: "换电脑、升级或担心资料丢失",
+      symptom: "需要保存聊天、工作台、Agent、个性和记忆。",
+      keywords: "备份 恢复 导入 导出 换电脑 升级 数据 迁移",
+      steps: ["打开爱心中的“备份与迁移”。", "升级前选择“导出完整备份”。", "迁移码只包含个性和记忆，完整资料请使用完整备份。"],
+      action: "profile",
+      actionLabel: "打开备份与迁移",
+    },
   ];
 
   function providerStatus(status) {
@@ -190,6 +280,69 @@
     ];
   }
 
+  function selfCheckRows(status = {}) {
+    const emailConfigured = Number(status.emailConfigured || 0);
+    const emailConnected = status.emailConnected == null ? null : Number(status.emailConnected || 0);
+    const cloudConfigured = Number(status.cloudConfigured || 0);
+    const cloudConnected = status.cloudConnected == null ? null : Number(status.cloudConnected || 0);
+    const voiceReady = status.voiceModelState === "ready";
+    const codexReady = status.codexInstalled && status.codexAuthenticated;
+    return [
+      {
+        id: "ai",
+        title: "当前聊天模型",
+        detail: providerStatus(status),
+        tone: status.providerReady ? "success" : "warning",
+        action: "settings",
+        actionLabel: status.providerReady ? "查看" : "去连接",
+      },
+      {
+        id: "codex",
+        title: "Codex · ChatGPT",
+        detail: !status.codexChecked
+          ? "尚未检测"
+          : codexReady
+            ? "已安装并登录"
+            : status.codexInstalled ? "已安装，尚未登录" : "尚未安装",
+        tone: codexReady ? "success" : "neutral",
+        action: "settings",
+        actionLabel: "查看",
+      },
+      {
+        id: "voice",
+        title: "离线语音",
+        detail: voiceStatus(status.voiceModelState),
+        tone: voiceReady ? "success" : "neutral",
+        action: "voice",
+        actionLabel: voiceReady ? "查看" : "去准备",
+      },
+      {
+        id: "email",
+        title: "邮箱连接",
+        detail: connectionStatus(emailConfigured, emailConnected, "邮箱"),
+        tone: emailConnected > 0 ? "success" : emailConfigured && emailConnected === 0 ? "warning" : "neutral",
+        action: "connections",
+        actionLabel: emailConfigured ? "管理" : "去连接",
+      },
+      {
+        id: "cloud",
+        title: "Google / Microsoft",
+        detail: connectionStatus(cloudConfigured, cloudConnected, "云端"),
+        tone: cloudConnected > 0 ? "success" : cloudConfigured && cloudConnected === 0 ? "warning" : "neutral",
+        action: "connections",
+        actionLabel: cloudConfigured ? "管理" : "去连接",
+      },
+      {
+        id: "agent",
+        title: "聊天与 Agent 衔接",
+        detail: status.autoAgentHandoff ? "智能判断已开启" : "当前只会手动切换",
+        tone: status.autoAgentHandoff ? "success" : "neutral",
+        action: "agent-settings",
+        actionLabel: "设置",
+      },
+    ];
+  }
+
   function knowledgeText(status = {}) {
     const featureLines = FEATURES.map((feature) => `- ${feature.title}：${feature.promptFact}`);
     const rows = statusRows(status).map((row) => `- ${row.label}：${row.value}`);
@@ -212,14 +365,16 @@
 
   function isCapabilityQuestion(value) {
     const text = String(value || "").toLowerCase();
-    return /(?:你|kardii).{0,8}(?:会什么|能做什么|有什么功能|支持什么|怎么用|使用说明|帮助)|(?:功能|能力|使用说明|怎么使用|如何使用|已连接|连接状态|登录状态|支持.*文件|支持.*图片|支持.*表格)|(?:邮箱|邮件|google|microsoft|云端|云盘|日历|codex).{0,14}(?:连接|登录|配置|可用|状态|同步)|(?:图片|表格|文件).{0,12}(?:上传|支持|识别|读取)/i.test(text);
+    return /(?:你|kardii).{0,8}(?:会什么|能做什么|有什么功能|支持什么|怎么用|使用说明|帮助)|(?:功能|能力|使用说明|怎么使用|如何使用|已连接|连接状态|登录状态|支持.*文件|支持.*图片|支持.*表格)|(?:新手引导|更新介绍|版本介绍|一键自检|常见问题|故障排查|帮助面板)|(?:邮箱|邮件|google|microsoft|云端|云盘|日历|codex).{0,14}(?:连接|登录|配置|可用|状态|同步)|(?:图片|表格|文件).{0,12}(?:上传|支持|识别|读取)/i.test(text);
   }
 
   window.KardiiCapabilities = Object.freeze({
     version: VERSION,
     features: Object.freeze(FEATURES.map((feature) => Object.freeze(feature))),
+    troubleshooting: Object.freeze(TROUBLESHOOTING.map((item) => Object.freeze(item))),
     versionHighlights: Object.freeze(VERSION_HIGHLIGHTS),
     statusRows,
+    selfCheckRows,
     knowledgeText,
     isCapabilityQuestion,
   });
