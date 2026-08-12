@@ -125,6 +125,8 @@ const codexLoginButton = document.getElementById("codexLoginButton");
 const codexLogoutButton = document.getElementById("codexLogoutButton");
 const codexTestButton = document.getElementById("codexTestButton");
 const activeModelBadge = document.getElementById("activeModelBadge");
+const autoAgentHandoffToggle = document.getElementById("autoAgentHandoffToggle");
+const currentVersionBadges = [...document.querySelectorAll("[data-current-version]")];
 
 const HISTORY_KEY = "kardii-chat-history-v1";
 const RESPONSE_LENGTH_KEY = "kardii-response-length";
@@ -140,6 +142,7 @@ const AGENT_SKILLS_KEY = "kardii-agent-skills-v1";
 const AUTOMATIONS_KEY = "kardii-automations-v1";
 const AGENT_TARGET_KEY = "kardii-agent-open-target-v1";
 const AGENT_MODE_KEY = "kardii-chat-agent-mode-v1";
+const AUTO_AGENT_HANDOFF_KEY = "kardii-auto-agent-handoff-v1";
 const MAX_SAVED_MESSAGES = 50;
 const RESPONSE_LENGTH_VALUES = new Set(["auto", "1200", "4000", "8000"]);
 const PERSONALITIES = {
@@ -200,6 +203,63 @@ let voiceSettings = loadVoiceSettings();
 let aiSettings = loadAiSettings();
 let ollamaModels = [];
 let agentMode = localStorage.getItem(AGENT_MODE_KEY) === "agent";
+let autoAgentHandoff = localStorage.getItem(AUTO_AGENT_HANDOFF_KEY) !== "off";
+
+function normalizedAgentHandoffText(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/^(?:好的|好|可以|行|ok(?:ay)?)[，,。！! ]*/i, "")
+    .replace(/^那(?:你)?(?:就)?[，,。！! ]*/, "");
+}
+
+function isContextualAgentHandoff(value) {
+  const text = normalizedAgentHandoffText(value);
+  if (!text || text.length > 90) return false;
+  return [
+    /^(?:现在\s*)?开始(?:执行|操作|做|处理|完成)?(?:吧|了)?[。！!\s]*$/i,
+    /^继续(?:后面|接下来|刚才|上面|前面)?(?:的)?(?:步骤|操作|执行|处理|做下去|完成)(?:吧|了)?[。！!\s]*$/i,
+    /^(?:就|直接)?按(?:刚才|上面|前面|这个|那个)?(?:的)?(?:方案|步骤|计划)(?:开始)?(?:做|执行|处理|完成)(?:吧|了)?[。！!\s]*$/i,
+    /^(?:你来|帮我)(?:做|执行|操作|处理|完成)(?:一下|吧)?[。！!\s]*$/i,
+  ].some((pattern) => pattern.test(text));
+}
+
+function shouldAutoRouteToAgent(value, history = []) {
+  const text = String(value || "").trim().replace(/\s+/g, " ");
+  if (!text) return false;
+  const action = "打开|访问|搜索|查找|读取|下载|上传|保存|导出|创建|新建|添加|修改|删除|运行|执行|完成|安装|提交|推送|发布|同步|连接|移动|复制|写入|清理";
+  const delegatedAction = new RegExp(`(?:帮我|替我|请你|你来|直接).{0,24}(?:${action})`, "i").test(text);
+  const questionLike = /(?:为什么|怎么回事|怎么办|怎么做|如何|是什么|有哪些|能不能|可不可以|可以吗|是否|吗[？?]?$|[？?]$)/i.test(text);
+  if (questionLike && !delegatedAction && !isContextualAgentHandoff(text)) return false;
+
+  if (isContextualAgentHandoff(text)) {
+    const recentAssistant = [...history].reverse().find((message) => message?.role === "assistant");
+    return Boolean(recentAssistant && /(?:步骤|方案|计划|接下来|下一步|开始|执行|创建|修改|设置|安装|推送|处理|完成)/.test(String(recentAssistant.content || "")));
+  }
+
+  const startsWithAction = new RegExp(`^(?:(?:好的|好|可以|行|ok(?:ay)?)[，,。！! ]*)?(?:(?:请|麻烦)?(?:帮我|替我|你来|直接|现在)? *)?(?:${action})`, "i").test(text);
+  const objectAction = new RegExp(`(?:把|将).{0,80}(?:${action})`, "i").test(text);
+  const executionHandoff = /(?:开始|现在|直接)(?:执行|操作|处理|完成)|(?:继续|完成)(?:这个|这些|该|当前)?(?:任务|步骤|操作)/i.test(text);
+  return delegatedAction || startsWithAction || objectAction || executionHandoff;
+}
+
+function needsAgentConversationContext(value) {
+  const text = String(value || "");
+  return isContextualAgentHandoff(text) || /(?:刚才|前面|上面|之前|后面|接下来|这个|这些|那个|那些|该方案|该步骤)/.test(text);
+}
+
+function buildAgentTaskGoal(value, history = [], includeContext = false) {
+  const request = String(value || "").trim().slice(0, 4_000);
+  if (!includeContext) return request;
+  const context = history
+    .slice(-8)
+    .filter((message) => ["user", "assistant"].includes(message?.role) && String(message?.content || "").trim())
+    .map((message) => `${message.role === "assistant" ? "Kardii" : "用户"}：${String(message.content).trim().slice(0, 700)}`)
+    .join("\n\n")
+    .slice(-3_000);
+  if (!context) return request;
+  return `当前要执行的请求：\n${request}\n\n此前聊天上下文（只用于理解“这个、继续、按刚才方案”等指代）：\n${context}`.slice(0, 4_000);
+}
 
 async function openWorkbench() {
   const workbenchWindow = (await getAllWindows()).find((item) => item.label === "workbench");
@@ -219,14 +279,21 @@ async function openAgentCenter() {
 
 function renderAgentMode() {
   agentModeButton.classList.toggle("active", agentMode);
-  agentModeButton.title = agentMode ? "当前是 Agent 模式，点击切回普通聊天" : "交给 Agent 执行";
-  input.placeholder = agentMode ? "" : "问问 Kardii……";
-  chatHint.textContent = agentMode
-    ? "Agent 模式 · 发送后会在任务中心制定计划并执行"
+  autoAgentHandoffToggle.checked = autoAgentHandoff;
+  agentModeButton.title = agentMode ? "当前强制交给 Agent，点击恢复智能判断" : "智能判断执行请求；点击可强制交给 Agent";
+  input.placeholder = agentMode ? "告诉 Agent 要执行什么……" : "问问 Kardii……";
+  chatHint.textContent = defaultChatHint();
+}
+
+function defaultChatHint() {
+  if (agentMode) return "Agent 模式 · 发送后会在任务中心制定计划并执行";
+  return autoAgentHandoff
+    ? "智能模式 · 问题直接回答，明确的执行请求会自动转给 Agent"
     : "Enter 发送 · Shift + Enter 换行 · Esc 收起";
 }
 
-async function createAgentTaskFromChat(goal) {
+async function createAgentTaskFromChat(goal, options = {}) {
+  const taskGoal = buildAgentTaskGoal(goal, conversation, options.includeContext === true);
   let tasks = [];
   try {
     const saved = JSON.parse(localStorage.getItem(AGENT_TASKS_KEY) || "[]");
@@ -242,7 +309,7 @@ async function createAgentTaskFromChat(goal) {
   } catch {
     skills = [];
   }
-  const lowerGoal = goal.toLowerCase();
+  const lowerGoal = taskGoal.toLowerCase();
   let bestScore = 0;
   skills.filter((skill) => skill?.enabled !== false && String(skill?.instructions || "").trim()).forEach((skill) => {
     const score = String(skill.triggers || "")
@@ -258,7 +325,7 @@ async function createAgentTaskFromChat(goal) {
   const createdAt = new Date().toISOString();
   const task = {
     id: crypto.randomUUID(),
-    goal: goal.slice(0, 4_000),
+    goal: taskGoal,
     title: goal.replace(/\s+/g, " ").slice(0, 60) || "Agent 任务",
     summary: "",
     status: "draft",
@@ -267,10 +334,10 @@ async function createAgentTaskFromChat(goal) {
     activities: [{
       id: crypto.randomUUID(),
       kind: "system",
-      title: "任务已从聊天创建",
+      title: options.autoRouted ? "已从聊天自动衔接 Agent" : "任务已从聊天创建",
       detail: matchedSkill
         ? `已自动匹配技能「${String(matchedSkill.name || "未命名技能").slice(0, 80)}」。高权限操作仍会等待你的确认。`
-        : "Kardii 将先制定计划，再逐步执行。涉及高权限工具时会等待你的确认。",
+        : `${options.includeContext ? "已带入最近对话来理解当前请求。" : ""}Kardii 将先制定计划，再逐步执行。涉及高权限工具时会等待你的确认。`,
       createdAt,
     }],
     currentAction: null,
@@ -300,7 +367,7 @@ async function createAgentTaskFromChat(goal) {
   tasks.unshift(task);
   localStorage.setItem(AGENT_TASKS_KEY, JSON.stringify(tasks.slice(0, 100)));
   localStorage.setItem(AGENT_TARGET_KEY, JSON.stringify({ taskId: task.id, autoStart: true }));
-  const reply = `已经交给 Kardii Agent：${task.title}\n${matchedSkill ? `已使用技能「${task.skillName}」。` : ""}我会在任务中心先列出计划，再开始执行；需要读取文件、剪贴板、打开网页或运行命令时会停下来问你。`;
+  const reply = `${options.autoRouted ? "我判断你现在要从讨论进入执行，已自动切换到 Kardii Agent" : "已经交给 Kardii Agent"}：${task.title}\n${matchedSkill ? `已使用技能「${task.skillName}」。` : ""}${options.includeContext ? "最近的聊天内容也已带入，不用重新说明。" : ""}我会在任务中心先列出计划，再开始执行；需要读取文件、剪贴板、打开网页或运行命令时会停下来问你。`;
   addMessage(goal, "user");
   addMessage(reply, "kardii");
   conversation.push({ role: "user", content: goal });
@@ -657,7 +724,7 @@ function discardDesktopCapture() {
   pendingDesktopCapture = null;
   awarenessButton.classList.remove("has-capture");
   awarenessButton.title = "选择一个窗口让 Kardii 看看";
-  chatHint.textContent = "Enter 发送 · Shift + Enter 换行 · Esc 收起";
+  chatHint.textContent = defaultChatHint();
   clearAwarenessPreview();
   hideAwareness();
 }
@@ -1433,6 +1500,7 @@ async function loadAppVersion() {
   try {
     const version = await invoke("get_app_version");
     appVersionLabel.textContent = `当前版本：${version}`;
+    currentVersionBadges.forEach((badge) => { badge.textContent = `v${version}`; });
   } catch (error) {
     appVersionLabel.textContent = "当前版本：读取失败";
     setUpdateStatus(String(error), "error");
@@ -1471,9 +1539,11 @@ async function checkForAppUpdate() {
 }
 
 async function installAppUpdate() {
-  const confirmed = window.confirm(
-    "即将下载并安装 Kardii 新版本。安装过程中 Kardii 会暂时关闭，是否继续？"
-  );
+  const confirmed = await window.kardiiConfirm({
+    title: "下载并安装新版本？",
+    message: "安装过程中 Kardii 会暂时关闭，完成后会重新启动。",
+    confirmLabel: "下载并安装",
+  });
 
   if (!confirmed) return;
 
@@ -1741,7 +1811,7 @@ function setMicPhase(phase, elapsed = 0) {
   } else {
     micButton.textContent = "🎙";
     micButton.setAttribute("aria-label", "开始语音输入");
-    chatHint.textContent = "Enter 发送 · Shift + Enter 换行 · Esc 收起";
+    chatHint.textContent = defaultChatHint();
   }
 }
 
@@ -1777,7 +1847,7 @@ async function pollVoiceRecording() {
         resizeInput();
         chatHint.textContent = "识别完成，请检查文字后再发送";
         setTimeout(() => {
-          if (voiceRecordingPhase === "idle") chatHint.textContent = "Enter 发送 · Shift + Enter 换行 · Esc 收起";
+          if (voiceRecordingPhase === "idle") chatHint.textContent = defaultChatHint();
         }, 2800);
       }
       await invoke("clear_voice_recording_result");
@@ -2027,7 +2097,7 @@ async function requestReply() {
         awarenessButton.classList.remove("has-capture");
         awarenessButton.title = "选择一个窗口让 Kardii 看看";
       }
-      chatHint.textContent = "Enter 发送 · Shift + Enter 换行 · Esc 收起";
+      chatHint.textContent = defaultChatHint();
     } else {
       replyBubble.textContent = stopped ? "已停止回答。" : "这次没有收到回复，请重试。";
     }
@@ -2066,8 +2136,16 @@ form.addEventListener("submit", async (event) => {
     return;
   }
 
-  if (agentMode) {
-    await createAgentTaskFromChat(text);
+  const autoRouted = !agentMode && autoAgentHandoff && shouldAutoRouteToAgent(text, conversation);
+  if (agentMode || autoRouted) {
+    if (autoRouted) {
+      agentModeButton.classList.add("auto-routing");
+      setTimeout(() => agentModeButton.classList.remove("auto-routing"), 900);
+    }
+    await createAgentTaskFromChat(text, {
+      autoRouted,
+      includeContext: autoRouted || needsAgentConversationContext(text),
+    });
     return;
   }
 
@@ -2313,7 +2391,13 @@ importBackupButton.addEventListener("click", async () => {
     const contents = await invoke("import_backup_file");
     if (!contents) return;
     const data = JSON.parse(contents);
-    if (!window.confirm("导入会替换当前个性、记忆、聊天记录，以及备份中包含的工作台、Agent 任务、技能和自动化，是否继续？")) return;
+    const confirmed = await window.kardiiConfirm({
+      title: "导入并替换当前数据？",
+      message: "这会替换当前个性、记忆、聊天记录，以及备份中包含的工作台、Agent 任务、技能和自动化。API Key 与 Codex 登录不会改变。",
+      confirmLabel: "确认导入",
+      tone: "danger",
+    });
+    if (!confirmed) return;
     applyFullBackup(data);
     await invoke("reset_codex_conversation", { scope: "kardii-main-chat-v1" }).catch(() => {});
     setProfileStatus("完整备份导入成功。API Key 与 Codex 登录均未被修改。", "success");
@@ -2546,7 +2630,13 @@ codexLoginButton.addEventListener("click", async () => {
 });
 
 codexLogoutButton.addEventListener("click", async () => {
-  if (!window.confirm("退出后 Kardii 将不能继续使用这台电脑上的 Codex 登录。是否继续？")) return;
+  const confirmed = await window.kardiiConfirm({
+    title: "退出 Codex 登录？",
+    message: "退出后，Kardii 将不能继续使用这台电脑上的 Codex 登录，之后可以重新登录。",
+    confirmLabel: "退出登录",
+    tone: "danger",
+  });
+  if (!confirmed) return;
   setSettingsBusy(true);
   try {
     await invoke("logout_codex");
@@ -2610,7 +2700,13 @@ downloadVoiceModelButton.addEventListener("click", async () => {
 });
 
 deleteVoiceModelButton.addEventListener("click", async () => {
-  if (!window.confirm("删除后语音转文字将不可用，需要重新下载约 160 MB。确定删除吗？")) return;
+  const confirmed = await window.kardiiConfirm({
+    title: "删除离线语音模型？",
+    message: "删除后语音转文字将不可用；再次使用时需要重新下载约 160 MB。",
+    confirmLabel: "删除模型",
+    tone: "danger",
+  });
+  if (!confirmed) return;
   deleteVoiceModelButton.disabled = true;
   try {
     await invoke("delete_voice_model");
@@ -2691,6 +2787,13 @@ responseLengthSelect.value = RESPONSE_LENGTH_VALUES.has(savedResponseLength) ? s
 responseLengthSelect.addEventListener("change", () => {
   localStorage.setItem(RESPONSE_LENGTH_KEY, responseLengthSelect.value);
   setSettingsStatus("回答长度已保存。", "success");
+});
+autoAgentHandoffToggle.checked = autoAgentHandoff;
+autoAgentHandoffToggle.addEventListener("change", () => {
+  autoAgentHandoff = autoAgentHandoffToggle.checked;
+  localStorage.setItem(AUTO_AGENT_HANDOFF_KEY, autoAgentHandoff ? "on" : "off");
+  renderAgentMode();
+  setSettingsStatus(autoAgentHandoff ? "已开启聊天与 Agent 智能衔接。" : "已关闭自动衔接；仍可点 A 手动使用 Agent。", "success");
 });
 
 input.addEventListener("input", resizeInput);

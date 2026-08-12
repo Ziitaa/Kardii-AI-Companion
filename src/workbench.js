@@ -1166,7 +1166,14 @@ async function testOrSaveEmailConnection({ saveConfig }) {
 
 async function disconnectEmailConnection() {
   const config = emailConnectionConfig();
-  if (!config || !window.confirm("删除这个邮箱在系统安全凭据库中的授权码吗？账号配置、本地邮件记录和已经保存到工作台的资料都会保留。")) return;
+  if (!config) return;
+  const confirmed = await window.kardiiConfirm({
+    title: "删除邮箱授权码？",
+    message: "只删除系统安全凭据库中的授权码。账号配置、本地邮件记录和已经保存到工作台的资料都会保留。",
+    confirmLabel: "删除授权码",
+    tone: "danger",
+  });
+  if (!confirmed) return;
   disconnectEmailButton.disabled = true;
   try {
     await invoke("delete_email_password", { accountId: config.accountId });
@@ -1193,7 +1200,14 @@ function toggleEmailPause() {
 
 async function clearEmailAccountCache() {
   const config = emailConnectionConfig();
-  if (!config || !window.confirm("清空这个账号在 Kardii 中的邮件记录和临时附件缓存吗？原邮箱和已归档到工作台的内容不会改变。")) return;
+  if (!config) return;
+  const confirmed = await window.kardiiConfirm({
+    title: "清空本地邮件缓存？",
+    message: "这个账号在 Kardii 中的邮件记录和临时附件缓存会被清空；原邮箱和已归档到工作台的内容不会改变。",
+    confirmLabel: "清空本地缓存",
+    tone: "danger",
+  });
+  if (!confirmed) return;
   try {
     await invoke("clear_email_account_cache", { accountId: config.accountId });
     data.emailMessages = data.emailMessages.filter((message) => message.accountId !== config.accountId);
@@ -1211,7 +1225,14 @@ async function clearEmailAccountCache() {
 
 async function removeEmailAccount() {
   const config = emailConnectionConfig();
-  if (!config || !window.confirm("移除这个邮箱账号吗？系统凭据、本地邮件记录和临时缓存会删除；已归档到关系、项目、知识库和待办的内容会保留。")) return;
+  if (!config) return;
+  const confirmed = await window.kardiiConfirm({
+    title: "从 Kardii 移除这个邮箱？",
+    message: "系统凭据、本地邮件记录和临时缓存会删除；已归档到关系、项目、知识库和待办的内容会保留，原邮箱不会改变。",
+    confirmLabel: "移除邮箱",
+    tone: "danger",
+  });
+  if (!confirmed) return;
   try {
     await invoke("delete_email_password", { accountId: config.accountId });
     await invoke("clear_email_account_cache", { accountId: config.accountId });
@@ -1336,7 +1357,13 @@ async function deleteLocalEmailMessage(uid) {
   const message = data.emailMessages.find((item) => item.accountId === config?.accountId && item.uid === numericUid);
   if (!config || !message) return;
   const archivedNote = message.archivedAt ? " 已归档到项目、关系库、知识库和待办的内容会继续保留。" : "";
-  if (!window.confirm(`只删除这封邮件在 Kardii 里的本地记录和临时缓存吗？原邮箱里的邮件不会被删除。${archivedNote}`)) return;
+  const confirmed = await window.kardiiConfirm({
+    title: "删除 Kardii 本地邮件记录？",
+    message: `只删除这封邮件在 Kardii 里的本地记录和临时缓存，原邮箱里的邮件不会被删除。${archivedNote}`,
+    confirmLabel: "删除本地记录",
+    tone: "danger",
+  });
+  if (!confirmed) return;
   const previousMessages = structuredClone(data.emailMessages);
   data.emailMessages = data.emailMessages.filter((item) => !(item.accountId === config.accountId && item.uid === numericUid));
   if (!saveData()) {
@@ -1461,7 +1488,15 @@ async function syncCloudProvider(provider) {
 
 async function disconnectCloudProvider(provider) {
   const connection = data.settings.cloudConnections?.[provider];
-  if (!connection || !window.confirm(`断开 ${provider === "google" ? "Google" : "Microsoft"} 连接吗？系统凭据和本地云端概览会删除，外部账号中的内容不会改变。`)) return;
+  if (!connection) return;
+  const providerLabel = provider === "google" ? "Google" : "Microsoft";
+  const confirmed = await window.kardiiConfirm({
+    title: `断开 ${providerLabel} 连接？`,
+    message: "系统凭据和 Kardii 本地云端概览会删除，外部账号中的邮件、日历和文件不会改变。",
+    confirmLabel: "断开连接",
+    tone: "danger",
+  });
+  if (!confirmed) return;
   try {
     await invoke("disconnect_oauth_connection", { accountId: connection.accountId });
     cloudCredentialStatuses.delete(connection.accountId);
@@ -2206,7 +2241,7 @@ function addManualActivity(relationType, relationId, content, createdAt, kind = 
   });
 }
 
-function handleCaptureAction(captureId, action) {
+async function handleCaptureAction(captureId, action) {
   const capture = data.captures.find((item) => item.id === captureId);
   if (!capture) return;
   if (action === "task") {
@@ -2232,7 +2267,13 @@ function handleCaptureAction(captureId, action) {
       : capture.generatedTaskId
         ? "，以及它自动创建的任务"
         : "";
-    if (!window.confirm(`确定永久删除这条聊天自动记录${linkedLabel}吗？此操作无法撤销。`)) return;
+    const confirmed = await window.kardiiConfirm({
+      title: "永久删除这条聊天记录？",
+      message: `这条聊天自动记录${linkedLabel}会被永久删除，此操作无法撤销。`,
+      confirmLabel: "永久删除",
+      tone: "danger",
+    });
+    if (!confirmed) return;
     data.captures = data.captures.filter((item) => item.id !== captureId);
     data.activities = data.activities.filter((item) => item.sourceCaptureId !== captureId);
     data.tasks = data.tasks.filter((item) => item.sourceCaptureId !== captureId);
@@ -2283,7 +2324,13 @@ async function deleteCurrentEntity() {
     report: "工作台分析成果",
   };
   if (!labels[modalType]) return;
-  if (!window.confirm(`确定永久删除这份${labels[modalType]}吗？关联的其他关系对象、项目不会被删除，此操作无法撤销。`)) return;
+  const confirmed = await window.kardiiConfirm({
+    title: `永久删除这份${labels[modalType]}？`,
+    message: "关联的其他关系对象和项目不会被删除，但当前内容无法恢复。",
+    confirmLabel: "永久删除",
+    tone: "danger",
+  });
+  if (!confirmed) return;
   if (modalType === "customer") {
     data.customers = data.customers.filter((item) => item.id !== editingId);
     data.contacts = data.contacts.filter((item) => item.relationshipId !== editingId);
@@ -2363,9 +2410,16 @@ async function deleteCurrentEntity() {
   showToast("已永久删除");
 }
 
-function deleteContact(contactId) {
+async function deleteContact(contactId) {
   const contact = data.contacts.find((item) => item.id === contactId);
-  if (!contact || !window.confirm(`确定删除联系人“${contact.name || "未命名联系人"}”吗？`)) return;
+  if (!contact) return;
+  const confirmed = await window.kardiiConfirm({
+    title: `删除联系人“${contact.name || "未命名联系人"}”？`,
+    message: "联系人资料会从当前关系对象中移除。",
+    confirmLabel: "删除联系人",
+    tone: "danger",
+  });
+  if (!confirmed) return;
   const relationshipId = contact.relationshipId;
   data.contacts = data.contacts.filter((item) => item.id !== contactId);
   const remaining = data.contacts.filter((item) => item.relationshipId === relationshipId);
@@ -2375,9 +2429,16 @@ function deleteContact(contactId) {
   showToast("联系人已删除");
 }
 
-function deleteTask(taskId) {
+async function deleteTask(taskId) {
   const task = data.tasks.find((item) => item.id === taskId);
-  if (!task || !window.confirm(`确定删除任务“${task.title}”吗？`)) return;
+  if (!task) return;
+  const confirmed = await window.kardiiConfirm({
+    title: `删除任务“${task.title}”？`,
+    message: "任务会从 Kardii 工作台中删除，关联的项目或关系对象不会改变。",
+    confirmLabel: "删除任务",
+    tone: "danger",
+  });
+  if (!confirmed) return;
   data.tasks = data.tasks.filter((item) => item.id !== taskId);
   data.captures.forEach((capture) => {
     if (capture.generatedTaskId === taskId) capture.generatedTaskId = "";
@@ -2386,17 +2447,31 @@ function deleteTask(taskId) {
   showToast("任务已删除");
 }
 
-function deleteNote(noteId) {
+async function deleteNote(noteId) {
   const note = data.notes.find((item) => item.id === noteId);
-  if (!note || !window.confirm(`确定删除记录“${note.title || "快速记录"}”吗？`)) return;
+  if (!note) return;
+  const confirmed = await window.kardiiConfirm({
+    title: `删除记录“${note.title || "快速记录"}”？`,
+    message: "这条记录会从工作台中删除。",
+    confirmLabel: "删除记录",
+    tone: "danger",
+  });
+  if (!confirmed) return;
   data.notes = data.notes.filter((item) => item.id !== noteId);
   saveData();
   showToast("记录已删除");
 }
 
-function deleteActivity(activityId) {
+async function deleteActivity(activityId) {
   const activity = data.activities.find((item) => item.id === activityId);
-  if (!activity || !window.confirm("确定删除这条沟通 / 进展记录吗？")) return;
+  if (!activity) return;
+  const confirmed = await window.kardiiConfirm({
+    title: "删除这条沟通 / 进展记录？",
+    message: "这条时间线记录会从 Kardii 工作台中删除。",
+    confirmLabel: "删除记录",
+    tone: "danger",
+  });
+  if (!confirmed) return;
   data.activities = data.activities.filter((item) => item.id !== activityId);
   const currentType = modalType;
   const currentId = editingId;

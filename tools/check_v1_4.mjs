@@ -18,9 +18,12 @@ const oauth = read("src-tauri/src/oauth.rs");
 const html = read("src/workbench.html");
 const js = read("src/workbench.js");
 const chatJs = read("src/chat.js");
+const chatHtml = read("src/chat.html");
 const agentHtml = read("src/agent.html");
 const agentJs = read("src/agent.js");
 const agentCss = read("src/agent.css");
+const dialogJs = read("src/kardii-dialog.js");
+const dialogCss = read("src/kardii-dialog.css");
 
 for (const version of [packageJson.version, packageLock.version, packageLock.packages[""].version, tauriConfig.version]) {
   assert(version === "1.4.0", `v1.4 版本号未统一: ${version}`);
@@ -98,6 +101,42 @@ assert(agentJs.includes("data-remove-attachment") && agentCss.includes(".questio
 assert(rust.includes('request.provider != "gemini"') && rust.includes("valid_agent_image_signature"), "Agent 图片识别模型限制或文件签名校验缺失");
 const agentWindow = tauriConfig.app.windows.find((window) => window.label === "agent");
 assert(agentWindow?.dragDropEnabled === false, "Agent 窗口未启用 HTML5 文件拖入");
+const mainWindow = tauriConfig.app.windows.find((window) => window.label === "main");
+const chatWindow = tauriConfig.app.windows.find((window) => window.label === "chat");
+assert(mainWindow?.alwaysOnTop === true, "桌宠本体应继续保持置顶");
+assert(chatWindow?.alwaysOnTop === false, "聊天框仍然强制置顶并遮挡其他窗口");
+
+assert(chatJs.includes("function shouldAutoRouteToAgent(") && chatJs.includes("function buildAgentTaskGoal("), "聊天到 Agent 的智能衔接缺失");
+assert(chatHtml.includes('id="autoAgentHandoffToggle"'), "自动衔接 Agent 开关缺失");
+assert((chatHtml.match(/data-current-version/g) || []).length === 3, "设置页版本标识没有统一动态更新");
+for (const staleVersion of [">v1.1<", ">v0.8.1<", ">v0.6<"]) {
+  assert(!chatHtml.includes(staleVersion), `设置页仍显示旧版本标识: ${staleVersion}`);
+}
+for (const page of [chatHtml, html, agentHtml]) {
+  assert(page.includes('href="./kardii-dialog.css"') && page.includes('src="./kardii-dialog.js"'), "页面没有加载 Kardii 主题确认框");
+}
+for (const pageJs of [chatJs, js, agentJs]) {
+  assert(!pageJs.includes("window.confirm("), "仍有浏览器原生确认框没有替换");
+  assert(pageJs.includes("window.kardiiConfirm("), "页面未使用 Kardii 主题确认框");
+}
+assert(dialogJs.includes('role="alertdialog"') && dialogJs.includes("aria-modal"), "主题确认框缺少可访问性语义");
+assert(dialogCss.includes(".kardii-dialog-card") && dialogCss.includes('[data-tone="danger"]'), "主题确认框样式不完整");
+
+const intentSource = chatJs.slice(
+  chatJs.indexOf("function normalizedAgentHandoffText"),
+  chatJs.indexOf("async function openWorkbench"),
+);
+const intentContext = vm.createContext({});
+vm.runInContext(intentSource, intentContext);
+const actionableHistory = [{ role: "assistant", content: "接下来分三步：修改窗口设置、统一弹窗，然后运行测试。" }];
+intentContext.history = actionableHistory;
+assert(vm.runInContext('shouldAutoRouteToAgent("好的 那你继续后面的步骤吧", history)', intentContext), "上下文执行请求没有自动衔接 Agent");
+assert(vm.runInContext('shouldAutoRouteToAgent("打开官网并下载文件", [])', intentContext), "明确电脑操作没有自动衔接 Agent");
+assert(vm.runInContext('shouldAutoRouteToAgent("ok，把1.3和1.4一起完成", history)', intentContext), "完成既定方案没有自动衔接 Agent");
+assert(!vm.runInContext('shouldAutoRouteToAgent("这个功能要怎么做？", history)', intentContext), "普通问题被误判为 Agent 任务");
+assert(!vm.runInContext('shouldAutoRouteToAgent("帮我写一段小红书文案", [])', intentContext), "可直接回答的内容创作被误判为电脑任务");
+const contextualGoal = vm.runInContext('buildAgentTaskGoal("继续后面的步骤吧", history, true)', intentContext);
+assert(contextualGoal.includes("此前聊天上下文") && contextualGoal.includes("修改窗口设置"), "自动衔接没有带入最近对话");
 
 const legacyStorage = new Map([["kardii-business-data-v1", JSON.stringify({
   version: 2,

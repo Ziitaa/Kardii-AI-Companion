@@ -1470,10 +1470,16 @@ retryButton.addEventListener("click", () => {
   }
 });
 
-cancelButton.addEventListener("click", () => {
+cancelButton.addEventListener("click", async () => {
   const task = selectedTask();
   if (!task || FINAL_STATUSES.has(task.status)) return;
-  if (!window.confirm("确定取消这个 Agent 任务吗？已有执行记录会保留。")) return;
+  const confirmed = await window.kardiiConfirm({
+    title: "取消这个 Agent 任务？",
+    message: "任务会停止，已有计划和执行记录会保留，之后仍可查看。",
+    confirmLabel: "取消任务",
+    tone: "danger",
+  });
+  if (!confirmed) return;
   clearQuestionAttachments(task.id);
   task.status = "cancelled";
   task.pendingAction = null;
@@ -1482,9 +1488,16 @@ cancelButton.addEventListener("click", () => {
   saveTasks();
 });
 
-document.getElementById("deleteTaskButton").addEventListener("click", () => {
+document.getElementById("deleteTaskButton").addEventListener("click", async () => {
   const task = selectedTask();
-  if (!task || !window.confirm(`确定永久删除“${task.title}”及其全部执行记录吗？`)) return;
+  if (!task) return;
+  const confirmed = await window.kardiiConfirm({
+    title: `永久删除“${task.title}”？`,
+    message: "任务、计划、回答和全部执行记录都会删除，此操作无法撤销。",
+    confirmLabel: "永久删除",
+    tone: "danger",
+  });
+  if (!confirmed) return;
   clearQuestionAttachments(task.id);
   tasks = tasks.filter((item) => item.id !== task.id);
   selectedTaskId = "";
@@ -1687,9 +1700,16 @@ restoreSkillButton.addEventListener("click", () => {
   showToast("已恢复上一版；刚才的版本仍可再次恢复");
 });
 
-deleteSkillButton.addEventListener("click", () => {
+deleteSkillButton.addEventListener("click", async () => {
   const skill = skills.find((item) => item.id === selectedSkillId);
-  if (!skill || !window.confirm(`确定永久删除技能“${skill.name}”吗？已有 Agent 任务中的技能快照不会被删除。`)) return;
+  if (!skill) return;
+  const confirmed = await window.kardiiConfirm({
+    title: `永久删除技能“${skill.name}”？`,
+    message: "技能会从技能库中删除；已有 Agent 任务里保存的技能快照不会被删除。",
+    confirmLabel: "删除技能",
+    tone: "danger",
+  });
+  if (!confirmed) return;
   skills = skills.filter((item) => item.id !== skill.id);
   saveSkills();
   clearSkillForm();
@@ -1803,9 +1823,16 @@ automationForm.addEventListener("submit", (event) => {
   showToast("自动化已创建");
 });
 
-deleteAutomationButton.addEventListener("click", () => {
+deleteAutomationButton.addEventListener("click", async () => {
   const automation = automations.find((item) => item.id === selectedAutomationId);
-  if (!automation || !window.confirm(`确定永久删除自动化“${automation.name}”吗？已经创建的 Agent 任务会保留。`)) return;
+  if (!automation) return;
+  const confirmed = await window.kardiiConfirm({
+    title: `永久删除自动化“${automation.name}”？`,
+    message: "这条自动化不会再创建新任务；已经创建的 Agent 任务会保留。",
+    confirmLabel: "删除自动化",
+    tone: "danger",
+  });
+  if (!confirmed) return;
   automations = automations.filter((item) => item.id !== automation.id);
   saveAutomations();
   clearAutomationForm();

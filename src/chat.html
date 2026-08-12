@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <title>和 Kardii 聊天</title>
     <link rel="stylesheet" href="./chat.css">
+    <link rel="stylesheet" href="./kardii-dialog.css">
   </head>
   <body>
     <main class="chat-card" aria-label="Kardii 聊天窗口">
@@ -64,7 +65,7 @@
           </div>
           <div class="settings-section-title ai-section-title">
             <strong>聊天模型</strong>
-            <span>v1.1</span>
+            <span data-current-version>v1.4.0</span>
           </div>
           <label for="providerSelect">AI 服务</label>
           <select id="providerSelect" class="settings-input">
@@ -84,7 +85,7 @@
               <input id="ollamaBaseUrlInput" class="settings-input" value="http://127.0.0.1:11434" autocomplete="off">
               <button id="refreshOllamaButton" class="secondary-button" type="button">刷新模型</button>
             </div>
-            <p class="ollama-note">需要先安装并运行 Ollama，再在 Ollama 中下载至少一个模型。v0.7 只连接这台电脑。</p>
+            <p class="ollama-note">需要先安装并运行 Ollama，再在 Ollama 中下载至少一个模型。Kardii 只连接这台电脑。</p>
           </div>
 
           <label for="responseLengthSelect">回答长度</label>
@@ -95,6 +96,14 @@
             <option value="8000">超长 · 费用更高</option>
           </select>
           <p class="provider-description">“自动完整”会在模型因长度停止时自动续写并拼接，避免回答停在半句话。</p>
+
+          <label class="voice-toggle-row auto-agent-toggle" for="autoAgentHandoffToggle">
+            <span>
+              <strong>自动衔接 Agent</strong>
+              <small>问问题时正常聊天；明确要求开始、执行或操作时，带着最近对话转入 Agent</small>
+            </span>
+            <input id="autoAgentHandoffToggle" type="checkbox" checked>
+          </label>
 
           <div id="apiKeySection">
             <label id="apiKeyLabel" for="apiKeyInput">API Key</label>
@@ -123,26 +132,26 @@
           </div>
           <button id="clearHistoryButton" class="clear-history-button" type="button">清空聊天记录</button>
           <div class="settings-section-title">
-  <strong>应用更新</strong>
-  <span>v0.8.1</span>
-</div>
+            <strong>应用更新</strong>
+            <span data-current-version>v1.4.0</span>
+          </div>
 
-<div class="update-card">
-  <div class="update-information">
-    <strong id="appVersionLabel">当前版本：正在读取……</strong>
-    <span id="updateStatus" class="update-status">可以手动检查 Kardii 的新版本。</span>
-    <span id="updateNotes" class="update-notes hidden"></span>
-  </div>
+          <div class="update-card">
+            <div class="update-information">
+              <strong id="appVersionLabel">当前版本：正在读取……</strong>
+              <span id="updateStatus" class="update-status">可以手动检查 Kardii 的新版本。</span>
+              <span id="updateNotes" class="update-notes hidden"></span>
+            </div>
 
-  <div class="update-actions">
-    <button id="checkUpdateButton" class="secondary-button" type="button">检查更新</button>
-    <button id="installUpdateButton" class="primary-button hidden" type="button">下载并安装</button>
-  </div>
-</div>
+            <div class="update-actions">
+              <button id="checkUpdateButton" class="secondary-button" type="button">检查更新</button>
+              <button id="installUpdateButton" class="primary-button hidden" type="button">下载并安装</button>
+            </div>
+          </div>
 
           <div class="settings-section-title">
             <strong>离线语音</strong>
-            <span>v0.6</span>
+            <span data-current-version>v1.4.0</span>
           </div>
           <p class="voice-privacy">录音只在这台电脑上识别，不会上传。第一次需要联网下载约 160 MB，安装后占用约 230 MB。</p>
           <div class="voice-model-card">
@@ -335,6 +344,7 @@
         </div>
       </section>
     </main>
+    <script src="./kardii-dialog.js"></script>
     <script src="./chat.js"></script>
   </body>
 </html>

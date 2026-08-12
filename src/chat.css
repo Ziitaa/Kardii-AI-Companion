@@ -276,6 +276,19 @@ textarea {
   box-shadow: 0 4px 12px rgba(102, 81, 184, 0.24);
 }
 
+#agentModeButton.auto-routing {
+  color: #fff;
+  background: linear-gradient(145deg, #a68be9, #7459c6);
+  border-color: transparent;
+  animation: agent-route-pulse 700ms ease-out;
+}
+
+@keyframes agent-route-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(116, 89, 198, 0.35); transform: scale(0.94); }
+  70% { box-shadow: 0 0 0 8px rgba(116, 89, 198, 0); transform: scale(1.05); }
+  100% { box-shadow: none; transform: scale(1); }
+}
+
 #micButton:hover { background: #ffe8f1; }
 #micButton.recording {
   color: #fff;
@@ -546,6 +559,16 @@ textarea {
 .voice-toggle-row strong { color: #755662; font-size: 11px; }
 .voice-toggle-row small { color: #a48a94; font-size: 9px; font-weight: 400; }
 .voice-toggle-row input { width: 17px; height: 17px; accent-color: #d86f98; }
+
+.auto-agent-toggle {
+  margin: 10px 0 3px !important;
+  padding: 9px 10px;
+  background: linear-gradient(145deg, #fff, #fff5f9);
+  border: 1px solid #edd7df;
+  border-radius: 11px;
+}
+
+.auto-agent-toggle span { flex: 1; line-height: 1.35; }
 
 .voice-rate-row {
   display: grid;

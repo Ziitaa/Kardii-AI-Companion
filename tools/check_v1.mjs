@@ -7,7 +7,7 @@ const assert = (condition, message) => {
   if (!condition) throw new Error(message);
 };
 
-for (const file of ["src/agent.js", "src/chat.js", "src/workbench.js"]) {
+for (const file of ["src/agent.js", "src/chat.js", "src/workbench.js", "src/kardii-dialog.js"]) {
   execFileSync(process.execPath, ["--check", new URL(`../${file}`, import.meta.url).pathname], { stdio: "pipe" });
 }
 
