@@ -30,6 +30,10 @@
             <span class="nav-icon">◇</span><span>项目库</span>
             <span id="projectNavCount" class="nav-count">0</span>
           </button>
+          <button class="nav-item" type="button" data-view="analysis">
+            <span class="nav-icon">✦</span><span>联合分析</span>
+            <span id="analysisNavCount" class="nav-count">0</span>
+          </button>
           <button class="nav-item" type="button" data-view="intelligence">
             <span class="nav-icon">◎</span><span>商业情报</span>
             <span id="intelligenceNavCount" class="nav-count">0</span>
@@ -202,6 +206,80 @@
             <div id="projectGrid" class="project-grid"></div>
           </section>
 
+          <section id="enterpriseAnalysisView" class="view" data-view-panel="analysis">
+            <div class="analysis-intro">
+              <div>
+                <span class="section-kicker">ENTERPRISE BRIEFING</span>
+                <h2>把分散资料整理成一份可核对的工作简报。</h2>
+                <p>按项目、关系和时间范围汇总工作台、邮件、云端概览、知识库、网站与当前聊天；事实保留 [S1] 来源编号，推断会单独标明。</p>
+              </div>
+              <button id="generateEnterpriseAnalysisButton" class="primary-button" type="button">✦ 生成联合分析</button>
+            </div>
+
+            <div class="analysis-control-grid">
+              <article class="analysis-control-card">
+                <span class="section-kicker">SCOPE</span>
+                <h3>分析范围</h3>
+                <label><span>项目</span><select id="analysisProjectSelect"><option value="">全部项目</option></select></label>
+                <label><span>关系对象</span><select id="analysisRelationSelect"><option value="">全部关系</option></select></label>
+                <label><span>时间范围</span><select id="analysisRangeSelect"><option value="7">最近 7 天</option><option value="30" selected>最近 30 天</option><option value="90">最近 90 天</option><option value="all">全部时间</option></select></label>
+                <label class="analysis-objective-field"><span>这次最想确认什么</span><textarea id="analysisObjective" rows="3" maxlength="1000" placeholder="例如：本周有哪些已确认承诺、阻塞风险和必须推进的下一步"></textarea></label>
+              </article>
+
+              <article class="analysis-control-card">
+                <span class="section-kicker">SOURCES</span>
+                <h3>资料来源</h3>
+                <div class="analysis-source-options">
+                  <label><input type="checkbox" data-analysis-source="workspace" checked><span><strong>项目与关系</strong><small>待办、活动、记录、成果</small></span></label>
+                  <label><input type="checkbox" data-analysis-source="email" checked><span><strong>邮件</strong><small>主题、发件人、正文摘要、附件名</small></span></label>
+                  <label><input type="checkbox" data-analysis-source="cloud" checked><span><strong>日历与云端</strong><small>Google / Microsoft 只读概览</small></span></label>
+                  <label><input type="checkbox" data-analysis-source="knowledge" checked><span><strong>知识库与网站</strong><small>已保存文件和多网页快照</small></span></label>
+                  <label><input type="checkbox" data-analysis-source="chat" checked><span><strong>当前聊天</strong><small>只加入当前会话，不混入其他话题</small></span></label>
+                </div>
+              </article>
+
+              <article class="analysis-control-card analysis-reminder-card">
+                <span class="section-kicker">DAILY BRIEF</span>
+                <h3>每日简报提醒</h3>
+                <p id="analysisSourceSummary">正在统计可用资料…</p>
+                <label class="analysis-reminder-toggle"><input id="dailyBriefReminderToggle" type="checkbox"><span><strong>每天提醒生成新简报</strong><small>仅在 Kardii 运行或下次打开时建立本机待办</small></span></label>
+                <label><span>提醒时间</span><input id="dailyBriefReminderTime" type="time" value="09:00"></label>
+                <small id="dailyBriefReminderStatus" class="analysis-reminder-status">不会在后台读取或发送任何企业资料。</small>
+              </article>
+            </div>
+
+            <p id="enterpriseAnalysisStatus" class="analysis-status">先选择范围和来源。Kardii 只会把本次选中的摘要片段交给当前 AI。</p>
+
+            <section id="enterpriseAnalysisDraft" class="analysis-draft hidden">
+              <div class="analysis-draft-heading">
+                <div><span class="section-kicker">REVIEW BEFORE SAVING</span><h3>可编辑分析草稿</h3></div>
+                <span id="enterpriseAnalysisEvidenceCount" class="analysis-evidence-count">0 个来源</span>
+              </div>
+              <div class="form-fields analysis-draft-fields">
+                <div class="form-field full"><label for="analysisDraftTitle">标题</label><input id="analysisDraftTitle" type="text" maxlength="160"></div>
+                <div class="form-field full"><label for="analysisDraftSummary">综合摘要</label><textarea id="analysisDraftSummary" rows="4"></textarea></div>
+                <div class="form-field"><label for="analysisDraftProgress">进展与已完成</label><textarea id="analysisDraftProgress" rows="6"></textarea></div>
+                <div class="form-field"><label for="analysisDraftCommitments">承诺、负责人和日期</label><textarea id="analysisDraftCommitments" rows="6"></textarea></div>
+                <div class="form-field"><label for="analysisDraftRisks">风险、阻塞与待确认</label><textarea id="analysisDraftRisks" rows="6"></textarea></div>
+                <div class="form-field"><label for="analysisDraftActions">下一步行动</label><textarea id="analysisDraftActions" rows="6"></textarea></div>
+                <div class="form-field full"><label for="analysisDraftDailyBrief">今日简报</label><textarea id="analysisDraftDailyBrief" rows="6"></textarea></div>
+                <div class="form-field full"><label for="analysisDraftEvidence">来源与判断说明</label><textarea id="analysisDraftEvidence" rows="5"></textarea></div>
+              </div>
+              <div id="enterpriseAnalysisSourceList" class="analysis-source-list"></div>
+              <div class="analysis-draft-actions">
+                <button id="copyDailyBriefButton" class="outline-button" type="button">复制今日简报</button>
+                <span class="modal-action-spacer"></span>
+                <button id="saveEnterpriseAnalysisButton" class="outline-button" type="button">保存分析</button>
+                <button id="saveEnterpriseTasksButton" class="primary-button" type="button">保存并生成待办</button>
+              </div>
+            </section>
+
+            <section class="analysis-history">
+              <div class="analysis-history-heading"><div><span class="section-kicker">HISTORY</span><h3>已保存简报</h3></div><span id="enterpriseAnalysisSummary">0 份分析</span></div>
+              <div id="enterpriseAnalysisGrid" class="analysis-history-grid"></div>
+            </section>
+          </section>
+
           <section id="intelligenceView" class="view" data-view-panel="intelligence">
             <div class="intelligence-intro">
               <div>
@@ -235,7 +313,10 @@
                 <h2>让文件、聊天记录与项目资料真正参与工作。</h2>
                 <p>支持 PDF、Word、PPT、Excel、图片与常见文本；先预览和编辑 AI 结论，再确认保存。</p>
               </div>
-              <button id="importKnowledgeButton" class="primary-button" type="button">＋ 导入文件</button>
+              <div class="knowledge-import-actions">
+                <button id="importWebsiteButton" class="outline-button" type="button">◎ 导入网站</button>
+                <button id="importKnowledgeButton" class="primary-button" type="button">＋ 导入文件</button>
+              </div>
             </div>
             <div class="toolbar knowledge-toolbar">
               <label class="search-box">
@@ -257,6 +338,13 @@
             </div>
             <div class="knowledge-layout">
               <div class="knowledge-main">
+                <section id="websiteCollectionSection" class="website-collection-library">
+                  <div class="report-library-heading">
+                    <div><span class="section-kicker">WEBSITE COLLECTIONS</span><h3>多网页知识库</h3></div>
+                    <span id="websiteCollectionSummary">0 个网站集合</span>
+                  </div>
+                  <div id="websiteCollectionGrid" class="website-collection-grid"></div>
+                </section>
                 <section class="report-library">
                   <div class="report-library-heading">
                     <div><span class="section-kicker">EDITABLE RESULTS</span><h3>分析成果</h3></div>
@@ -623,6 +711,42 @@
           <button id="bundleCancelButton" class="ghost-action" type="button">取消</button>
           <span class="modal-action-spacer"></span>
           <button id="saveBundleButton" class="primary-button" type="button">确认保存到工作台</button>
+        </div>
+      </section>
+    </div>
+
+    <div id="siteCrawlBackdrop" class="modal-backdrop hidden">
+      <section class="modal site-crawl-modal" role="dialog" aria-modal="true" aria-labelledby="siteCrawlTitle">
+        <div class="modal-heading">
+          <div><span class="section-kicker">PUBLIC WEBSITE IMPORT</span><h2 id="siteCrawlTitle">导入公开网站</h2></div>
+          <button id="siteCrawlCloseButton" class="window-button" type="button" aria-label="关闭">×</button>
+        </div>
+        <div class="site-crawl-notice">
+          <strong>只抓取公开、同域、无需登录的页面</strong>
+          <span>不使用浏览器 Cookie，不填写表单，不执行网页脚本；内网、localhost、私有 IP 与跨域链接会被拒绝，并遵守站点 robots.txt 的基础规则。</span>
+        </div>
+        <div class="form-fields site-crawl-settings">
+          <div class="form-field full"><label for="siteCrawlUrl">起始网址</label><input id="siteCrawlUrl" type="url" maxlength="2000" spellcheck="false" placeholder="https://example.com/docs/"></div>
+          <div class="form-field full"><label for="siteCrawlCollectionTitle">集合名称</label><input id="siteCrawlCollectionTitle" type="text" maxlength="200" placeholder="留空时使用起始页标题"></div>
+          <div class="form-field"><label for="siteCrawlMaxPages">最多页面</label><select id="siteCrawlMaxPages"><option value="5">5 页</option><option value="10" selected>10 页</option><option value="20">20 页</option></select></div>
+          <div class="form-field"><label for="siteCrawlMaxDepth">链接深度</label><select id="siteCrawlMaxDepth"><option value="0">仅起始页</option><option value="1" selected>起始页 + 1 层</option><option value="2">最多 2 层</option></select></div>
+          <div class="form-field"><label for="siteCrawlRelationSelect">关联关系</label><select id="siteCrawlRelationSelect"><option value="">不关联关系</option></select></div>
+          <div class="form-field"><label for="siteCrawlProjectSelect">关联项目</label><select id="siteCrawlProjectSelect"><option value="">不关联项目</option></select></div>
+          <div class="form-field full"><label for="siteCrawlTags">标签</label><input id="siteCrawlTags" type="text" maxlength="200" placeholder="例如：官网、产品资料、市场研究"></div>
+          <label class="site-crawl-consent full"><input id="siteCrawlConsent" type="checkbox"><span><strong>我确认有权读取并保存这些公开页面</strong><small>请遵守网站条款、版权和适用法律；不要抓取个人账号、付费墙或敏感资料。</small></span></label>
+        </div>
+        <div class="site-crawl-actions">
+          <p id="siteCrawlStatus">先填写网址并确认范围。抓取完成后会显示页面清单，只有再次确认才保存到知识库。</p>
+          <button id="runSiteCrawlButton" class="outline-button" type="button">预览抓取结果</button>
+        </div>
+        <div id="siteCrawlResult" class="site-crawl-result hidden">
+          <div class="site-crawl-result-heading"><strong id="siteCrawlResultSummary">0 个页面</strong><span>请检查标题、网址、字数和告警</span></div>
+          <div id="siteCrawlPageList" class="site-crawl-page-list"></div>
+        </div>
+        <div class="modal-actions">
+          <button id="siteCrawlCancelButton" class="ghost-action" type="button">取消</button>
+          <span class="modal-action-spacer"></span>
+          <button id="saveSiteCrawlButton" class="primary-button" type="button" disabled>确认保存到知识库</button>
         </div>
       </section>
     </div>

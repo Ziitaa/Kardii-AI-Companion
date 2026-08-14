@@ -4,6 +4,7 @@ const { invoke } = window.__TAURI__.core;
 const appWindow = getCurrentWindow();
 const AGENT_TASKS_KEY = "kardii-agent-tasks-v1";
 const AGENT_TARGET_KEY = "kardii-agent-open-target-v1";
+const CHAT_TARGET_KEY = "kardii-chat-open-target-v1";
 const AGENT_SKILLS_KEY = "kardii-agent-skills-v1";
 const AUTOMATIONS_KEY = "kardii-automations-v1";
 const AI_SETTINGS_KEY = "kardii-ai-settings-v1";
@@ -50,6 +51,7 @@ const taskStatusBadge = document.getElementById("taskStatusBadge");
 const taskTitle = document.getElementById("taskTitle");
 const taskGoal = document.getElementById("taskGoal");
 const taskSkillBadge = document.getElementById("taskSkillBadge");
+const taskChatBadge = document.getElementById("taskChatBadge");
 const stepMetric = document.getElementById("stepMetric");
 const aiMetric = document.getElementById("aiMetric");
 const toolMetric = document.getElementById("toolMetric");
@@ -622,6 +624,10 @@ function normalizeTask(value) {
     skillSnapshot: String(value?.skillSnapshot || "").slice(0, 12_000),
     automationId: String(value?.automationId || ""),
     automationName: String(value?.automationName || "").slice(0, 80),
+    sourceChatSessionId: String(value?.sourceChatSessionId || "").slice(0, 100),
+    sourceChatSessionTitle: String(value?.sourceChatSessionTitle || "").slice(0, 60),
+    originalGoal: String(value?.originalGoal || "").slice(0, 4_000),
+    continuationCount: Math.max(0, Number(value?.continuationCount) || 0),
     maxSteps: Math.min(20, Math.max(3, Number(value?.maxSteps) || 12)),
     stepCount: Math.max(0, Number(value?.stepCount) || 0),
     aiCalls: Math.max(0, Number(value?.aiCalls) || 0),
@@ -1021,6 +1027,8 @@ function renderTask() {
   taskStatusBadge.className = `status-badge ${task.status}`;
   taskSkillBadge.textContent = task.skillName ? `技能 · ${task.skillName}` : "";
   taskSkillBadge.classList.toggle("hidden", !task.skillName);
+  taskChatBadge.textContent = task.sourceChatSessionTitle ? `会话 · ${task.sourceChatSessionTitle}` : "";
+  taskChatBadge.classList.toggle("hidden", !task.sourceChatSessionTitle);
   taskTitle.textContent = task.title || "Agent 任务";
   taskGoal.textContent = task.goal;
   stepMetric.textContent = `${task.stepCount} / ${task.maxSteps}`;
@@ -1652,6 +1660,7 @@ function consumeTarget() {
   selectedTaskId = task.id;
   renderAll();
   if (target.autoStart && task.status === "draft") void planTask(task.id);
+  else if (target.resume && task.status === "running") void executeLoop(task.id);
 }
 
 function consumeBrowserAgentRequest() {
@@ -2192,6 +2201,10 @@ function checkAutomations() {
 }
 
 document.getElementById("openChatButton").addEventListener("click", async () => {
+  const task = selectedTask();
+  if (task?.sourceChatSessionId) {
+    localStorage.setItem(CHAT_TARGET_KEY, JSON.stringify({ sessionId: task.sourceChatSessionId }));
+  }
   const window = (await getAllWindows()).find((item) => item.label === "chat");
   if (!window) return;
   await window.show();

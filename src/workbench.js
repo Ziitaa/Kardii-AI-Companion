@@ -6,6 +6,7 @@ const BUSINESS_DATA_KEY = "kardii-business-data-v1";
 const WORKBENCH_TARGET_KEY = "kardii-workbench-open-target-v1";
 const AI_SETTINGS_KEY = "kardii-ai-settings-v1";
 const CHAT_HISTORY_KEY = "kardii-chat-history-v1";
+const CHAT_SESSIONS_KEY = "kardii-chat-sessions-v1";
 const BROWSER_CONTEXT_KEY = "kardii-browser-context-v1";
 const BROWSER_AGENT_REQUEST_KEY = "kardii-browser-agent-request-v1";
 const MCP_LOGS_KEY = "kardii-mcp-logs-v1";
@@ -76,13 +77,14 @@ const viewMeta = {
   dashboard: ["KARDII WORKBENCH", "今日工作台"],
   customers: ["RELATIONSHIP MANAGEMENT", "关系库"],
   projects: ["PROJECT MANAGEMENT", "项目库"],
+  analysis: ["ENTERPRISE BRIEFING", "联合分析"],
   intelligence: ["BUSINESS INTELLIGENCE", "商业情报"],
   knowledge: ["KNOWLEDGE & MEMORY", "知识库"],
   connections: ["EXTERNAL CONNECTIONS", "外部连接"],
 };
 
 const seedData = {
-  version: 3,
+  version: 4,
   settings: {
     autoCaptureEnabled: false,
     emailAccounts: [],
@@ -91,6 +93,9 @@ const seedData = {
     browserBridgeEnabled: false,
     mcpServers: [],
     activeMcpServerId: "",
+    dailyBriefReminderEnabled: false,
+    dailyBriefReminderTime: "09:00",
+    dailyBriefLastReminderDate: "",
   },
   customers: [],
   contacts: [],
@@ -102,6 +107,8 @@ const seedData = {
   intelligence: [],
   knowledge: [],
   reports: [],
+  enterpriseAnalyses: [],
+  websiteCollections: [],
   emailMessages: [],
   cloudItems: [],
 };
@@ -116,6 +123,10 @@ let activeKnowledgeAnalysisId = "";
 let latestKnowledgeSources = [];
 let pendingBundleFiles = [];
 let pendingBundleAnalysis = null;
+let pendingEnterpriseAnalysis = null;
+let editingEnterpriseAnalysisId = "";
+let pendingWebsiteCrawl = null;
+let editingWebsiteCollectionId = "";
 let pendingEmailUid = "";
 let pendingEmailAccountId = "";
 let emailCredentialPresent = null;
@@ -136,6 +147,7 @@ const viewEyebrow = document.getElementById("viewEyebrow");
 const viewTitle = document.getElementById("viewTitle");
 const customerNavCount = document.getElementById("customerNavCount");
 const projectNavCount = document.getElementById("projectNavCount");
+const analysisNavCount = document.getElementById("analysisNavCount");
 const intelligenceNavCount = document.getElementById("intelligenceNavCount");
 const knowledgeNavCount = document.getElementById("knowledgeNavCount");
 const connectionNavStatus = document.getElementById("connectionNavStatus");
@@ -149,6 +161,8 @@ const intelligenceStatusFilter = document.getElementById("intelligenceStatusFilt
 const knowledgeGrid = document.getElementById("knowledgeGrid");
 const reportGrid = document.getElementById("reportGrid");
 const reportSummary = document.getElementById("reportSummary");
+const websiteCollectionGrid = document.getElementById("websiteCollectionGrid");
+const websiteCollectionSummary = document.getElementById("websiteCollectionSummary");
 const knowledgeSearch = document.getElementById("knowledgeSearch");
 const knowledgeTypeFilter = document.getElementById("knowledgeTypeFilter");
 const knowledgeQuestion = document.getElementById("knowledgeQuestion");
@@ -286,6 +300,29 @@ const callMcpToolButton = document.getElementById("callMcpToolButton");
 const mcpToolOutput = document.getElementById("mcpToolOutput");
 const mcpExecutionLog = document.getElementById("mcpExecutionLog");
 const clearMcpLogsButton = document.getElementById("clearMcpLogsButton");
+const analysisProjectSelect = document.getElementById("analysisProjectSelect");
+const analysisRelationSelect = document.getElementById("analysisRelationSelect");
+const analysisRangeSelect = document.getElementById("analysisRangeSelect");
+const analysisObjective = document.getElementById("analysisObjective");
+const enterpriseAnalysisStatus = document.getElementById("enterpriseAnalysisStatus");
+const enterpriseAnalysisDraft = document.getElementById("enterpriseAnalysisDraft");
+const enterpriseAnalysisGrid = document.getElementById("enterpriseAnalysisGrid");
+const dailyBriefReminderToggle = document.getElementById("dailyBriefReminderToggle");
+const dailyBriefReminderTime = document.getElementById("dailyBriefReminderTime");
+const siteCrawlBackdrop = document.getElementById("siteCrawlBackdrop");
+const siteCrawlUrl = document.getElementById("siteCrawlUrl");
+const siteCrawlCollectionTitle = document.getElementById("siteCrawlCollectionTitle");
+const siteCrawlMaxPages = document.getElementById("siteCrawlMaxPages");
+const siteCrawlMaxDepth = document.getElementById("siteCrawlMaxDepth");
+const siteCrawlRelationSelect = document.getElementById("siteCrawlRelationSelect");
+const siteCrawlProjectSelect = document.getElementById("siteCrawlProjectSelect");
+const siteCrawlTags = document.getElementById("siteCrawlTags");
+const siteCrawlConsent = document.getElementById("siteCrawlConsent");
+const siteCrawlStatus = document.getElementById("siteCrawlStatus");
+const siteCrawlResult = document.getElementById("siteCrawlResult");
+const siteCrawlPageList = document.getElementById("siteCrawlPageList");
+const runSiteCrawlButton = document.getElementById("runSiteCrawlButton");
+const saveSiteCrawlButton = document.getElementById("saveSiteCrawlButton");
 
 function dateInputValue(date) {
   const value = new Date(date);
@@ -382,7 +419,7 @@ function loadMcpLogs() {
 function loadData() {
   try {
     const saved = JSON.parse(localStorage.getItem(BUSINESS_DATA_KEY) || "null");
-    if (!saved || ![1, 2, 3].includes(saved.version)) {
+    if (!saved || ![1, 2, 3, 4].includes(saved.version)) {
       const initialData = structuredClone(seedData);
       localStorage.setItem(BUSINESS_DATA_KEY, JSON.stringify(initialData));
       return initialData;
@@ -456,7 +493,7 @@ function loadData() {
       ? saved.settings.activeMcpServerId
       : mcpServers[0]?.serverId || "";
     const normalized = {
-      version: 3,
+      version: 4,
       settings: {
         autoCaptureEnabled: saved.settings?.autoCaptureEnabled === true,
         emailAccounts,
@@ -465,6 +502,11 @@ function loadData() {
         browserBridgeEnabled: saved.settings?.browserBridgeEnabled === true,
         mcpServers,
         activeMcpServerId,
+        dailyBriefReminderEnabled: saved.settings?.dailyBriefReminderEnabled === true,
+        dailyBriefReminderTime: /^([01]\d|2[0-3]):[0-5]\d$/.test(saved.settings?.dailyBriefReminderTime)
+          ? saved.settings.dailyBriefReminderTime
+          : "09:00",
+        dailyBriefLastReminderDate: String(saved.settings?.dailyBriefLastReminderDate || "").slice(0, 10),
       },
       customers,
       contacts,
@@ -522,6 +564,11 @@ function loadData() {
         linkedCustomerId: "",
         linkedProjectId: "",
         reportId: "",
+        websiteCollectionId: "",
+        browserUrl: "",
+        siteRoot: "",
+        crawlDepth: 0,
+        capturedAt: "",
         ...item,
       })) : [],
       reports: Array.isArray(saved.reports) ? saved.reports.map((item) => ({
@@ -537,6 +584,48 @@ function loadData() {
         linkedProjectId: String(item.linkedProjectId || ""),
         knowledgeIds: Array.isArray(item.knowledgeIds) ? item.knowledgeIds.map(String) : [],
         includedChat: item.includedChat === true,
+        createdAt: String(item.createdAt || new Date().toISOString()),
+        updatedAt: String(item.updatedAt || item.createdAt || new Date().toISOString()),
+      })) : [],
+      enterpriseAnalyses: Array.isArray(saved.enterpriseAnalyses) ? saved.enterpriseAnalyses.map((item) => ({
+        id: String(item.id || crypto.randomUUID()),
+        title: String(item.title || "联合分析").slice(0, 160),
+        summary: String(item.summary || ""),
+        progress: String(item.progress || ""),
+        commitments: String(item.commitments || ""),
+        risks: String(item.risks || ""),
+        nextActions: String(item.nextActions || ""),
+        dailyBrief: String(item.dailyBrief || ""),
+        evidence: String(item.evidence || ""),
+        linkedProjectId: String(item.linkedProjectId || ""),
+        linkedCustomerId: String(item.linkedCustomerId || ""),
+        rangeDays: String(item.rangeDays || "30"),
+        objective: String(item.objective || "").slice(0, 1000),
+        sourceRefs: Array.isArray(item.sourceRefs) ? item.sourceRefs.slice(0, 60).map((source) => ({
+          id: String(source.id || "").slice(0, 20),
+          title: String(source.title || "").slice(0, 300),
+          sourceType: String(source.sourceType || "workspace").slice(0, 40),
+          occurredAt: String(source.occurredAt || "").slice(0, 80),
+          url: String(source.url || "").slice(0, 2000),
+        })) : [],
+        generatedTaskIds: Array.isArray(item.generatedTaskIds) ? item.generatedTaskIds.map(String).slice(0, 20) : [],
+        createdAt: String(item.createdAt || new Date().toISOString()),
+        updatedAt: String(item.updatedAt || item.createdAt || new Date().toISOString()),
+      })) : [],
+      websiteCollections: Array.isArray(saved.websiteCollections) ? saved.websiteCollections.map((item) => ({
+        id: String(item.id || crypto.randomUUID()),
+        title: String(item.title || "网站知识库").slice(0, 200),
+        startUrl: String(item.startUrl || "").slice(0, 2000),
+        siteRoot: String(item.siteRoot || "").slice(0, 2000),
+        maxPages: Math.min(20, Math.max(1, Number(item.maxPages) || 10)),
+        maxDepth: Math.min(2, Math.max(0, Number(item.maxDepth) || 1)),
+        linkedCustomerId: String(item.linkedCustomerId || ""),
+        linkedProjectId: String(item.linkedProjectId || ""),
+        tags: String(item.tags || "").slice(0, 200),
+        knowledgeIds: Array.isArray(item.knowledgeIds) ? item.knowledgeIds.map(String).slice(0, 20) : [],
+        pageCount: Math.min(20, Math.max(0, Number(item.pageCount) || 0)),
+        errors: Array.isArray(item.errors) ? item.errors.map(String).slice(0, 20) : [],
+        robotsApplied: item.robotsApplied === true,
         createdAt: String(item.createdAt || new Date().toISOString()),
         updatedAt: String(item.updatedAt || item.createdAt || new Date().toISOString()),
       })) : [],
@@ -566,7 +655,7 @@ function loadData() {
       })).slice(0, 500) : [],
     };
     syncRelations(normalized);
-    if (saved.version !== 3) localStorage.setItem(BUSINESS_DATA_KEY, JSON.stringify(normalized));
+    if (saved.version !== 4) localStorage.setItem(BUSINESS_DATA_KEY, JSON.stringify(normalized));
     return normalized;
   } catch {
     const initialData = structuredClone(seedData);
@@ -615,6 +704,22 @@ function syncRelations(target = data) {
     linkedProjectId: projectIds.has(report.linkedProjectId) ? report.linkedProjectId : "",
     knowledgeIds: (report.knowledgeIds || []).filter((id) => target.knowledge.some((item) => item.id === id)),
   }));
+  target.enterpriseAnalyses = (target.enterpriseAnalyses || []).map((analysis) => ({
+    ...analysis,
+    linkedCustomerId: customerIds.has(analysis.linkedCustomerId) ? analysis.linkedCustomerId : "",
+    linkedProjectId: projectIds.has(analysis.linkedProjectId) ? analysis.linkedProjectId : "",
+    generatedTaskIds: (analysis.generatedTaskIds || []).filter((id) => target.tasks.some((task) => task.id === id)),
+  }));
+  target.websiteCollections = (target.websiteCollections || []).map((collection) => {
+    const knowledgeIds = (collection.knowledgeIds || []).filter((id) => target.knowledge.some((item) => item.id === id));
+    return {
+      ...collection,
+      linkedCustomerId: customerIds.has(collection.linkedCustomerId) ? collection.linkedCustomerId : "",
+      linkedProjectId: projectIds.has(collection.linkedProjectId) ? collection.linkedProjectId : "",
+      knowledgeIds,
+      pageCount: knowledgeIds.length,
+    };
+  });
 }
 
 function saveData() {
@@ -680,6 +785,7 @@ function renderDashboard() {
   const weeklyNotes = [
     ...data.notes.filter((note) => new Date(note.createdAt) >= startOfWeek()),
     ...(data.reports || []).filter((report) => new Date(report.createdAt) >= startOfWeek()),
+    ...(data.enterpriseAnalyses || []).filter((analysis) => new Date(analysis.createdAt) >= startOfWeek()),
   ];
 
   document.getElementById("todayLabel").textContent = new Intl.DateTimeFormat("zh-CN", {
@@ -720,10 +826,11 @@ function renderDashboard() {
   const recentItems = [
     ...data.notes.map((note) => ({ ...note, itemType: "note" })),
     ...(data.reports || []).map((report) => ({ ...report, content: report.summary, itemType: "report" })),
+    ...(data.enterpriseAnalyses || []).map((analysis) => ({ ...analysis, content: analysis.dailyBrief || analysis.summary, itemType: "analysis" })),
   ].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   recentNotes.innerHTML = recentItems
     .map((note) => compactMarkup(
-      note.title || (note.itemType === "report" ? "分析成果" : "快速记录"),
+      note.title || (note.itemType === "report" ? "分析成果" : note.itemType === "analysis" ? "联合分析" : "快速记录"),
       note.content,
       new Date(note.createdAt).toLocaleDateString("zh-CN"),
       note.itemType === "note" ? { action: "delete-note", id: note.id, label: "删除记录" } : null,
@@ -955,6 +1062,40 @@ function renderReports() {
   }).join("") || emptyMarkup(query ? "没有符合搜索条件的分析成果。" : "多文件分析确认保存后，可编辑成果会集中显示在这里。");
 }
 
+function renderWebsiteCollections() {
+  const visible = !knowledgeTypeFilter.value || knowledgeTypeFilter.value === "web";
+  document.getElementById("websiteCollectionSection").classList.toggle("hidden", !visible);
+  if (!visible) return;
+  const query = knowledgeSearch.value.trim().toLowerCase();
+  const collections = (data.websiteCollections || [])
+    .filter((collection) => {
+      const relationship = data.customers.find((item) => item.id === collection.linkedCustomerId);
+      const project = data.projects.find((item) => item.id === collection.linkedProjectId);
+      return !query || [collection.title, collection.startUrl, collection.siteRoot, collection.tags, relationship?.company, project?.name]
+        .join(" ").toLowerCase().includes(query);
+    })
+    .sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)));
+  websiteCollectionSummary.textContent = `${collections.length} / ${(data.websiteCollections || []).length} 个网站集合`;
+  websiteCollectionGrid.innerHTML = collections.map((collection) => {
+    const relationship = data.customers.find((item) => item.id === collection.linkedCustomerId);
+    const project = data.projects.find((item) => item.id === collection.linkedProjectId);
+    const linked = [relationship?.company, project?.name].filter(Boolean).join(" · ") || "未关联业务对象";
+    const errorLabel = collection.errors?.length ? ` · ${collection.errors.length} 项未抓取` : "";
+    return `
+      <article class="website-collection-card">
+        <div class="website-collection-head"><span class="file-type-badge">SITE</span><span>${escapeHtml(collection.pageCount)} 页${escapeHtml(errorLabel)}</span></div>
+        <h4>${escapeHtml(collection.title || collection.siteRoot || "网站知识库")}</h4>
+        <a href="#" data-action="open-website-collection" data-collection-id="${escapeHtml(collection.id)}">${escapeHtml(collection.siteRoot || collection.startUrl)}</a>
+        <p>${escapeHtml(linked)}${collection.tags ? ` · ${escapeHtml(collection.tags)}` : ""} · ${collection.robotsApplied ? "已应用 robots.txt" : "robots.txt 未返回规则"}</p>
+        <div class="website-collection-actions">
+          <button type="button" data-action="refresh-website-collection" data-collection-id="${escapeHtml(collection.id)}">重新抓取</button>
+          <button class="danger-link" type="button" data-action="delete-website-collection" data-collection-id="${escapeHtml(collection.id)}">删除集合</button>
+        </div>
+      </article>
+    `;
+  }).join("") || emptyMarkup(query ? "没有符合搜索条件的网站集合。" : "导入公开网站后，同域页面会作为一个可更新的知识集合显示在这里。");
+}
+
 function renderKnowledge() {
   const query = knowledgeSearch.value.trim().toLowerCase();
   const type = knowledgeTypeFilter.value;
@@ -962,7 +1103,7 @@ function renderKnowledge() {
     const statusMatches = type === "archived" ? item.status === "archived" : item.status !== "archived";
     const typeMatches = !type || type === "archived" || knowledgeTypeGroup(item.fileType) === type;
     const haystack = [
-      item.title, item.fileName, item.tags, item.summary, item.keyPoints, item.risks, item.actions,
+      item.title, item.fileName, item.tags, item.summary, item.keyPoints, item.risks, item.actions, item.browserUrl,
       String(item.content || "").slice(0, 20_000), ...knowledgeRelationLabels(item),
     ].join(" ").toLowerCase();
     return statusMatches && typeMatches && (!query || haystack.includes(query));
@@ -978,7 +1119,7 @@ function renderKnowledge() {
       <article class="knowledge-card" data-action="edit-knowledge" data-entity-id="${item.id}">
         <div class="knowledge-card-head">
           <span class="file-type-badge">${escapeHtml(item.fileType || "file")}</span>
-          <span class="intelligence-status ${item.status === "archived" ? "archived" : "reviewed"}">${item.status === "archived" ? "已归档" : "可检索"}</span>
+          <span class="intelligence-status ${item.status === "archived" ? "archived" : "reviewed"}">${item.status === "archived" ? "已归档" : item.websiteCollectionId ? "网站集合" : "可检索"}</span>
         </div>
         <h3>${escapeHtml(item.title || item.fileName || "未命名资料")}</h3>
         <p>${escapeHtml(item.summary || "已完成本机文字提取。打开资料后可让 AI 生成摘要、重点、风险和下一步。")}</p>
@@ -987,11 +1128,338 @@ function renderKnowledge() {
         </div>
         <div class="knowledge-card-meta">
           <span>${formatFileSize(item.fileSize)} · ${(Number(item.charCount) || 0).toLocaleString("zh-CN")} 字</span>
-          <span>${escapeHtml(analyzedAt)}</span>
+          <span>${item.browserUrl ? `公开网页 · ${escapeHtml(new Date(item.capturedAt || item.updatedAt).toLocaleDateString("zh-CN"))}` : escapeHtml(analyzedAt)}</span>
         </div>
       </article>
     `;
   }).join("") || emptyMarkup(query || type ? "没有符合条件的知识库资料。" : "知识库还是空的。点击“导入文件”添加第一份资料。");
+}
+
+function selectedAnalysisSources() {
+  return new Set([...document.querySelectorAll("[data-analysis-source]:checked")].map((input) => input.dataset.analysisSource));
+}
+
+function analysisOccurredWithin(value, rangeDays = analysisRangeSelect.value) {
+  if (rangeDays === "all" || !value) return true;
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) return true;
+  return timestamp >= Date.now() - Number(rangeDays) * 86_400_000;
+}
+
+function buildEnterpriseAnalysisDocuments() {
+  const selectedSources = selectedAnalysisSources();
+  const project = data.projects.find((item) => item.id === analysisProjectSelect.value);
+  const relationship = data.customers.find((item) => item.id === analysisRelationSelect.value);
+  const scopeTerms = [project?.name, relationship?.company].filter(Boolean).map((term) => term.toLowerCase());
+  const documents = [];
+  const addDocument = (sourceType, title, content, occurredAt = "", url = "") => {
+    const clean = String(content || "").trim();
+    if (!clean || documents.length >= 50) return;
+    documents.push({
+      id: `S${documents.length + 1}`,
+      sourceType,
+      title: String(title || "未命名来源").slice(0, 300),
+      content: sourceType === "chat" ? clean.slice(-8_000) : clean.slice(0, 8_000),
+      occurredAt: String(occurredAt || "").slice(0, 80),
+      url: String(url || "").slice(0, 2_000),
+    });
+  };
+  const inScopeText = (...values) => {
+    if (!scopeTerms.length) return true;
+    const haystack = values.join(" ").toLowerCase();
+    return scopeTerms.some((term) => haystack.includes(term));
+  };
+
+  if (selectedSources.has("workspace")) {
+    (project ? [project] : data.projects).slice(0, 5).forEach((item) => addDocument(
+      "project",
+      `项目：${item.name || "未命名"}`,
+      `状态：${PROJECT_STATUSES[item.status] || item.status || "未设置"}\n目标：${item.goal || "未设置"}\n进度：${Number(item.progress) || 0}%\n负责人：${item.owner || "未设置"}\n下一步：${item.nextAction || "未设置"}\n关联关系：${(item.linkedCustomerIds || []).map((id) => data.customers.find((entry) => entry.id === id)?.company).filter(Boolean).join("、") || "无"}`,
+      item.updatedAt || item.createdAt,
+    ));
+    (relationship ? [relationship] : data.customers).slice(0, 5).forEach((item) => {
+      const contacts = data.contacts.filter((contact) => contact.relationshipId === item.id);
+      addDocument(
+        "relationship",
+        `关系：${item.company || "未命名"}`,
+        `类型：${RELATIONSHIP_TYPES[item.relationshipType] || item.relationshipType || "未设置"}\n阶段：${STAGES[item.stage] || item.stage || "未设置"}\n联系人：${contacts.map((contact) => [contact.name, contact.title, contact.email].filter(Boolean).join(" / ")).join("；") || "无"}\n下一步：${item.nextAction || "未设置"}\n跟进日期：${item.followupDate || "未设置"}\n备注：${item.notes || "无"}`,
+        item.updatedAt || item.createdAt,
+        item.website || "",
+      );
+    });
+    data.tasks.filter((task) => analysisOccurredWithin(task.createdAt || task.dueDate) && inScopeText(task.title, task.relation))
+      .slice(0, 6).forEach((task) => addDocument("task", `待办：${task.title}`, `状态：${task.completed ? "已完成" : "未完成"}\n关联：${task.relation || "无"}\n截止：${task.dueDate || "未设置"}`, task.updatedAt || task.createdAt || task.dueDate));
+    data.activities.filter((activity) => {
+      if (!analysisOccurredWithin(activity.occurredAt || activity.createdAt)) return false;
+      if (!relationship && !project) return true;
+      const matchesRelationship = relationship && activity.relationType === "customer" && activity.relationId === relationship.id;
+      const matchesProject = project && activity.relationType === "project" && activity.relationId === project.id;
+      return Boolean(matchesRelationship || matchesProject);
+    }).slice(0, 6).forEach((activity) => addDocument("activity", `活动：${ACTIVITY_TYPES[activity.activityType] || activity.activityType || "记录"}`, activity.content, activity.occurredAt || activity.createdAt));
+    data.notes.filter((note) => analysisOccurredWithin(note.updatedAt || note.createdAt) && inScopeText(note.title, note.content))
+      .sort((left, right) => String(right.updatedAt || right.createdAt).localeCompare(String(left.updatedAt || left.createdAt)))
+      .slice(0, 3).forEach((note) => addDocument("note", `记录：${note.title || "快速记录"}`, note.content, note.updatedAt || note.createdAt));
+    data.reports.filter((report) => analysisOccurredWithin(report.updatedAt || report.createdAt)
+      && (!project || report.linkedProjectId === project.id)
+      && (!relationship || report.linkedCustomerId === relationship.id))
+      .slice(0, 3).forEach((report) => addDocument("report", `成果：${report.title}`, [report.summary, report.keyPoints, report.commitments, report.openQuestions, report.risks, report.actions].filter(Boolean).join("\n\n"), report.updatedAt || report.createdAt));
+  }
+
+  if (selectedSources.has("email")) {
+    data.emailMessages.filter((message) => analysisOccurredWithin(message.receivedAt || message.syncedAt)
+      && inScopeText(message.subject, message.sender, message.preview, ...(message.attachmentNames || [])))
+      .sort((left, right) => String(right.receivedAt).localeCompare(String(left.receivedAt)))
+      .slice(0, 8).forEach((message) => addDocument(
+        "email",
+        `邮件：${message.subject || "无主题"}`,
+        `发件人：${message.sender || "未知"}\n正文摘要：${message.preview || "无"}\n附件：${(message.attachmentNames || []).join("、") || "无"}\n本机状态：${message.archivedAt ? "已整理" : "未整理"}`,
+        message.receivedAt || message.syncedAt,
+      ));
+  }
+
+  if (selectedSources.has("cloud")) {
+    data.cloudItems.filter((item) => analysisOccurredWithin(item.modifiedAt) && inScopeText(item.title, item.subtitle))
+      .sort((left, right) => String(right.modifiedAt).localeCompare(String(left.modifiedAt)))
+      .slice(0, 6).forEach((item) => addDocument(
+        "cloud",
+        `云端${item.service || "项目"}：${item.title}`,
+        `平台：${item.provider}\n类型：${item.service}\n摘要：${item.subtitle || "无"}`,
+        item.modifiedAt,
+        item.webUrl,
+      ));
+  }
+
+  if (selectedSources.has("knowledge")) {
+    data.knowledge.filter((item) => item.status !== "archived"
+      && analysisOccurredWithin(item.updatedAt || item.capturedAt || item.createdAt)
+      && ((!project && !relationship)
+        || item.linkedProjectId === project?.id
+        || item.linkedCustomerId === relationship?.id
+        || inScopeText(item.title, item.content)))
+      .sort((left, right) => String(right.updatedAt || right.createdAt).localeCompare(String(left.updatedAt || left.createdAt)))
+      .slice(0, 7).forEach((item) => addDocument(
+        item.fileType === "web" ? "website" : "knowledge",
+        `${item.fileType === "web" ? "网页" : "资料"}：${item.title || item.fileName}`,
+        [item.summary, item.keyPoints, String(item.content || "").slice(0, 6_000)].filter(Boolean).join("\n\n"),
+        item.capturedAt || item.updatedAt || item.createdAt,
+        item.browserUrl || "",
+      ));
+  }
+
+  if (selectedSources.has("chat")) {
+    const conversation = currentConversationDocument();
+    if (conversation) addDocument("chat", conversation.title, conversation.content, new Date().toISOString());
+  }
+  return documents;
+}
+
+function refreshAnalysisSelectors() {
+  const projectValue = analysisProjectSelect.value;
+  const relationValue = analysisRelationSelect.value;
+  analysisProjectSelect.replaceChildren(new Option("全部项目", ""));
+  data.projects.forEach((item) => analysisProjectSelect.add(new Option(item.name, item.id)));
+  analysisProjectSelect.value = data.projects.some((item) => item.id === projectValue) ? projectValue : "";
+  analysisRelationSelect.replaceChildren(new Option("全部关系", ""));
+  data.customers.forEach((item) => analysisRelationSelect.add(new Option(`${RELATIONSHIP_TYPES[item.relationshipType] || "关系"} · ${item.company}`, item.id)));
+  analysisRelationSelect.value = data.customers.some((item) => item.id === relationValue) ? relationValue : "";
+}
+
+function renderAnalysisSourceSummary() {
+  const documents = buildEnterpriseAnalysisDocuments();
+  const counts = documents.reduce((result, document) => {
+    result[document.sourceType] = (result[document.sourceType] || 0) + 1;
+    return result;
+  }, {});
+  const labels = { project: "项目", relationship: "关系", task: "待办", activity: "活动", note: "记录", report: "成果", email: "邮件", cloud: "云端", knowledge: "文件", website: "网页", chat: "聊天" };
+  document.getElementById("analysisSourceSummary").textContent = documents.length
+    ? `本次将使用 ${documents.length} 个最近来源：${Object.entries(counts).map(([type, count]) => `${labels[type] || type} ${count}`).join(" · ")}`
+    : "当前范围内没有可用资料。可以扩大时间范围或先同步/导入资料。";
+}
+
+function analysisDraftValue(id) {
+  return String(document.getElementById(id)?.value || "").trim();
+}
+
+function fillEnterpriseAnalysisDraft(item, sourceCount = item.sourceRefs?.length || 0) {
+  document.getElementById("analysisDraftTitle").value = item.title || "联合分析";
+  document.getElementById("analysisDraftSummary").value = item.summary || "";
+  document.getElementById("analysisDraftProgress").value = item.progress || "";
+  document.getElementById("analysisDraftCommitments").value = item.commitments || "";
+  document.getElementById("analysisDraftRisks").value = item.risks || "";
+  document.getElementById("analysisDraftActions").value = item.nextActions || "";
+  document.getElementById("analysisDraftDailyBrief").value = item.dailyBrief || "";
+  document.getElementById("analysisDraftEvidence").value = item.evidence || "";
+  document.getElementById("enterpriseAnalysisEvidenceCount").textContent = `${sourceCount} 个来源`;
+  const sources = Array.isArray(item.sourceRefs) ? item.sourceRefs : [];
+  document.getElementById("enterpriseAnalysisSourceList").innerHTML = sources.map((source) => {
+    const label = `[${source.id}] ${source.title}${source.occurredAt ? ` · ${source.occurredAt}` : ""}`;
+    return source.url
+      ? `<button type="button" data-action="open-analysis-source-url" data-source-url="${escapeHtml(source.url)}">${escapeHtml(label)}</button>`
+      : `<span>${escapeHtml(label)}</span>`;
+  }).join("");
+  enterpriseAnalysisDraft.classList.remove("hidden");
+}
+
+function renderEnterpriseAnalyses() {
+  const analyses = [...(data.enterpriseAnalyses || [])].sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)));
+  analysisNavCount.textContent = String(analyses.length);
+  document.getElementById("enterpriseAnalysisSummary").textContent = `${analyses.length} 份分析`;
+  enterpriseAnalysisGrid.innerHTML = analyses.map((item) => {
+    const project = data.projects.find((entry) => entry.id === item.linkedProjectId);
+    const relationship = data.customers.find((entry) => entry.id === item.linkedCustomerId);
+    return `
+      <article class="analysis-history-card">
+        <button type="button" data-action="load-enterprise-analysis" data-analysis-id="${escapeHtml(item.id)}">
+          <span>${escapeHtml(new Date(item.updatedAt || item.createdAt).toLocaleString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }))}</span>
+          <strong>${escapeHtml(item.title || "联合分析")}</strong>
+          <p>${escapeHtml(item.summary || item.dailyBrief || "点击查看已保存内容。")}</p>
+          <small>${escapeHtml([project?.name, relationship?.company].filter(Boolean).join(" · ") || "全部范围")} · ${(item.sourceRefs || []).length} 个来源</small>
+        </button>
+        <button class="analysis-delete-button" type="button" data-action="delete-enterprise-analysis" data-analysis-id="${escapeHtml(item.id)}" aria-label="删除分析">×</button>
+      </article>
+    `;
+  }).join("") || emptyMarkup("还没有保存联合分析。生成后先检查来源和结论，再保存为工作简报。");
+}
+
+async function generateEnterpriseAnalysis() {
+  const documents = buildEnterpriseAnalysisDocuments();
+  if (!documents.length) {
+    enterpriseAnalysisStatus.textContent = "当前范围内没有可分析资料。请扩大时间范围、勾选来源，或先同步和导入资料。";
+    enterpriseAnalysisStatus.className = "analysis-status error";
+    return;
+  }
+  const ai = currentResearchAiConfig();
+  if (!ai.model) {
+    enterpriseAnalysisStatus.textContent = "当前 Ollama 还没有选择模型，请先到聊天设置中选择模型。";
+    enterpriseAnalysisStatus.className = "analysis-status error";
+    return;
+  }
+  const button = document.getElementById("generateEnterpriseAnalysisButton");
+  button.disabled = true;
+  button.textContent = "正在汇总与核对…";
+  enterpriseAnalysisStatus.textContent = `正在分析 ${documents.length} 个来源。模型只能依据这些摘要，并必须使用 [S1] 形式标注事实来源。`;
+  enterpriseAnalysisStatus.className = "analysis-status";
+  try {
+    const result = await invoke("analyze_enterprise_bundle", {
+      request: {
+        documents,
+        objective: analysisObjective.value.trim(),
+        projectName: data.projects.find((item) => item.id === analysisProjectSelect.value)?.name || "",
+        relationshipName: data.customers.find((item) => item.id === analysisRelationSelect.value)?.company || "",
+        rangeLabel: analysisRangeSelect.value === "all" ? "全部时间" : `最近 ${analysisRangeSelect.value} 天`,
+        provider: ai.provider,
+        model: ai.model,
+        ollamaBaseUrl: ai.ollamaBaseUrl,
+      },
+    });
+    editingEnterpriseAnalysisId = "";
+    pendingEnterpriseAnalysis = {
+      ...result,
+      sourceRefs: documents.map(({ id, title, sourceType, occurredAt, url }) => ({ id, title, sourceType, occurredAt, url })),
+      linkedProjectId: analysisProjectSelect.value,
+      linkedCustomerId: analysisRelationSelect.value,
+      rangeDays: analysisRangeSelect.value,
+      objective: analysisObjective.value.trim(),
+    };
+    fillEnterpriseAnalysisDraft(pendingEnterpriseAnalysis, documents.length);
+    enterpriseAnalysisStatus.textContent = "草稿已生成。请核对 [S] 来源编号、日期和推断，再保存或生成本机待办。";
+  } catch (error) {
+    enterpriseAnalysisStatus.textContent = String(error);
+    enterpriseAnalysisStatus.className = "analysis-status error";
+  } finally {
+    button.disabled = false;
+    button.textContent = "✦ 生成联合分析";
+  }
+}
+
+function saveEnterpriseAnalysis(createTasks = false) {
+  if (!pendingEnterpriseAnalysis && !editingEnterpriseAnalysisId) return;
+  const previousAnalyses = structuredClone(data.enterpriseAnalyses || []);
+  const previousTasks = structuredClone(data.tasks || []);
+  const now = new Date().toISOString();
+  const existing = data.enterpriseAnalyses.find((item) => item.id === editingEnterpriseAnalysisId);
+  const source = pendingEnterpriseAnalysis || existing;
+  const item = {
+    ...(existing || {}),
+    id: existing?.id || crypto.randomUUID(),
+    title: analysisDraftValue("analysisDraftTitle") || "联合分析",
+    summary: analysisDraftValue("analysisDraftSummary"),
+    progress: analysisDraftValue("analysisDraftProgress"),
+    commitments: analysisDraftValue("analysisDraftCommitments"),
+    risks: analysisDraftValue("analysisDraftRisks"),
+    nextActions: analysisDraftValue("analysisDraftActions"),
+    dailyBrief: analysisDraftValue("analysisDraftDailyBrief"),
+    evidence: analysisDraftValue("analysisDraftEvidence"),
+    linkedProjectId: source.linkedProjectId || "",
+    linkedCustomerId: source.linkedCustomerId || "",
+    rangeDays: source.rangeDays || "30",
+    objective: source.objective || "",
+    sourceRefs: source.sourceRefs || [],
+    generatedTaskIds: existing?.generatedTaskIds || [],
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
+  };
+  let taskCount = 0;
+  if (createTasks) {
+    const relation = data.customers.find((entry) => entry.id === item.linkedCustomerId)?.company
+      || data.projects.find((entry) => entry.id === item.linkedProjectId)?.name
+      || "联合分析";
+    const lines = item.nextActions.split(/\r?\n/)
+      .map((line) => line.replace(/^\s*(?:[-*•]|\d+[.)、])\s*/, "").trim())
+      .filter((line) => line.length >= 3)
+      .slice(0, 10);
+    lines.forEach((title) => {
+      if (item.generatedTaskIds.some((id) => data.tasks.some((task) => task.id === id && task.title === title))) return;
+      const task = { id: crypto.randomUUID(), title: title.slice(0, 160), relation, dueDate: dateInputValue(new Date()), completed: false, source: "enterprise-analysis", sourceAnalysisId: item.id, createdAt: now };
+      data.tasks.unshift(task);
+      item.generatedTaskIds.push(task.id);
+      taskCount += 1;
+    });
+  }
+  if (existing) Object.assign(existing, item);
+  else data.enterpriseAnalyses.unshift(item);
+  if (!saveData()) {
+    data.enterpriseAnalyses = previousAnalyses;
+    data.tasks = previousTasks;
+    renderAll();
+    return;
+  }
+  editingEnterpriseAnalysisId = item.id;
+  pendingEnterpriseAnalysis = item;
+  fillEnterpriseAnalysisDraft(item);
+  enterpriseAnalysisStatus.textContent = taskCount ? `分析已保存，并建立 ${taskCount} 条今日待办。` : "分析已保存到本机工作台。";
+  enterpriseAnalysisStatus.className = "analysis-status success";
+  showToast(taskCount ? `已保存并生成 ${taskCount} 条待办` : "联合分析已保存");
+}
+
+function loadEnterpriseAnalysis(id) {
+  const item = data.enterpriseAnalyses.find((entry) => entry.id === id);
+  if (!item) return;
+  editingEnterpriseAnalysisId = item.id;
+  pendingEnterpriseAnalysis = item;
+  analysisProjectSelect.value = item.linkedProjectId || "";
+  analysisRelationSelect.value = item.linkedCustomerId || "";
+  analysisRangeSelect.value = ["7", "30", "90", "all"].includes(item.rangeDays) ? item.rangeDays : "30";
+  analysisObjective.value = item.objective || "";
+  renderAnalysisSourceSummary();
+  fillEnterpriseAnalysisDraft(item);
+  enterpriseAnalysisStatus.textContent = "正在查看已保存分析。修改后可再次保存；来源快照编号保持不变。";
+  enterpriseAnalysisDraft.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+async function deleteEnterpriseAnalysis(id) {
+  const item = data.enterpriseAnalyses.find((entry) => entry.id === id);
+  if (!item) return;
+  const confirmed = await window.kardiiConfirm({ title: "删除这份联合分析？", message: "只删除分析正文和来源索引；原邮件、云端项目、文件、网页与已经生成的待办不会删除。", confirmLabel: "删除分析", tone: "danger" });
+  if (!confirmed) return;
+  data.enterpriseAnalyses = data.enterpriseAnalyses.filter((entry) => entry.id !== id);
+  if (editingEnterpriseAnalysisId === id) {
+    editingEnterpriseAnalysisId = "";
+    pendingEnterpriseAnalysis = null;
+    enterpriseAnalysisDraft.classList.add("hidden");
+  }
+  saveData();
+  showToast("联合分析已删除");
 }
 
 function emailAccounts() {
@@ -1677,6 +2145,50 @@ function renderConnections() {
   renderMcpConnection();
 }
 
+function renderDailyBriefReminderSettings() {
+  dailyBriefReminderToggle.checked = data.settings?.dailyBriefReminderEnabled === true;
+  dailyBriefReminderTime.value = /^([01]\d|2[0-3]):[0-5]\d$/.test(data.settings?.dailyBriefReminderTime)
+    ? data.settings.dailyBriefReminderTime
+    : "09:00";
+  dailyBriefReminderTime.disabled = !dailyBriefReminderToggle.checked;
+  const lastDate = data.settings?.dailyBriefLastReminderDate;
+  document.getElementById("dailyBriefReminderStatus").textContent = dailyBriefReminderToggle.checked
+    ? `每天 ${dailyBriefReminderTime.value} 在 Kardii 运行或下次打开时建立提醒${lastDate ? `；最近提醒 ${lastDate}` : ""}。`
+    : "不会在后台读取或发送任何企业资料。";
+}
+
+function ensureDailyBriefReminder() {
+  if (data.settings?.dailyBriefReminderEnabled !== true) return;
+  const today = dateInputValue(new Date());
+  const time = /^([01]\d|2[0-3]):[0-5]\d$/.test(data.settings.dailyBriefReminderTime) ? data.settings.dailyBriefReminderTime : "09:00";
+  const currentTime = new Date().toTimeString().slice(0, 5);
+  if (data.settings.dailyBriefLastReminderDate === today || currentTime < time) return;
+  if (data.tasks.some((task) => task.source === "daily-enterprise-brief-reminder" && task.dueDate === today)) {
+    data.settings.dailyBriefLastReminderDate = today;
+    try {
+      localStorage.setItem(BUSINESS_DATA_KEY, JSON.stringify(data));
+    } catch {
+      // Storage errors are surfaced by the next explicit save.
+    }
+    return;
+  }
+  data.tasks.unshift({
+    id: crypto.randomUUID(),
+    title: "生成今日企业资料联合简报",
+    relation: "联合分析",
+    dueDate: today,
+    completed: false,
+    source: "daily-enterprise-brief-reminder",
+    createdAt: new Date().toISOString(),
+  });
+  data.settings.dailyBriefLastReminderDate = today;
+  try {
+    localStorage.setItem(BUSINESS_DATA_KEY, JSON.stringify(data));
+  } catch {
+    // Storage errors are surfaced by the next explicit save.
+  }
+}
+
 function loadEmailConnectionForm() {
   if (!editingEmailAccountId) editingEmailAccountId = data.settings.activeEmailAccountId || "";
   const config = emailConnectionConfig();
@@ -2162,11 +2674,16 @@ function renderAll() {
   projectNavCount.textContent = String(data.projects.length);
   intelligenceNavCount.textContent = String(data.intelligence.length);
   knowledgeNavCount.textContent = String(data.knowledge.filter((item) => item.status !== "archived").length);
+  refreshAnalysisSelectors();
+  renderAnalysisSourceSummary();
+  renderEnterpriseAnalyses();
+  renderDailyBriefReminderSettings();
   renderDashboard();
   renderCustomers();
   renderProjects();
   renderIntelligence();
   renderReports();
+  renderWebsiteCollections();
   renderKnowledge();
   renderConnections();
 }
@@ -3044,6 +3561,11 @@ async function deleteCurrentEntity() {
     data.reports.forEach((report) => {
       report.knowledgeIds = (report.knowledgeIds || []).filter((id) => id !== editingId);
     });
+    data.websiteCollections.forEach((collection) => {
+      collection.knowledgeIds = (collection.knowledgeIds || []).filter((id) => id !== editingId);
+      collection.pageCount = collection.knowledgeIds.length;
+      collection.updatedAt = new Date().toISOString();
+    });
   } else if (modalType === "report") {
     data.reports = data.reports.filter((item) => item.id !== editingId);
     data.knowledge.forEach((item) => {
@@ -3254,6 +3776,211 @@ async function askKnowledgeBase() {
   }
 }
 
+function refreshSiteCrawlOptions(collection = null) {
+  siteCrawlRelationSelect.replaceChildren(new Option("不关联关系", ""));
+  data.customers.forEach((item) => siteCrawlRelationSelect.add(new Option(`${RELATIONSHIP_TYPES[item.relationshipType] || "关系"} · ${item.company}`, item.id)));
+  siteCrawlProjectSelect.replaceChildren(new Option("不关联项目", ""));
+  data.projects.forEach((item) => siteCrawlProjectSelect.add(new Option(item.name, item.id)));
+  siteCrawlRelationSelect.value = collection?.linkedCustomerId || "";
+  siteCrawlProjectSelect.value = collection?.linkedProjectId || "";
+}
+
+function openSiteCrawlModal(collectionId = "") {
+  const collection = data.websiteCollections.find((item) => item.id === collectionId) || null;
+  editingWebsiteCollectionId = collection?.id || "";
+  pendingWebsiteCrawl = null;
+  siteCrawlUrl.value = collection?.startUrl || "";
+  siteCrawlCollectionTitle.value = collection?.title || "";
+  siteCrawlMaxPages.value = String(collection?.maxPages || 10);
+  siteCrawlMaxDepth.value = String(collection?.maxDepth ?? 1);
+  siteCrawlTags.value = collection?.tags || "";
+  siteCrawlConsent.checked = false;
+  refreshSiteCrawlOptions(collection);
+  siteCrawlStatus.textContent = collection
+    ? "重新抓取会先显示新页面清单；确认保存后才替换这个集合的旧快照。"
+    : "先填写网址并确认范围。抓取完成后会显示页面清单，只有再次确认才保存到知识库。";
+  siteCrawlStatus.className = "";
+  siteCrawlResult.classList.add("hidden");
+  siteCrawlPageList.innerHTML = "";
+  runSiteCrawlButton.disabled = false;
+  runSiteCrawlButton.textContent = "预览抓取结果";
+  saveSiteCrawlButton.disabled = true;
+  siteCrawlBackdrop.classList.remove("hidden");
+  setTimeout(() => siteCrawlUrl.focus(), 50);
+}
+
+function closeSiteCrawlModal() {
+  siteCrawlBackdrop.classList.add("hidden");
+  pendingWebsiteCrawl = null;
+  editingWebsiteCollectionId = "";
+}
+
+function renderSiteCrawlResult(result) {
+  const pages = Array.isArray(result?.pages) ? result.pages : [];
+  const errors = Array.isArray(result?.errors) ? result.errors : [];
+  document.getElementById("siteCrawlResultSummary").textContent = `${pages.length} 个页面 · ${pages.reduce((sum, page) => sum + Number(page.charCount || 0), 0).toLocaleString("zh-CN")} 字${errors.length ? ` · ${errors.length} 项未完成` : ""}`;
+  siteCrawlPageList.innerHTML = [
+    ...pages.map((page, index) => `
+      <article class="site-crawl-page">
+        <input type="checkbox" data-crawl-page-index="${index}" checked aria-label="保存 ${escapeHtml(page.title || page.url)}">
+        <span class="file-type-badge">L${Number(page.depth) || 0}</span>
+        <div><strong>${escapeHtml(page.title || "未命名网页")}</strong><a href="#" data-action="open-crawl-url" data-crawl-url="${escapeHtml(page.url)}">${escapeHtml(page.url)}</a></div>
+        <small>${Number(page.charCount || 0).toLocaleString("zh-CN")} 字${page.warning ? ` · ${escapeHtml(page.warning)}` : ""}</small>
+      </article>
+    `),
+    ...errors.map((error) => `<div class="site-crawl-error">${escapeHtml(error)}</div>`),
+  ].join("");
+  siteCrawlResult.classList.remove("hidden");
+  saveSiteCrawlButton.disabled = pages.length === 0;
+}
+
+function selectedSiteCrawlPages() {
+  const pages = Array.isArray(pendingWebsiteCrawl?.pages) ? pendingWebsiteCrawl.pages : [];
+  return [...siteCrawlPageList.querySelectorAll("[data-crawl-page-index]:checked")]
+    .map((input) => pages[Number(input.dataset.crawlPageIndex)])
+    .filter(Boolean);
+}
+
+async function runSiteCrawl() {
+  const startUrl = siteCrawlUrl.value.trim();
+  if (!startUrl) {
+    siteCrawlStatus.textContent = "请先填写完整的 http 或 https 网址。";
+    siteCrawlStatus.className = "error";
+    siteCrawlUrl.focus();
+    return;
+  }
+  if (!siteCrawlConsent.checked) {
+    siteCrawlStatus.textContent = "请先确认你有权读取并保存这些公开页面。";
+    siteCrawlStatus.className = "error";
+    return;
+  }
+  runSiteCrawlButton.disabled = true;
+  saveSiteCrawlButton.disabled = true;
+  runSiteCrawlButton.textContent = "正在读取公开页面…";
+  siteCrawlStatus.textContent = "正在按同域范围读取；动态渲染、登录页、跨域链接和 robots.txt 禁止的路径不会加入。";
+  siteCrawlStatus.className = "";
+  try {
+    pendingWebsiteCrawl = await invoke("crawl_public_website", {
+      request: {
+        startUrl,
+        maxPages: Number(siteCrawlMaxPages.value),
+        maxDepth: Number(siteCrawlMaxDepth.value),
+      },
+    });
+    if (!siteCrawlCollectionTitle.value.trim()) siteCrawlCollectionTitle.value = pendingWebsiteCrawl.pages?.[0]?.title || "";
+    renderSiteCrawlResult(pendingWebsiteCrawl);
+    const robotsNote = pendingWebsiteCrawl.robotsApplied ? "已读取并应用 robots.txt。" : "站点未返回可读取的 robots.txt 规则。";
+    siteCrawlStatus.textContent = pendingWebsiteCrawl.errors?.length
+      ? `预览完成。成功读取 ${pendingWebsiteCrawl.pages.length} 页，另有 ${pendingWebsiteCrawl.errors.length} 项未完成；${robotsNote}请检查后再保存。`
+      : `预览完成。成功读取 ${pendingWebsiteCrawl.pages.length} 页；${robotsNote}请检查页面清单后再保存。`;
+  } catch (error) {
+    pendingWebsiteCrawl = null;
+    siteCrawlStatus.textContent = String(error);
+    siteCrawlStatus.className = "error";
+    siteCrawlResult.classList.add("hidden");
+  } finally {
+    runSiteCrawlButton.disabled = false;
+    runSiteCrawlButton.textContent = pendingWebsiteCrawl ? "重新预览" : "预览抓取结果";
+  }
+}
+
+function saveSiteCrawl() {
+  const pages = selectedSiteCrawlPages();
+  if (!pages.length) return;
+  const previousKnowledge = structuredClone(data.knowledge);
+  const previousCollections = structuredClone(data.websiteCollections || []);
+  const existing = data.websiteCollections.find((item) => item.id === editingWebsiteCollectionId);
+  const collectionId = existing?.id || crypto.randomUUID();
+  const now = new Date().toISOString();
+  try {
+    if (existing) {
+      const oldIds = new Set(existing.knowledgeIds || []);
+      data.knowledge = data.knowledge.filter((item) => !oldIds.has(item.id));
+    }
+    const knowledgeIds = [];
+    pages.forEach((page) => {
+      const item = {
+        id: crypto.randomUUID(),
+        title: page.title || page.url,
+        fileName: page.title || page.url,
+        filePath: "",
+        sourcePath: page.url,
+        storedInKardii: true,
+        fileType: "web",
+        fileSize: new Blob([page.content || ""]).size,
+        content: String(page.content || ""),
+        charCount: Number(page.charCount) || String(page.content || "").length,
+        pageCount: 1,
+        warning: page.warning || "公开网页快照可能与网站后续内容不同。",
+        status: "active",
+        tags: [siteCrawlTags.value.trim(), "网站"].filter(Boolean).join("、").slice(0, 200),
+        summary: `来自 ${pendingWebsiteCrawl.siteRoot} 的公开网页快照。`,
+        keyPoints: "",
+        risks: "",
+        actions: "",
+        analyzedAt: "",
+        linkedCustomerId: siteCrawlRelationSelect.value,
+        linkedProjectId: siteCrawlProjectSelect.value,
+        reportId: "",
+        websiteCollectionId: collectionId,
+        browserUrl: page.url,
+        siteRoot: pendingWebsiteCrawl.siteRoot,
+        crawlDepth: Number(page.depth) || 0,
+        capturedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      };
+      data.knowledge.unshift(item);
+      knowledgeIds.push(item.id);
+    });
+    const collection = {
+      id: collectionId,
+      title: siteCrawlCollectionTitle.value.trim() || pages[0]?.title || pendingWebsiteCrawl.siteRoot || "网站知识库",
+      startUrl: pendingWebsiteCrawl.startUrl || siteCrawlUrl.value.trim(),
+      siteRoot: pendingWebsiteCrawl.siteRoot,
+      maxPages: Number(siteCrawlMaxPages.value),
+      maxDepth: Number(siteCrawlMaxDepth.value),
+      linkedCustomerId: siteCrawlRelationSelect.value,
+      linkedProjectId: siteCrawlProjectSelect.value,
+      tags: siteCrawlTags.value.trim(),
+      knowledgeIds,
+      pageCount: pages.length,
+      errors: pendingWebsiteCrawl.errors || [],
+      robotsApplied: pendingWebsiteCrawl.robotsApplied === true,
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+    };
+    if (existing) Object.assign(existing, collection);
+    else data.websiteCollections.unshift(collection);
+    const totalChars = data.knowledge.reduce((sum, item) => sum + String(item.content || "").length, 0);
+    if (totalChars > 2_500_000) throw new Error("知识库已超过约 250 万字的本机安全容量。请减少抓取页数或先删除旧资料。");
+    knowledgeTypeFilter.value = "web";
+    if (!saveData()) throw new Error("本机存储空间不足，网站快照未能保存。");
+    const savedCount = pages.length;
+    closeSiteCrawlModal();
+    navigate("knowledge");
+    showToast(`${existing ? "网站集合已更新" : "网站集合已保存"} · ${savedCount} 页`);
+  } catch (error) {
+    data.knowledge = previousKnowledge;
+    data.websiteCollections = previousCollections;
+    renderAll();
+    siteCrawlStatus.textContent = String(error);
+    siteCrawlStatus.className = "error";
+  }
+}
+
+async function deleteWebsiteCollection(id) {
+  const collection = data.websiteCollections.find((item) => item.id === id);
+  if (!collection) return;
+  const confirmed = await window.kardiiConfirm({ title: `删除“${collection.title}”？`, message: `会删除这个集合及其 ${collection.knowledgeIds?.length || 0} 个网页快照；原网站不会发生任何变化。`, confirmLabel: "删除集合", tone: "danger" });
+  if (!confirmed) return;
+  const ids = new Set(collection.knowledgeIds || []);
+  data.knowledge = data.knowledge.filter((item) => !ids.has(item.id));
+  data.websiteCollections = data.websiteCollections.filter((item) => item.id !== id);
+  saveData();
+  showToast("网站集合和网页快照已删除");
+}
+
 async function importKnowledgeFiles() {
   const button = document.getElementById("importKnowledgeButton");
   button.disabled = true;
@@ -3397,7 +4124,19 @@ function createBundleRelationship() {
 
 function currentConversationDocument() {
   try {
-    const messages = JSON.parse(localStorage.getItem(CHAT_HISTORY_KEY) || "[]");
+    let messages = [];
+    let sessionTitle = "当前 Kardii 聊天记录";
+    const sessionStore = JSON.parse(localStorage.getItem(CHAT_SESSIONS_KEY) || "null");
+    if (Array.isArray(sessionStore?.sessions)) {
+      const activeSession = sessionStore.sessions.find((session) => session?.id === sessionStore.activeSessionId)
+        || sessionStore.sessions[0];
+      if (activeSession) {
+        messages = activeSession.messages;
+        sessionTitle = `当前聊天会话：${String(activeSession.title || "新对话").slice(0, 60)}`;
+      }
+    } else {
+      messages = JSON.parse(localStorage.getItem(CHAT_HISTORY_KEY) || "[]");
+    }
     if (!Array.isArray(messages)) return null;
     const clean = messages
       .filter((message) => ["user", "assistant"].includes(message?.role) && typeof message?.content === "string" && message.content.trim())
@@ -3407,7 +4146,7 @@ function currentConversationDocument() {
       .map((message) => `${message.role === "user" ? "用户" : "Kardii"}：${message.content.trim()}`)
       .join("\n\n");
     return {
-      title: "当前 Kardii 聊天记录",
+      title: sessionTitle,
       content: content.slice(-80_000),
       messageCount: clean.length,
     };
@@ -3724,6 +4463,24 @@ document.addEventListener("click", (event) => {
     const url = actionTarget.dataset.cloudUrl;
     if (url) invoke("open_external_url", { url }).catch((error) => showToast(String(error)));
   }
+  if (action === "load-enterprise-analysis") loadEnterpriseAnalysis(actionTarget.dataset.analysisId);
+  if (action === "delete-enterprise-analysis") deleteEnterpriseAnalysis(actionTarget.dataset.analysisId);
+  if (action === "refresh-website-collection") openSiteCrawlModal(actionTarget.dataset.collectionId);
+  if (action === "delete-website-collection") deleteWebsiteCollection(actionTarget.dataset.collectionId);
+  if (action === "open-website-collection") {
+    event.preventDefault();
+    const collection = data.websiteCollections.find((item) => item.id === actionTarget.dataset.collectionId);
+    if (collection?.startUrl) invoke("open_external_url", { url: collection.startUrl }).catch((error) => showToast(String(error)));
+  }
+  if (action === "open-crawl-url") {
+    event.preventDefault();
+    const url = actionTarget.dataset.crawlUrl;
+    if (url) invoke("open_external_url", { url }).catch((error) => showToast(String(error)));
+  }
+  if (action === "open-analysis-source-url") {
+    const url = actionTarget.dataset.sourceUrl;
+    if (url) invoke("open_external_url", { url }).catch((error) => showToast(String(error)));
+  }
   if (action === "delete-task") deleteTask(actionTarget.dataset.entityId);
   if (action === "delete-note") deleteNote(actionTarget.dataset.entityId);
   if (action === "delete-activity") deleteActivity(actionTarget.dataset.entityId);
@@ -3755,12 +4512,62 @@ intelligenceSearch.addEventListener("input", renderIntelligence);
 intelligenceStatusFilter.addEventListener("change", renderIntelligence);
 knowledgeSearch.addEventListener("input", () => {
   renderReports();
+  renderWebsiteCollections();
   renderKnowledge();
 });
-knowledgeTypeFilter.addEventListener("change", renderKnowledge);
+knowledgeTypeFilter.addEventListener("change", () => {
+  renderWebsiteCollections();
+  renderKnowledge();
+});
 captureStatusFilter.addEventListener("change", renderCaptureInbox);
 document.getElementById("importKnowledgeButton").addEventListener("click", importKnowledgeFiles);
+document.getElementById("importWebsiteButton").addEventListener("click", () => openSiteCrawlModal());
 document.getElementById("askKnowledgeButton").addEventListener("click", askKnowledgeBase);
+document.getElementById("generateEnterpriseAnalysisButton").addEventListener("click", generateEnterpriseAnalysis);
+document.getElementById("saveEnterpriseAnalysisButton").addEventListener("click", () => saveEnterpriseAnalysis(false));
+document.getElementById("saveEnterpriseTasksButton").addEventListener("click", () => saveEnterpriseAnalysis(true));
+document.getElementById("copyDailyBriefButton").addEventListener("click", async () => {
+  const text = analysisDraftValue("analysisDraftDailyBrief");
+  if (!text) return;
+  try {
+    await invoke("write_clipboard_text", { text });
+    showToast("今日简报已复制");
+  } catch (error) {
+    showToast(String(error));
+  }
+});
+[analysisProjectSelect, analysisRelationSelect, analysisRangeSelect].forEach((control) => control.addEventListener("change", renderAnalysisSourceSummary));
+document.querySelectorAll("[data-analysis-source]").forEach((control) => control.addEventListener("change", renderAnalysisSourceSummary));
+dailyBriefReminderToggle.addEventListener("change", () => {
+  data.settings.dailyBriefReminderEnabled = dailyBriefReminderToggle.checked;
+  if (!dailyBriefReminderToggle.checked) data.settings.dailyBriefLastReminderDate = "";
+  else ensureDailyBriefReminder();
+  saveData();
+  showToast(dailyBriefReminderToggle.checked ? "每日简报提醒已开启" : "每日简报提醒已关闭");
+});
+dailyBriefReminderTime.addEventListener("change", () => {
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(dailyBriefReminderTime.value)) return;
+  data.settings.dailyBriefReminderTime = dailyBriefReminderTime.value;
+  data.settings.dailyBriefLastReminderDate = "";
+  ensureDailyBriefReminder();
+  saveData();
+});
+document.getElementById("siteCrawlCloseButton").addEventListener("click", closeSiteCrawlModal);
+document.getElementById("siteCrawlCancelButton").addEventListener("click", closeSiteCrawlModal);
+runSiteCrawlButton.addEventListener("click", runSiteCrawl);
+saveSiteCrawlButton.addEventListener("click", saveSiteCrawl);
+siteCrawlPageList.addEventListener("change", (event) => {
+  if (!event.target.matches("[data-crawl-page-index]")) return;
+  const selected = selectedSiteCrawlPages();
+  saveSiteCrawlButton.disabled = selected.length === 0;
+  siteCrawlStatus.textContent = selected.length
+    ? `已选择 ${selected.length} / ${pendingWebsiteCrawl.pages.length} 页保存。可以继续取消不需要的页面，或确认保存。`
+    : "至少选择一个页面后才能保存。";
+  siteCrawlStatus.className = selected.length ? "" : "error";
+});
+siteCrawlBackdrop.addEventListener("mousedown", (event) => {
+  if (event.target === siteCrawlBackdrop) closeSiteCrawlModal();
+});
 document.getElementById("bundleCloseButton").addEventListener("click", closeBundlePreview);
 document.getElementById("bundleCancelButton").addEventListener("click", closeBundlePreview);
 ocrBundleButton.addEventListener("click", ocrPendingBundle);
@@ -3916,6 +4723,10 @@ modalBackdrop.addEventListener("mousedown", (event) => {
 });
 entityForm.addEventListener("submit", submitEntity);
 window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !siteCrawlBackdrop.classList.contains("hidden")) {
+    closeSiteCrawlModal();
+    return;
+  }
   if (event.key === "Escape" && !bundleBackdrop.classList.contains("hidden")) {
     closeBundlePreview();
     return;
@@ -3941,6 +4752,7 @@ window.addEventListener("storage", (event) => {
 loadEmailConnectionForm();
 loadCloudConnectionForms();
 loadMcpConnectionForm();
+ensureDailyBriefReminder();
 navigate("dashboard");
 renderAll();
 consumeWorkbenchTarget();

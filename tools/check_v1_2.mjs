@@ -17,7 +17,7 @@ const chatJs = read("src/chat.js");
 const rust = read("src-tauri/src/lib.rs");
 
 assert(workbenchHtml.includes("关系库") && !workbenchHtml.includes(">客户库<"), "关系库命名未完成");
-assert(workbenchJs.includes("version: 3") && workbenchJs.includes("[1, 2, 3].includes(saved.version)"), "v1 到 v3 数据迁移缺失");
+assert(workbenchJs.includes("version: 4") && workbenchJs.includes("[1, 2, 3, 4].includes(saved.version)"), "v1 到 v4 数据迁移缺失");
 assert(workbenchJs.includes("contacts: []") && workbenchJs.includes("relationshipId"), "独立联系人模型缺失");
 assert(workbenchJs.includes("primaryContactId") && workbenchJs.includes("contactName:${contact.id}"), "联系人不可独立编辑或设置主要联系人");
 assert(workbenchJs.includes("reports: []") && workbenchJs.includes("projectWorkspacePanelMarkup"), "项目工作台成果模型缺失");
@@ -70,7 +70,7 @@ const migrationFunctions = workbenchJs.slice(
 );
 vm.runInContext(`${migrationPrelude}\n${migrationFunctions}`, migrationContext);
 const migrated = vm.runInContext("data", migrationContext);
-assert(migrated.version === 3 && migrated.customers[0].company === "旧版服务商", "旧版关系数据迁移失败");
+assert(migrated.version === 4 && migrated.customers[0].company === "旧版服务商", "旧版关系数据迁移失败");
 assert(migrated.contacts.length === 1 && migrated.contacts[0].name === "王经理", "旧版联系人没有拆分保存");
 assert(migrated.settings.autoCaptureEnabled === true && migrated.reports.length === 0, "旧版设置或新集合迁移失败");
 
@@ -88,7 +88,7 @@ for (const command of ["analyze_knowledge_bundle", "persist_knowledge_files", "d
 }
 assert(workbenchJs.indexOf("openBundlePreview(files)") < workbenchJs.indexOf("persist_knowledge_files"), "文件必须先预览再持久化");
 assert(workbenchJs.includes("pendingBundleAnalysis") && workbenchJs.includes("bundleDraftValue"), "AI 分析草稿不可编辑或未保存");
-assert(workbenchJs.includes("currentConversationDocument()") && workbenchJs.includes("CHAT_HISTORY_KEY"), "当前聊天记录未接入多文件分析");
+assert(workbenchJs.includes("currentConversationDocument()") && workbenchJs.includes("CHAT_SESSIONS_KEY"), "当前聊天会话未接入多文件分析");
 
 assert(agentHtml.includes('id="stepPermissionButton"'), "逐步确认按钮缺失");
 assert(agentJs.includes('waiting_authorization: "等待任务授权"'), "任务授权状态缺失");
@@ -116,7 +116,7 @@ for (const isolation of ['features.shell_tool=false', 'features.computer_use=fal
 assert(rust.includes(".current_dir(&server_work_dir.path)"), "Codex app-server 进程没有放进独立空目录");
 assert(rust.includes("run_codex_exec_prompt") && rust.includes("CODEX_APP_SERVER_UNAVAILABLE"), "Codex exec 兼容回退缺失");
 assert(rust.includes("item/agentMessage/delta") && rust.includes("turn/completed"), "Codex 流式事件处理缺失");
-assert(chatJs.includes('codexThreadKey: "kardii-main-chat-v1"'), "聊天线程连续性键缺失");
+assert(chatJs.includes("codexThreadKey: activeCodexThreadScope()"), "聊天会话的 Codex 线程连续性键缺失");
 assert(chatJs.includes('invoke("reset_codex_conversation"'), "清空聊天未清理 Codex 常驻线程");
 
 console.log("Kardii v1.2 workspace, relationship, authorization, and app-server checks passed.");

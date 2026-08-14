@@ -13,6 +13,12 @@ const settingsButton = document.getElementById("settingsButton");
 const workbenchButton = document.getElementById("workbenchButton");
 const agentCenterButton = document.getElementById("agentCenterButton");
 const agentModeButton = document.getElementById("agentModeButton");
+const chatSessionsButton = document.getElementById("chatSessionsButton");
+const chatSessionsPanel = document.getElementById("chatSessionsPanel");
+const chatSessionsCloseButton = document.getElementById("chatSessionsCloseButton");
+const newChatSessionButton = document.getElementById("newChatSessionButton");
+const chatSessionList = document.getElementById("chatSessionList");
+const chatSessionTitle = document.getElementById("chatSessionTitle");
 const settingsPanel = document.getElementById("settingsPanel");
 const settingsCloseButton = document.getElementById("settingsCloseButton");
 const providerSelect = document.getElementById("providerSelect");
@@ -165,6 +171,7 @@ const previousTourButton = document.getElementById("previousTourButton");
 const nextTourButton = document.getElementById("nextTourButton");
 
 const HISTORY_KEY = "kardii-chat-history-v1";
+const CHAT_SESSIONS_KEY = "kardii-chat-sessions-v1";
 const RESPONSE_LENGTH_KEY = "kardii-response-length";
 const PROFILE_KEY = "kardii-profile-v1";
 const MEMORIES_KEY = "kardii-memories-v1";
@@ -177,6 +184,7 @@ const AGENT_TASKS_KEY = "kardii-agent-tasks-v1";
 const AGENT_SKILLS_KEY = "kardii-agent-skills-v1";
 const AUTOMATIONS_KEY = "kardii-automations-v1";
 const AGENT_TARGET_KEY = "kardii-agent-open-target-v1";
+const CHAT_TARGET_KEY = "kardii-chat-open-target-v1";
 const AGENT_MODE_KEY = "kardii-chat-agent-mode-v1";
 const AUTO_AGENT_HANDOFF_KEY = "kardii-auto-agent-handoff-v1";
 const BROWSER_CONTEXT_KEY = "kardii-browser-context-v1";
@@ -228,7 +236,9 @@ const AI_PROVIDERS = {
     models: [{ value: "codex-default", label: "Codex 默认模型 · ChatGPT 方案" }],
   },
 };
-let conversation = loadConversation();
+let chatSessionStore = loadChatSessionStore();
+let activeChatSessionId = chatSessionStore.activeSessionId;
+let conversation = activeChatSession().messages.map((message) => ({ ...message }));
 let sending = false;
 let providerReady = false;
 let clearConfirmationTimer;
@@ -255,10 +265,12 @@ let ollamaModels = [];
 let agentMode = localStorage.getItem(AGENT_MODE_KEY) === "agent";
 let autoAgentHandoff = localStorage.getItem(AUTO_AGENT_HANDOFF_KEY) !== "off";
 let pendingChatAttachments = [];
+const chatSessionTransient = new Map();
+let chatDraftSaveTimer = null;
 let chatAttachmentProcessing = false;
 let chatDragDepth = 0;
 let browserContextLoading = false;
-let appVersion = window.KardiiCapabilities?.version || "1.6.0";
+let appVersion = window.KardiiCapabilities?.version || "1.7.0";
 let onboardingScheduled = false;
 let tourStepIndex = 0;
 let activeTourTarget = null;
@@ -279,6 +291,11 @@ const TOUR_STEPS = Object.freeze([
     selector: "#messageInput",
     title: "先像平常一样聊天",
     description: "直接提问、写内容或分析资料。明确说“开始执行”时，Kardii 还能自动把后续交给 Agent。",
+  },
+  {
+    selector: "#chatSessionsButton",
+    title: "不同事情分开聊",
+    description: "点击会话图标建立独立话题；切回原会话会恢复它自己的历史、Codex 线程和关联 Agent 任务。",
   },
   {
     selector: "#addChatAttachmentButton",
@@ -702,6 +719,15 @@ async function openAgentCenter() {
   await agentWindow.setFocus();
 }
 
+async function openAgentForActiveChat() {
+  const session = activeChatSession();
+  const linkedTask = agentTasksById().get(session.linkedAgentTaskId);
+  if (linkedTask) {
+    localStorage.setItem(AGENT_TARGET_KEY, JSON.stringify({ taskId: linkedTask.id, autoStart: false }));
+  }
+  await openAgentCenter();
+}
+
 function renderAgentMode() {
   agentModeButton.classList.toggle("active", agentMode);
   autoAgentHandoffToggle.checked = autoAgentHandoff;
@@ -712,9 +738,36 @@ function renderAgentMode() {
 
 function defaultChatHint() {
   if (agentMode) return "Agent 模式 · 发送后会在任务中心制定计划并执行";
+  const linkedTask = agentTasksById().get(activeChatSession().linkedAgentTaskId);
+  if (linkedTask?.status === "waiting_input") return "关联 Agent 正在等你的回答 · 这条消息会直接交回原任务";
   return autoAgentHandoff
     ? "智能模式 · 问题直接回答，明确的执行请求会自动转给 Agent"
     : "Enter 发送 · Shift + Enter 换行 · Esc 收起";
+}
+
+function linkActiveChatToAgentTask(taskId) {
+  const session = activeChatSession();
+  const cleanTaskId = String(taskId || "");
+  session.linkedAgentTaskId = cleanTaskId;
+  session.agentTaskIds = [...new Set([...(session.agentTaskIds || []), cleanTaskId].filter(Boolean))].slice(-20);
+  session.updatedAt = new Date().toISOString();
+  persistChatSessionStore();
+  renderChatSessionIdentity();
+}
+
+async function finishChatAgentHandoff({ task, goal, displayGoal, reply, target }) {
+  linkActiveChatToAgentTask(task.id);
+  localStorage.setItem(AGENT_TARGET_KEY, JSON.stringify({ taskId: task.id, ...target }));
+  addMessage(displayGoal || goal, "user");
+  addMessage(reply, "kardii");
+  conversation.push({ role: "user", content: goal, displayContent: displayGoal || goal });
+  conversation.push({ role: "assistant", content: reply });
+  input.value = "";
+  activeChatSession().draft = "";
+  resizeInput();
+  saveConversation();
+  updateReplyActions();
+  await openAgentCenter();
 }
 
 async function createAgentTaskFromChat(goal, options = {}) {
@@ -731,6 +784,119 @@ async function createAgentTaskFromChat(goal, options = {}) {
   } catch {
     tasks = [];
   }
+  const session = activeChatSession();
+  const displayGoal = options.displayGoal || goal;
+  if (session.title === window.KardiiChatSessions.defaultTitle) {
+    session.title = window.KardiiChatSessions.summarizeTitle(displayGoal);
+  }
+  const linkedTask = tasks.find((task) => task?.id === session.linkedAgentTaskId);
+  if (linkedTask) {
+    const status = String(linkedTask.status || "draft");
+    const createdAt = new Date().toISOString();
+    linkedTask.activities = Array.isArray(linkedTask.activities) ? linkedTask.activities : [];
+    linkedTask.history = Array.isArray(linkedTask.history) ? linkedTask.history : [];
+
+    if (status === "waiting_input") {
+      const question = String(linkedTask.question || "").slice(0, 4_000);
+      linkedTask.history.push({
+        tool: "ask_user",
+        title: "用户从关联聊天会话回答",
+        arguments: { question },
+        success: true,
+        result: [`用户回答：${goal.slice(0, 4_000)}`, options.attachmentContext || ""].filter(Boolean).join("\n\n").slice(0, 20_000),
+        createdAt,
+      });
+      linkedTask.history = linkedTask.history.slice(-30);
+      linkedTask.activities.push({
+        id: crypto.randomUUID(),
+        kind: "user",
+        title: "从关联聊天会话收到回答",
+        detail: [goal, options.attachmentContext ? "已同时带入聊天附件。" : ""].filter(Boolean).join("\n").slice(0, 1_200),
+        createdAt,
+      });
+      linkedTask.activities = linkedTask.activities.slice(-80);
+      linkedTask.question = "";
+      linkedTask.currentAction = null;
+      linkedTask.status = "running";
+      linkedTask.sourceChatSessionId = session.id;
+      linkedTask.sourceChatSessionTitle = session.title;
+      linkedTask.updatedAt = createdAt;
+      localStorage.setItem(AGENT_TASKS_KEY, JSON.stringify(tasks.slice(0, 100)));
+      const reply = `已把这条消息作为回答交回原 Agent 任务“${linkedTask.title || session.title}”，不会另开任务。现在从原来的计划和执行记录继续。`;
+      await finishChatAgentHandoff({ task: linkedTask, goal, displayGoal, reply, target: { resume: true } });
+      return;
+    }
+
+    if (["draft", "paused", "completed", "failed", "cancelled"].includes(status)) {
+      const previousGoal = String(linkedTask.originalGoal || linkedTask.goal || "").trim();
+      const previousResult = String(linkedTask.finalAnswer || linkedTask.error || "").trim();
+      if (previousResult) {
+        linkedTask.history.push({
+          tool: linkedTask.finalAnswer ? "previous_result" : "previous_error",
+          title: linkedTask.finalAnswer ? "上一轮任务结果" : "上一轮任务错误",
+          arguments: {},
+          success: Boolean(linkedTask.finalAnswer),
+          result: previousResult.slice(0, 20_000),
+          createdAt,
+        });
+      }
+      linkedTask.history.push({
+        tool: "chat_followup",
+        title: "关联聊天会话继续要求",
+        arguments: {},
+        success: true,
+        result: taskGoal.slice(0, 20_000),
+        createdAt,
+      });
+      linkedTask.history = linkedTask.history.slice(-30);
+      linkedTask.activities.push({
+        id: crypto.randomUUID(),
+        kind: "user",
+        title: "从关联聊天会话继续任务",
+        detail: goal.slice(0, 1_200),
+        createdAt,
+      });
+      linkedTask.activities = linkedTask.activities.slice(-80);
+      linkedTask.originalGoal = previousGoal || taskGoal;
+      linkedTask.goal = [
+        previousGoal ? `原始任务：\n${previousGoal.slice(0, 1_400)}` : "",
+        `本次继续要求：\n${taskGoal.slice(0, 2_200)}`,
+        previousResult ? `上一轮结果或错误摘要：\n${previousResult.slice(0, 800)}` : "",
+      ].filter(Boolean).join("\n\n").slice(0, 4_000);
+      linkedTask.summary = "";
+      linkedTask.plan = [];
+      linkedTask.currentAction = null;
+      linkedTask.pendingAction = null;
+      linkedTask.requestedPermissions = [];
+      linkedTask.authorizedTools = [];
+      linkedTask.authorizationMode = "";
+      linkedTask.authorizationGrantedAt = "";
+      linkedTask.question = "";
+      linkedTask.finalAnswer = "";
+      linkedTask.error = "";
+      linkedTask.status = "draft";
+      linkedTask.stepCount = 0;
+      linkedTask.continuationCount = Math.max(0, Number(linkedTask.continuationCount) || 0) + 1;
+      linkedTask.sourceChatSessionId = session.id;
+      linkedTask.sourceChatSessionTitle = session.title;
+      linkedTask.updatedAt = createdAt;
+      localStorage.setItem(AGENT_TASKS_KEY, JSON.stringify(tasks.slice(0, 100)));
+      const reply = `已回到原 Agent 任务“${linkedTask.title || session.title}”继续，不会建立重复任务。上一轮结果和执行记录会保留，Kardii 将根据这次新要求重新整理后续计划。`;
+      await finishChatAgentHandoff({ task: linkedTask, goal, displayGoal, reply, target: { autoStart: true, continuation: true } });
+      return;
+    }
+
+    const statusLabel = {
+      planning: "正在规划",
+      running: "正在执行",
+      waiting_authorization: "正在等待任务范围授权",
+      waiting_permission: "正在等待单次操作确认",
+    }[status] || "尚未结束";
+    const reply = `这个会话已经关联 Agent 任务“${linkedTask.title || session.title}”，它${statusLabel}。为避免重复执行，我没有再创建新任务，已为你打开原任务；先完成当前步骤后，再从这个会话继续发送要求。`;
+    await finishChatAgentHandoff({ task: linkedTask, goal, displayGoal, reply, target: { autoStart: false } });
+    return;
+  }
+
   let matchedSkill = null;
   let skills = [];
   try {
@@ -784,6 +950,10 @@ async function createAgentTaskFromChat(goal, options = {}) {
     toolCalls: 0,
     createdAt,
     updatedAt: createdAt,
+    sourceChatSessionId: session.id,
+    sourceChatSessionTitle: session.title,
+    originalGoal: taskGoal,
+    continuationCount: 0,
   };
   if (matchedSkill) {
     const savedSkill = skills.find((skill) => skill.id === matchedSkill.id);
@@ -796,18 +966,8 @@ async function createAgentTaskFromChat(goal, options = {}) {
   }
   tasks.unshift(task);
   localStorage.setItem(AGENT_TASKS_KEY, JSON.stringify(tasks.slice(0, 100)));
-  localStorage.setItem(AGENT_TARGET_KEY, JSON.stringify({ taskId: task.id, autoStart: true }));
   const reply = `${options.autoRouted ? "我判断你现在要从讨论进入执行，已自动切换到 Kardii Agent" : "已经交给 Kardii Agent"}：${task.title}\n${matchedSkill ? `已使用技能「${task.skillName}」。` : ""}${options.includeContext ? "最近的聊天内容也已带入，不用重新说明。" : ""}${options.attachmentContext ? "附件资料也已带入。" : ""}我会在任务中心先列出计划，再开始执行；需要读取文件、剪贴板、打开网页或运行命令时会停下来问你。`;
-  const displayGoal = options.displayGoal || goal;
-  addMessage(displayGoal, "user");
-  addMessage(reply, "kardii");
-  conversation.push({ role: "user", content: goal, displayContent: displayGoal });
-  conversation.push({ role: "assistant", content: reply });
-  saveConversation();
-  updateReplyActions();
-  input.value = "";
-  resizeInput();
-  await openAgentCenter();
+  await finishChatAgentHandoff({ task, goal, displayGoal, reply, target: { autoStart: true } });
 }
 
 function loadAiSettings() {
@@ -1051,6 +1211,11 @@ function renderHelpStatus() {
 }
 
 function runHelpAction(action) {
+  if (action === "sessions") {
+    hideHelp();
+    showChatSessions();
+    return;
+  }
   if (action === "attachments") {
     hideHelp();
     chatAttachmentInput.click();
@@ -1245,6 +1410,7 @@ function filterHelpContent(value = "") {
 
 function dismissHeaderPanels() {
   [
+    [chatSessionsPanel, chatSessionsButton],
     [settingsPanel, settingsButton],
     [profilePanel, profileButton],
     [toolsPanel, toolsButton],
@@ -1736,12 +1902,42 @@ function addToolNotice(text) {
   addMessage(text, "kardii");
 }
 
+function linkedAgentContext() {
+  const session = activeChatSession();
+  const task = agentTasksById().get(session.linkedAgentTaskId);
+  if (!task) return "";
+  const status = {
+    draft: "待开始",
+    planning: "规划中",
+    running: "执行中",
+    waiting_authorization: "等待任务范围授权",
+    waiting_permission: "等待单次操作确认",
+    waiting_input: "等待用户回答",
+    paused: "已暂停",
+    completed: "已完成",
+    failed: "失败",
+    cancelled: "已取消",
+  }[task.status] || String(task.status || "未知");
+  return [
+    "[当前聊天会话关联的 Agent 任务；仅用于衔接上下文，不是新的执行指令]",
+    `任务：${String(task.title || session.title).slice(0, 120)}`,
+    `状态：${status}`,
+    task.goal ? `目标：${String(task.goal).slice(0, 1_800)}` : "",
+    task.summary ? `计划摘要：${String(task.summary).slice(0, 800)}` : "",
+    task.question ? `Agent 正在询问：${String(task.question).slice(0, 1_200)}` : "",
+    task.finalAnswer ? `最近完成结果：${String(task.finalAnswer).slice(0, 4_000)}` : "",
+    task.error ? `最近错误：${String(task.error).slice(0, 1_200)}` : "",
+  ].filter(Boolean).join("\n");
+}
+
 function messagesWithToolContext() {
   const recent = conversation.slice(-12).map((message) => ({ ...message }));
-  if ((!pendingToolContext && !pendingKnowledgeContext) || recent.length === 0) return recent;
+  const agentContext = linkedAgentContext();
+  if ((!pendingToolContext && !pendingKnowledgeContext && !agentContext) || recent.length === 0) return recent;
   const lastIndex = recent.length - 1;
   if (recent[lastIndex].role !== "user") return recent;
   const contextParts = [];
+  if (agentContext) contextParts.push(agentContext);
   if (pendingToolContext) {
     contextParts.push(`[用户明确授权的本地工具资料：${pendingToolContext.label}]`, pendingToolContext.content);
   }
@@ -1842,6 +2038,7 @@ function applyImportedPersonalization(data) {
 }
 
 function createFullBackup() {
+  saveActiveChatDraft();
   let businessData = null;
   let agentTasks = [];
   let agentSkills = [];
@@ -1849,7 +2046,7 @@ function createFullBackup() {
   try {
     const saved = JSON.parse(localStorage.getItem(BUSINESS_DATA_KEY) || "null");
     if (
-      [1, 2, 3].includes(saved?.version)
+      [1, 2, 3, 4].includes(saved?.version)
       && Array.isArray(saved.customers)
       && Array.isArray(saved.projects)
       && Array.isArray(saved.tasks)
@@ -1879,11 +2076,13 @@ function createFullBackup() {
   return {
     format: "kardii-backup",
     version: 1,
-    appVersion: "1.6.0",
+    appVersion: "1.7.0",
     createdAt: new Date().toISOString(),
     profile,
     memories,
     conversation,
+    chatSessions: chatSessionStore.sessions.map((session) => window.KardiiChatSessions.normalizeSession(session)),
+    activeChatSessionId,
     responseLength: responseLengthSelect.value,
     aiSettings,
     businessData,
@@ -1898,13 +2097,15 @@ function applyFullBackup(data) {
     throw new Error("无法识别这个备份文件。请选择 Kardii 导出的 JSON 文件。");
   }
   applyImportedPersonalization(data);
-  conversation = Array.isArray(data.conversation)
-    ? data.conversation
-      .filter((message) => ["user", "assistant"].includes(message?.role) && typeof message?.content === "string" && message.content.trim())
-      .map((message) => ({ role: message.role, content: message.content.slice(0, 100_000) }))
-      .slice(-MAX_SAVED_MESSAGES)
-    : [];
-  saveConversation();
+  const importedSessions = Array.isArray(data.chatSessions)
+    ? { sessions: data.chatSessions, activeSessionId: data.activeChatSessionId }
+    : null;
+  chatSessionStore = window.KardiiChatSessions.normalizeStore(importedSessions, data.conversation);
+  activeChatSessionId = chatSessionStore.activeSessionId;
+  conversation = activeChatSession().messages.map((message) => ({ ...message }));
+  chatSessionTransient.clear();
+  persistChatSessionStore();
+  restoreChatSessionTransient();
   const responseLength = RESPONSE_LENGTH_VALUES.has(String(data.responseLength)) ? String(data.responseLength) : "auto";
   responseLengthSelect.value = responseLength;
   localStorage.setItem(RESPONSE_LENGTH_KEY, responseLength);
@@ -1925,7 +2126,7 @@ function applyFullBackup(data) {
     void refreshProviderState();
   }
   if (
-    [1, 2, 3].includes(data.businessData?.version)
+    [1, 2, 3, 4].includes(data.businessData?.version)
     && Array.isArray(data.businessData.customers)
     && Array.isArray(data.businessData.projects)
     && Array.isArray(data.businessData.tasks)
@@ -1943,6 +2144,8 @@ function applyFullBackup(data) {
     localStorage.setItem(AUTOMATIONS_KEY, JSON.stringify(data.automations.slice(0, 100)));
   }
   renderConversation();
+  renderChatSessionIdentity();
+  renderChatSessionList();
 }
 
 function addLocalExchange(userText, replyText) {
@@ -2033,7 +2236,7 @@ function loadBusinessData() {
     if (!saved || typeof saved !== "object") return null;
     return {
       ...saved,
-      version: [1, 2, 3].includes(saved.version) ? saved.version : 1,
+      version: [1, 2, 3, 4].includes(saved.version) ? saved.version : 1,
       customers: Array.isArray(saved.customers) ? saved.customers : [],
       contacts: Array.isArray(saved.contacts) ? saved.contacts : [],
       projects: Array.isArray(saved.projects) ? saved.projects : [],
@@ -2402,7 +2605,7 @@ function hideProfile() {
   closeHeaderPanel(profilePanel, profileButton);
 }
 
-function loadConversation() {
+function loadLegacyConversation() {
   try {
     const saved = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
     if (!Array.isArray(saved)) return [];
@@ -2419,9 +2622,311 @@ function loadConversation() {
   }
 }
 
+function loadChatSessionStore() {
+  let saved = null;
+  try {
+    saved = JSON.parse(localStorage.getItem(CHAT_SESSIONS_KEY) || "null");
+  } catch {
+    saved = null;
+  }
+  const legacyConversation = loadLegacyConversation();
+  const normalized = window.KardiiChatSessions.normalizeStore(saved, legacyConversation);
+  try {
+    localStorage.setItem(CHAT_SESSIONS_KEY, JSON.stringify(normalized));
+    if (!saved && legacyConversation.length) localStorage.removeItem(HISTORY_KEY);
+  } catch {
+    // Keep the in-memory migration available even if the WebView storage quota is temporarily full.
+  }
+  return normalized;
+}
+
+function persistChatSessionStore() {
+  chatSessionStore.activeSessionId = activeChatSessionId;
+  try {
+    localStorage.setItem(CHAT_SESSIONS_KEY, JSON.stringify(chatSessionStore));
+    return true;
+  } catch {
+    chatHint.textContent = "聊天会话暂时无法保存；请导出备份并清理不需要的会话。";
+    return false;
+  }
+}
+
+function activeChatSession() {
+  let session = chatSessionStore.sessions.find((item) => item.id === activeChatSessionId);
+  if (!session) {
+    session = chatSessionStore.sessions[0] || window.KardiiChatSessions.createSession();
+    if (!chatSessionStore.sessions.length) chatSessionStore.sessions.push(session);
+    activeChatSessionId = session.id;
+    chatSessionStore.activeSessionId = session.id;
+  }
+  return session;
+}
+
+function activeCodexThreadScope(sessionId = activeChatSessionId) {
+  const cleanId = String(sessionId || "default").replace(/[^a-z0-9_-]/gi, "-").slice(0, 90);
+  return `kardii-chat-${cleanId || "default"}`;
+}
+
+async function resetAllCodexSessionThreads(sessions = chatSessionStore.sessions) {
+  await Promise.all((Array.isArray(sessions) ? sessions : []).map((session) => (
+    invoke("reset_codex_conversation", { scope: activeCodexThreadScope(session.id) }).catch(() => {})
+  )));
+}
+
 function saveConversation() {
   conversation = conversation.slice(-MAX_SAVED_MESSAGES);
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(conversation));
+  const session = activeChatSession();
+  session.messages = conversation.map((message) => ({ ...message }));
+  if (session.title === window.KardiiChatSessions.defaultTitle) {
+    const firstUser = conversation.find((message) => message.role === "user");
+    if (firstUser) {
+      session.title = window.KardiiChatSessions.summarizeTitle(firstUser.displayContent || firstUser.content);
+    }
+  }
+  session.updatedAt = new Date().toISOString();
+  persistChatSessionStore();
+  renderChatSessionIdentity();
+  if (!chatSessionsPanel.classList.contains("hidden")) renderChatSessionList();
+}
+
+function saveActiveChatDraft() {
+  const session = activeChatSession();
+  const nextDraft = input.value.slice(0, 4_000);
+  if (session.draft === nextDraft) return;
+  session.draft = nextDraft;
+  session.updatedAt = new Date().toISOString();
+  persistChatSessionStore();
+}
+
+function agentTasksById() {
+  try {
+    const tasks = JSON.parse(localStorage.getItem(AGENT_TASKS_KEY) || "[]");
+    return new Map((Array.isArray(tasks) ? tasks : []).map((task) => [String(task?.id || ""), task]));
+  } catch {
+    return new Map();
+  }
+}
+
+function chatSessionTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "刚刚";
+  const now = new Date();
+  if (date.toDateString() === now.toDateString()) {
+    return new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" }).format(date);
+  }
+  return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric" }).format(date);
+}
+
+function renderChatSessionIdentity() {
+  const session = activeChatSession();
+  chatSessionTitle.textContent = session.title;
+  chatSessionTitle.title = session.title;
+  const linkedTask = agentTasksById().get(session.linkedAgentTaskId);
+  agentCenterButton.classList.toggle("has-linked-task", Boolean(linkedTask));
+  agentCenterButton.title = linkedTask ? `打开关联 Agent 任务：${linkedTask.title || session.title}` : "Agent 任务中心";
+}
+
+function renderChatSessionList() {
+  const tasks = agentTasksById();
+  const statusLabels = {
+    draft: "待开始",
+    planning: "规划中",
+    running: "执行中",
+    waiting_authorization: "待授权",
+    waiting_permission: "待确认",
+    waiting_input: "待回答",
+    paused: "已暂停",
+    completed: "已完成",
+    failed: "失败",
+    cancelled: "已取消",
+  };
+  chatSessionList.replaceChildren();
+  [...chatSessionStore.sessions]
+    .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())
+    .forEach((session) => {
+      const row = document.createElement("div");
+      row.className = `chat-session-row${session.id === activeChatSessionId ? " active" : ""}`;
+      const select = document.createElement("button");
+      select.type = "button";
+      select.className = "chat-session-select";
+      select.setAttribute("aria-label", `打开会话 ${session.title}`);
+      const titleRow = document.createElement("span");
+      titleRow.className = "chat-session-title-row";
+      const title = document.createElement("strong");
+      title.textContent = session.title;
+      titleRow.appendChild(title);
+      const linkedTask = tasks.get(session.linkedAgentTaskId);
+      if (linkedTask) {
+        const badge = document.createElement("span");
+        badge.className = "chat-session-agent-badge";
+        badge.textContent = `Agent · ${statusLabels[linkedTask.status] || "已关联"}`;
+        titleRow.appendChild(badge);
+      }
+      const latest = [...session.messages].reverse().find((message) => String(message?.content || "").trim());
+      const preview = document.createElement("span");
+      preview.className = "chat-session-preview";
+      preview.textContent = latest?.displayContent || latest?.content || "还没有消息";
+      const meta = document.createElement("span");
+      meta.className = "chat-session-meta";
+      meta.textContent = `${session.messages.length} 条消息 · ${chatSessionTime(session.updatedAt)}`;
+      select.append(titleRow, preview, meta);
+      select.addEventListener("click", () => switchChatSession(session.id));
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "chat-session-delete";
+      remove.textContent = "×";
+      remove.title = `删除“${session.title}”`;
+      remove.setAttribute("aria-label", `删除会话 ${session.title}`);
+      remove.addEventListener("click", () => { void deleteChatSession(session.id); });
+      row.append(select, remove);
+      chatSessionList.appendChild(row);
+    });
+  newChatSessionButton.disabled = chatSessionStore.sessions.length >= window.KardiiChatSessions.maxSessions;
+  newChatSessionButton.title = newChatSessionButton.disabled ? "最多保留 30 个会话，请先删除不需要的会话" : "建立一个不带旧聊天内容的新会话";
+}
+
+function stashChatSessionTransient() {
+  saveActiveChatDraft();
+  chatSessionTransient.set(activeChatSessionId, {
+    pendingToolContext,
+    pendingKnowledgeContext,
+    pendingDesktopCapture,
+    pendingChatAttachments: [...pendingChatAttachments],
+  });
+}
+
+function restoreChatSessionTransient() {
+  const saved = chatSessionTransient.get(activeChatSessionId) || {};
+  pendingToolContext = saved.pendingToolContext || null;
+  pendingKnowledgeContext = saved.pendingKnowledgeContext || null;
+  pendingDesktopCapture = saved.pendingDesktopCapture || null;
+  pendingChatAttachments = Array.isArray(saved.pendingChatAttachments) ? [...saved.pendingChatAttachments] : [];
+  renderChatAttachments();
+  awarenessButton.classList.toggle("has-capture", Boolean(pendingDesktopCapture));
+  awarenessButton.title = pendingDesktopCapture ? "已附上一张窗口截图，点击可更换" : "选择一个窗口让 Kardii 看看";
+  input.value = activeChatSession().draft || "";
+  resizeInput();
+  memorySuggestion.classList.add("hidden");
+  businessCaptureNotice.classList.add("hidden");
+}
+
+function chatSessionChangeBlocked() {
+  return sending || chatAttachmentProcessing || voiceRecordingPhase !== "idle" || Boolean(permissionResolver);
+}
+
+function switchChatSession(sessionId) {
+  if (chatSessionChangeBlocked()) {
+    chatHint.textContent = "请先等待当前回答、附件处理或语音识别结束，再切换会话。";
+    return;
+  }
+  const next = chatSessionStore.sessions.find((session) => session.id === sessionId);
+  if (!next) return;
+  if (next.id === activeChatSessionId) {
+    hideChatSessions();
+    input.focus();
+    return;
+  }
+  stopSpeaking();
+  stashChatSessionTransient();
+  activeChatSessionId = next.id;
+  chatSessionStore.activeSessionId = next.id;
+  conversation = next.messages.map((message) => ({ ...message }));
+  persistChatSessionStore();
+  restoreChatSessionTransient();
+  renderConversation();
+  renderChatSessionIdentity();
+  renderChatSessionList();
+  hideChatSessions();
+  chatHint.textContent = defaultChatHint();
+  input.focus();
+}
+
+function createChatSession() {
+  if (chatSessionChangeBlocked()) {
+    chatHint.textContent = "请先等待当前回答、附件处理或语音识别结束，再新建会话。";
+    return;
+  }
+  if (chatSessionStore.sessions.length >= window.KardiiChatSessions.maxSessions) {
+    chatHint.textContent = "最多保留 30 个会话，请先在会话列表删除不需要的内容。";
+    return;
+  }
+  stopSpeaking();
+  stashChatSessionTransient();
+  const session = window.KardiiChatSessions.createSession();
+  chatSessionStore.sessions.unshift(session);
+  activeChatSessionId = session.id;
+  chatSessionStore.activeSessionId = session.id;
+  conversation = [];
+  persistChatSessionStore();
+  restoreChatSessionTransient();
+  renderConversation();
+  renderChatSessionIdentity();
+  renderChatSessionList();
+  hideChatSessions();
+  chatHint.textContent = "这是独立的新会话，不会带入其他会话的聊天内容。";
+  input.focus();
+}
+
+async function deleteChatSession(sessionId) {
+  if (chatSessionChangeBlocked()) {
+    chatHint.textContent = "请先等待当前回答、附件处理或语音识别结束，再删除会话。";
+    return;
+  }
+  const session = chatSessionStore.sessions.find((item) => item.id === sessionId);
+  if (!session) return;
+  const confirmed = await window.kardiiConfirm({
+    title: `删除会话“${session.title}”？`,
+    message: "只会删除这个会话的聊天记录和 Codex 线程；已经建立的 Agent 任务会继续保留。",
+    confirmLabel: "删除会话",
+    tone: "danger",
+  });
+  if (!confirmed) return;
+  chatSessionStore.sessions = chatSessionStore.sessions.filter((item) => item.id !== sessionId);
+  chatSessionTransient.delete(sessionId);
+  await invoke("reset_codex_conversation", { scope: activeCodexThreadScope(sessionId) }).catch(() => {});
+  if (!chatSessionStore.sessions.length) chatSessionStore.sessions.push(window.KardiiChatSessions.createSession());
+  if (sessionId === activeChatSessionId) {
+    const next = [...chatSessionStore.sessions]
+      .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())[0];
+    activeChatSessionId = next.id;
+    conversation = next.messages.map((message) => ({ ...message }));
+    restoreChatSessionTransient();
+    renderConversation();
+  }
+  chatSessionStore.activeSessionId = activeChatSessionId;
+  persistChatSessionStore();
+  renderChatSessionIdentity();
+  renderChatSessionList();
+  chatHint.textContent = "会话已删除；关联 Agent 任务仍保留在任务中心。";
+}
+
+function showChatSessions() {
+  dismissHeaderPanels();
+  if (!awarenessPanel.classList.contains("hidden")) hideAwareness();
+  chatSessionsPanel.classList.remove("hidden");
+  chatSessionsButton.classList.add("is-active");
+  renderChatSessionList();
+}
+
+function hideChatSessions() {
+  chatSessionsPanel.classList.add("hidden");
+  chatSessionsButton.classList.remove("is-active");
+}
+
+function consumeChatSessionTarget() {
+  let target = null;
+  try {
+    target = JSON.parse(localStorage.getItem(CHAT_TARGET_KEY) || "null");
+  } catch {
+    target = null;
+  }
+  if (!target?.sessionId || chatSessionChangeBlocked()) return;
+  if (!chatSessionStore.sessions.some((session) => session.id === target.sessionId)) {
+    localStorage.removeItem(CHAT_TARGET_KEY);
+    return;
+  }
+  localStorage.removeItem(CHAT_TARGET_KEY);
+  switchChatSession(target.sessionId);
 }
 
 function latestAssistantMessage() {
@@ -2526,7 +3031,7 @@ function setUpdateStatus(text, type = "") {
 async function loadAppVersion() {
   try {
     const version = await invoke("get_app_version");
-    appVersion = String(version || window.KardiiCapabilities?.version || "1.6.0");
+    appVersion = String(version || window.KardiiCapabilities?.version || "1.7.0");
     appVersionLabel.textContent = `当前版本：${version}`;
     currentVersionBadges.forEach((badge) => { badge.textContent = `v${version}`; });
     helpVersionBadge.textContent = `v${appVersion}`;
@@ -3067,7 +3572,7 @@ async function streamReplySegment({ messages, replyBubble, existingText, desktop
     model: ai.model,
     ollamaBaseUrl: ai.ollamaBaseUrl,
     requestId: activeRequestId,
-    codexThreadKey: "kardii-main-chat-v1",
+    codexThreadKey: activeCodexThreadScope(),
     maxTokens,
     desktopImageDataUrl,
     attachmentImages,
@@ -3174,6 +3679,8 @@ form.addEventListener("submit", async (event) => {
   const question = text || "请分析这些附件。";
   if (!attachments.length && handleMemoryCommand(question)) {
     input.value = "";
+    activeChatSession().draft = "";
+    persistChatSessionStore();
     resizeInput();
     return;
   }
@@ -3189,7 +3696,9 @@ form.addEventListener("submit", async (event) => {
     return;
   }
 
-  const autoRouted = !agentMode && autoAgentHandoff && shouldAutoRouteToAgent(question, conversation);
+  const linkedTask = agentTasksById().get(activeChatSession().linkedAgentTaskId);
+  const answeringLinkedAgent = linkedTask?.status === "waiting_input";
+  const autoRouted = !agentMode && (answeringLinkedAgent || (autoAgentHandoff && shouldAutoRouteToAgent(question, conversation)));
   if (agentMode || autoRouted) {
     if (autoRouted) {
       agentModeButton.classList.add("auto-routing");
@@ -3263,6 +3772,7 @@ form.addEventListener("submit", async (event) => {
   const modelText = [question, visualEvidence, evidence].filter(Boolean).join("\n\n");
   addMessage(displayText, "user");
   conversation.push({ role: "user", content: modelText, displayContent: displayText });
+  activeChatSession().draft = "";
   saveConversation();
   maybeSuggestMemory(question);
   const captureResult = captureBusinessMessage(question);
@@ -3510,8 +4020,10 @@ importBackupButton.addEventListener("click", async () => {
       tone: "danger",
     });
     if (!confirmed) return;
+    const previousSessions = [...chatSessionStore.sessions];
     applyFullBackup(data);
-    await invoke("reset_codex_conversation", { scope: "kardii-main-chat-v1" }).catch(() => {});
+    await resetAllCodexSessionThreads(previousSessions);
+    await resetAllCodexSessionThreads();
     setProfileStatus("完整备份导入成功。API Key 与 Codex 登录均未被修改。", "success");
   } catch (error) {
     setProfileStatus(`导入失败：${String(error)}`, "error");
@@ -3544,7 +4056,7 @@ regenerateButton.addEventListener("click", async () => {
   saveConversation();
   renderConversation();
   if (currentAiConfig().provider === "codex") {
-    await invoke("reset_codex_conversation", { scope: "kardii-main-chat-v1" }).catch(() => {});
+    await invoke("reset_codex_conversation", { scope: activeCodexThreadScope() }).catch(() => {});
   }
   const latestUser = [...conversation].reverse().find((message) => message.role === "user");
   if (latestUser) prepareKnowledgeContext(latestUser.content);
@@ -3649,7 +4161,7 @@ providerSelect.addEventListener("change", async () => {
   const previousProvider = aiSettings.provider;
   aiSettings.provider = providerSelect.value;
   if (previousProvider !== aiSettings.provider && [previousProvider, aiSettings.provider].includes("codex")) {
-    await invoke("reset_codex_conversation", { scope: "kardii-main-chat-v1" }).catch(() => {});
+    await invoke("reset_codex_conversation", { scope: activeCodexThreadScope() }).catch(() => {});
   }
   saveAiSettings();
   providerReady = false;
@@ -3875,23 +4387,25 @@ micButton.addEventListener("click", toggleVoiceRecording);
 clearHistoryButton.addEventListener("click", async () => {
   if (!clearHistoryButton.classList.contains("confirming")) {
     clearHistoryButton.classList.add("confirming");
-    clearHistoryButton.textContent = "再点一次，确认清空";
+    clearHistoryButton.textContent = "再点一次，清空当前会话";
     clearTimeout(clearConfirmationTimer);
     clearConfirmationTimer = setTimeout(() => {
       clearHistoryButton.classList.remove("confirming");
-      clearHistoryButton.textContent = "清空聊天记录";
+      clearHistoryButton.textContent = "清空当前会话";
     }, 4000);
     return;
   }
 
   clearTimeout(clearConfirmationTimer);
   conversation = [];
-  localStorage.removeItem(HISTORY_KEY);
-  await invoke("reset_codex_conversation", { scope: "kardii-main-chat-v1" }).catch(() => {});
+  activeChatSession().draft = "";
+  input.value = "";
+  saveConversation();
+  await invoke("reset_codex_conversation", { scope: activeCodexThreadScope() }).catch(() => {});
   renderConversation();
   clearHistoryButton.classList.remove("confirming");
-  clearHistoryButton.textContent = "清空聊天记录";
-  setSettingsStatus("聊天记录已清空。", "success");
+  clearHistoryButton.textContent = "清空当前会话";
+  setSettingsStatus("当前会话已清空，其他会话和 Agent 任务没有改变。", "success");
 });
 
 const savedResponseLength = localStorage.getItem(RESPONSE_LENGTH_KEY) || "auto";
@@ -3947,7 +4461,11 @@ chatCard.addEventListener("drop", (event) => {
   void addChatFiles(event.dataTransfer.files);
 });
 
-input.addEventListener("input", resizeInput);
+input.addEventListener("input", () => {
+  resizeInput();
+  clearTimeout(chatDraftSaveTimer);
+  chatDraftSaveTimer = setTimeout(saveActiveChatDraft, 250);
+});
 input.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) {
     event.preventDefault();
@@ -3957,7 +4475,13 @@ input.addEventListener("keydown", (event) => {
 
 settingsButton.addEventListener("click", showSettings);
 workbenchButton.addEventListener("click", openWorkbench);
-agentCenterButton.addEventListener("click", openAgentCenter);
+agentCenterButton.addEventListener("click", openAgentForActiveChat);
+chatSessionsButton.addEventListener("click", () => {
+  if (chatSessionsPanel.classList.contains("hidden")) showChatSessions();
+  else hideChatSessions();
+});
+chatSessionsCloseButton.addEventListener("click", hideChatSessions);
+newChatSessionButton.addEventListener("click", createChatSession);
 helpButton.addEventListener("click", showHelp);
 helpCloseButton.addEventListener("click", hideHelp);
 helpSearchInput.addEventListener("input", () => filterHelpContent(helpSearchInput.value));
@@ -3995,11 +4519,17 @@ toolsButton.addEventListener("click", showTools);
 toolsCloseButton.addEventListener("click", hideTools);
 closeButton.addEventListener("click", closeChat);
 window.addEventListener("keydown", (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "n") {
+    event.preventDefault();
+    createChatSession();
+    return;
+  }
   if (event.key !== "Escape") return;
   if (!tourOverlay.classList.contains("hidden")) finishTour();
   else if (!welcomePanel.classList.contains("hidden")) hideWelcome({ remember: true });
   else if (!permissionPanel.classList.contains("hidden")) finishPermission(false);
   else if (!awarenessPanel.classList.contains("hidden")) hideAwareness();
+  else if (!chatSessionsPanel.classList.contains("hidden")) hideChatSessions();
   else if (!helpPanel.classList.contains("hidden")) hideHelp();
   else if (!toolsPanel.classList.contains("hidden")) hideTools();
   else if (!profilePanel.classList.contains("hidden")) hideProfile();
@@ -4012,11 +4542,13 @@ window.addEventListener("resize", () => {
 });
 
 window.addEventListener("focus", () => {
+  consumeChatSessionTarget();
   void consumeBrowserContext();
   if (
     settingsPanel.classList.contains("hidden")
     && profilePanel.classList.contains("hidden")
     && awarenessPanel.classList.contains("hidden")
+    && chatSessionsPanel.classList.contains("hidden")
     && toolsPanel.classList.contains("hidden")
     && helpPanel.classList.contains("hidden")
     && permissionPanel.classList.contains("hidden")
@@ -4025,16 +4557,29 @@ window.addEventListener("focus", () => {
   ) input.focus();
 });
 window.addEventListener("storage", (event) => {
+  if (event.key === CHAT_TARGET_KEY && event.newValue) consumeChatSessionTarget();
   if (event.key === BROWSER_CONTEXT_KEY && event.newValue) void consumeBrowserContext();
+  if (event.key === AGENT_TASKS_KEY) {
+    renderChatSessionIdentity();
+    if (!chatSessionsPanel.classList.contains("hidden")) renderChatSessionList();
+    const linkedTask = agentTasksById().get(activeChatSession().linkedAgentTaskId);
+    if (linkedTask?.status === "waiting_input" || chatHint.textContent.startsWith("关联 Agent")) {
+      chatHint.textContent = defaultChatHint();
+    }
+  }
 });
 checkUpdateButton.addEventListener("click", checkForAppUpdate);
 installUpdateButton.addEventListener("click", installAppUpdate);
 
+restoreChatSessionTransient();
 renderConversation();
+renderChatSessionIdentity();
+renderChatSessionList();
 renderAgentMode();
 renderToolLogs();
 renderHelpFeatures();
 renderProviderSettings();
+consumeChatSessionTarget();
 void consumeBrowserContext();
 void refreshProviderState(true);
 loadSystemVoices();

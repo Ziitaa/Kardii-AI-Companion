@@ -1,5 +1,5 @@
 (() => {
-  const VERSION = "1.6.0";
+  const VERSION = "1.7.0";
 
   const FEATURES = [
     {
@@ -7,14 +7,28 @@
       icon: "✦",
       group: "聊天与执行",
       title: "直接聊天",
-      summary: "使用当前选择的 AI 问问题、写内容、分析资料，并保留最近聊天记录。",
+      summary: "使用当前选择的 AI 问问题、写内容、分析资料，并在独立会话中保留上下文。",
       steps: [
         "直接在聊天框输入问题，Enter 发送。",
         "到齿轮中选择 DeepSeek、Gemini、Ollama 或 Codex。",
         "需要更换语气、称呼和长期记忆时，打开爱心设置。",
       ],
       example: "你现在会什么？请按聊天、Agent 和工作台分别介绍，并说明当前哪些功能可以直接使用。",
-      promptFact: "普通聊天可用 DeepSeek、Gemini、Ollama 或 Codex 回答问题、写作和分析；所选服务必须已配置或登录。",
+      promptFact: "普通聊天可用 DeepSeek、Gemini、Ollama 或 Codex 回答问题、写作和分析；所选服务必须已配置或登录。聊天支持最多 30 个独立会话。",
+    },
+    {
+      id: "chat-sessions",
+      icon: "▤",
+      group: "聊天与执行",
+      title: "多个独立聊天会话",
+      summary: "不同事情分开保存；切回原会话会恢复它自己的聊天、Codex 线程和关联 Agent。",
+      steps: [
+        "点击顶部的会话图标打开聊天列表。",
+        "点击“新对话”建立完全不带旧聊天内容的会话；系统会根据第一条消息自动生成标题。",
+        "切回旧会话即可继续原话题；同一会话再次转给 Agent 时会回到原任务继续。",
+      ],
+      example: "请告诉我当前会话是否关联了 Agent 任务，以及它现在进行到哪里。",
+      promptFact: "Kardii 最多保留 30 个聊天会话；每个会话拥有独立聊天历史、草稿、Codex 线程和关联 Agent 任务。普通个性设置与用户确认的长期记忆是全局共用的。旧版单一聊天记录会自动迁移为一个会话，完整备份包含全部会话。",
     },
     {
       id: "agent",
@@ -85,6 +99,34 @@
       ],
       example: "请告诉我 Kardii 的邮箱和云端连接现在是什么状态，以及这些连接可以做什么。",
       promptFact: "外部连接支持 IMAP 邮箱、Google Workspace（Gmail、Calendar、Drive、Sheets）和 Microsoft 365（Outlook、Calendar、OneDrive、Excel、SharePoint）的只读同步；当前不能发送邮件、修改日历或写入云盘。",
+    },
+    {
+      id: "enterprise-analysis",
+      icon: "✦",
+      group: "资料与工作",
+      title: "企业资料联合分析",
+      summary: "按项目、关系和时间范围汇总多类资料，生成带来源的进展、承诺、风险、下一步与今日简报。",
+      steps: [
+        "打开工作台的“联合分析”，选择项目、关系、时间范围和资料来源。",
+        "点击生成后核对每条事实旁的 [S1] 来源编号，并修改模型推断或缺失项。",
+        "确认后保存分析；需要时把下一步转成今日待办，或开启只在 Kardii 运行时生效的每日提醒。",
+      ],
+      example: "请根据最近 30 天的邮件、日历、项目和知识库，整理已确认承诺、风险与今天要推进的三件事。",
+      promptFact: "工作台联合分析可选项目、关系、最近 7/30/90 天或全部时间，并组合项目/关系/待办/活动、邮件摘要、Google/Microsoft 云端概览、知识库/网站以及当前聊天。输出进展、承诺、风险、下一步和今日简报，事实要求保留 [S] 来源编号，推断须明确标记；结果先人工编辑再保存，可生成本机待办。每日提醒仅在 Kardii 运行或下次打开时建立待办，不会在后台上传或发送资料。",
+    },
+    {
+      id: "website-knowledge",
+      icon: "◎",
+      group: "资料与工作",
+      title: "整站与多网页知识库",
+      summary: "从一个公开网址预览同域页面，确认后保存为可更新、可引用的网站知识集合。",
+      steps: [
+        "打开工作台知识库，点击“导入网站”，填写公开起始网址。",
+        "选择最多 5/10/20 页和 0–2 层深度，确认有权读取后先预览结果。",
+        "检查页面标题、网址、字数与告警，再确认保存；以后可重新抓取或删除整个集合。",
+      ],
+      example: "把这个公开帮助中心的相关页面导入知识库，然后回答各套餐有什么区别并标注来源。",
+      promptFact: "Kardii 可抓取用户明确授权的公开 HTTP(S) 网站，同一集合最多 20 页、链接深度最多 2 层；只跟随同域链接，校验公开 IP 和重定向，拒绝 localhost、内网、登录态、跨域和非网页内容，并遵守 robots.txt 的基础规则。抓取不使用 Cookie、不执行 JavaScript、不填表单且不在后台持续运行；页面先预览再保存，保存后参与知识库检索和 [K] 来源问答。",
     },
     {
       id: "browser",
@@ -173,7 +215,10 @@
   ];
 
   const VERSION_HIGHLIGHTS = [
-    "聊天与 Agent 可以智能衔接，并保留最近对话和附件上下文。",
+    "新增企业资料联合分析：跨工作台、邮件、云端、知识库、网站和当前聊天生成带 [S] 来源的简报与待办。",
+    "知识库新增公开网站导入：最多 20 个同域页面、2 层链接深度，先预览后保存并支持整组更新或删除。",
+    "新增最多 30 个独立聊天会话，自动生成标题，并隔离聊天历史、草稿和 Codex 线程。",
+    "同一会话再次交给 Agent 时会回到原任务继续，普通聊天也能读取该任务的当前状态和结果。",
     "普通聊天支持 PDF、Word、PPT、表格、文本与图片，长文档按问题挑选相关片段。",
     "工作台增加多邮箱与 Google / Microsoft 只读连接。",
     "新增可搜索帮助、一键自检、快捷入口和逐步高亮引导。",
@@ -183,7 +228,28 @@
     "聊天窗口不再强制置顶，确认窗口统一为 Kardii 主题。",
   ];
 
+  const LIMITATIONS = [
+    "联合分析只使用本机已保存或已同步的摘要与正文片段，不会自动读取尚未同步的外部资料；日报提醒仅在 Kardii 运行或下次打开时建立待办，不是服务器后台任务。",
+    "网站知识库只抓取用户确认有权读取的公开同域页面，最多 20 页和 2 层；不使用登录态、Cookie 或 JavaScript，不支持付费墙、复杂单页应用、跨域整合或后台持续爬取。",
+    "邮箱、Google 与 Microsoft 连接保持只读；发送邮件、修改日历、写入云盘和表格仍不支持。",
+    "同一时间只执行一个 Agent 任务；多 Agent 并行分工尚未加入。",
+    "自动化需要 Kardii 在本机运行；完全退出后的后台服务器调度尚未加入。",
+    "语音是录完后本机识别；实时连续对话、持续监听和唤醒词尚未加入。",
+    "聊天、记忆和设置仍保存在本机 WebView；SQLite 数据层、网页端、iOS 与跨设备同步尚未加入。",
+    "复杂文档版面、批注和逐元素还原仍有限；Windows 与 macOS 正式签名、公证和崩溃日志也尚未完成。",
+    "MCP 服务器需要手动配置，没有第三方工具市场；付款、购买、下单、资金转移和敏感凭据填写是永久安全禁区，不列入自动化计划。",
+  ];
+
   const TROUBLESHOOTING = [
+    {
+      id: "chat-context",
+      title: "聊天串进了不相关的话题",
+      symptom: "新事情引用旧聊天，或回到原任务时接不上 Agent 的进度。",
+      keywords: "聊天 会话 上下文 串话 新对话 agent 继续 历史",
+      steps: ["点击顶部会话图标。", "不相关的事情使用“新对话”；同一件事切回原来的会话。", "如果仍出现个人偏好，检查爱心中的全局长期记忆；关联 Agent 可点击带圆点的 ✦ 打开。"],
+      action: "sessions",
+      actionLabel: "查看聊天会话",
+    },
     {
       id: "ai-not-ready",
       title: "Kardii 无法回答或提示未连接",
@@ -426,6 +492,7 @@
 
   function knowledgeText(status = {}) {
     const featureLines = FEATURES.map((feature) => `- ${feature.title}：${feature.promptFact}`);
+    const limitationLines = LIMITATIONS.map((item) => `- ${item}`);
     const rows = statusRows(status).map((row) => `- ${row.label}：${row.value}`);
     const optional = [];
     if (status.codexChecked) {
@@ -437,6 +504,8 @@
     return [
       `Kardii v${status.appVersion || VERSION} 的真实功能清单：`,
       ...featureLines,
+      "尚未实现或有意保留的安全边界：",
+      ...limitationLines,
       "当前应用状态（状态可能随设置变化）：",
       ...rows,
       ...optional,
@@ -446,7 +515,7 @@
 
   function isCapabilityQuestion(value) {
     const text = String(value || "").toLowerCase();
-    return /(?:你|kardii).{0,8}(?:会什么|能做什么|有什么功能|支持什么|怎么用|使用说明|帮助)|(?:功能|能力|使用说明|怎么使用|如何使用|已连接|连接状态|登录状态|支持.*文件|支持.*图片|支持.*表格)|(?:新手引导|更新介绍|版本介绍|一键自检|常见问题|故障排查|帮助面板)|(?:邮箱|邮件|google|microsoft|云端|云盘|日历|codex|chrome|edge|浏览器|网页|扩展|mcp).{0,14}(?:连接|登录|配置|可用|状态|同步|读取|发送|工具|调用)|(?:图片|表格|文件|网页).{0,12}(?:上传|支持|识别|读取|发送)/i.test(text);
+    return /(?:你|kardii).{0,8}(?:会什么|能做什么|有什么功能|支持什么|怎么用|使用说明|帮助)|(?:功能|能力|使用说明|怎么使用|如何使用|已连接|连接状态|登录状态|支持.*文件|支持.*图片|支持.*表格|还剩|没做|未添加|路线图|后续功能)|(?:新手引导|更新介绍|版本介绍|一键自检|常见问题|故障排查|帮助面板)|(?:邮箱|邮件|google|microsoft|云端|云盘|日历|codex|chrome|edge|浏览器|网页|扩展|mcp).{0,14}(?:连接|登录|配置|可用|状态|同步|读取|发送|工具|调用)|(?:图片|表格|文件|网页).{0,12}(?:上传|支持|识别|读取|发送)/i.test(text);
   }
 
   window.KardiiCapabilities = Object.freeze({
@@ -454,6 +523,7 @@
     features: Object.freeze(FEATURES.map((feature) => Object.freeze(feature))),
     troubleshooting: Object.freeze(TROUBLESHOOTING.map((item) => Object.freeze(item))),
     versionHighlights: Object.freeze(VERSION_HIGHLIGHTS),
+    limitations: Object.freeze(LIMITATIONS),
     statusRows,
     selfCheckRows,
     knowledgeText,

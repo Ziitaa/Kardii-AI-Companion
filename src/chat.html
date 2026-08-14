@@ -13,9 +13,10 @@
         <div class="avatar">K</div>
         <div class="chat-identity">
           <strong>Kardii</strong>
-          <span id="activeModelBadge" class="active-model-badge">DeepSeek</span>
+          <span class="chat-context-line"><span id="chatSessionTitle">新对话</span><span aria-hidden="true">·</span><span id="activeModelBadge" class="active-model-badge">DeepSeek</span></span>
         </div>
         <div class="header-actions" aria-label="Kardii 快捷功能">
+          <button id="chatSessionsButton" class="icon-button chat-sessions-button" type="button" aria-label="聊天会话" title="聊天会话">▤</button>
           <button id="agentCenterButton" class="icon-button agent-center-button" type="button" aria-label="Agent 任务中心" title="Agent 任务中心">✦</button>
           <button id="workbenchButton" class="icon-button workbench-button" type="button" aria-label="工作台" title="工作台">▦</button>
           <button id="toolsButton" class="icon-button tools-button" type="button" aria-label="桌面工具" title="桌面工具">⌘</button>
@@ -25,6 +26,16 @@
           <button id="closeButton" class="icon-button close-chat-button" type="button" aria-label="关闭" title="关闭">×</button>
         </div>
       </header>
+
+      <section id="chatSessionsPanel" class="chat-sessions-panel hidden" aria-label="聊天会话列表">
+        <div class="chat-sessions-heading">
+          <div><span>CHATS</span><strong>聊天会话</strong></div>
+          <button id="newChatSessionButton" class="new-chat-session-button" type="button">＋ 新对话</button>
+          <button id="chatSessionsCloseButton" class="icon-button" type="button" aria-label="关闭聊天会话">×</button>
+        </div>
+        <p>每个会话的历史、Codex 线程和关联 Agent 都独立；爱心里的长期记忆仍会在所有会话中共用。</p>
+        <div id="chatSessionList" class="chat-session-list"></div>
+      </section>
 
       <section id="messages" class="messages" aria-live="polite"></section>
 
@@ -75,7 +86,7 @@
           </div>
           <div class="settings-section-title ai-section-title">
             <strong>聊天模型</strong>
-            <span data-current-version>v1.6.0</span>
+            <span data-current-version>v1.7.0</span>
           </div>
           <label for="providerSelect">AI 服务</label>
           <select id="providerSelect" class="settings-input">
@@ -140,11 +151,11 @@
             </div>
             <p class="ollama-note">登录由官方 Codex 在浏览器中完成。Kardii 不读取账号密码或登录令牌，使用量计入你的 ChatGPT/Codex 额度。</p>
           </div>
-          <button id="clearHistoryButton" class="clear-history-button" type="button">清空聊天记录</button>
+          <button id="clearHistoryButton" class="clear-history-button" type="button">清空当前会话</button>
           <button id="reopenOnboardingButton" class="guide-settings-button" type="button">重新查看新手引导与本次更新</button>
           <div class="settings-section-title">
             <strong>应用更新</strong>
-            <span data-current-version>v1.6.0</span>
+            <span data-current-version>v1.7.0</span>
           </div>
 
           <div class="update-card">
@@ -162,7 +173,7 @@
 
           <div class="settings-section-title">
             <strong>离线语音</strong>
-            <span data-current-version>v1.6.0</span>
+            <span data-current-version>v1.7.0</span>
           </div>
           <p class="voice-privacy">录音只在这台电脑上识别，不会上传。第一次需要联网下载约 160 MB，安装后占用约 230 MB。</p>
           <div class="voice-model-card">
@@ -248,7 +259,7 @@
             <button id="exportBackupButton" class="secondary-button" type="button">导出完整备份</button>
             <button id="importBackupButton" class="secondary-button" type="button">导入完整备份</button>
           </div>
-          <p class="backup-note">迁移码只包含个性和长期记忆；完整备份还包含聊天记录、工作台、Agent 任务、技能和自动化。API Key 与 Codex 登录永远不会导出。</p>
+          <p class="backup-note">迁移码只包含个性和长期记忆；完整备份还包含全部聊天会话、工作台、Agent 任务、技能和自动化。API Key 与 Codex 登录永远不会导出。</p>
         </div>
       </section>
 
@@ -315,7 +326,7 @@
               <p>这里的内容和 Kardii 自己掌握的功能清单来自同一份资料。</p>
             </div>
             <div class="help-hero-side">
-              <span id="helpVersionBadge" class="help-version">v1.6.0</span>
+              <span id="helpVersionBadge" class="help-version">v1.7.0</span>
               <button id="startTourButton" type="button">播放新手引导</button>
               <button id="showWhatsNewButton" type="button">查看本次更新</button>
             </div>
@@ -354,7 +365,7 @@
       </section>
       <section id="welcomePanel" class="welcome-panel hidden" role="dialog" aria-modal="true" aria-labelledby="welcomeTitle">
         <div class="welcome-card">
-          <div class="welcome-badge-row"><span class="help-kicker">WHAT'S NEW</span><span id="welcomeVersionBadge" class="help-version">v1.6.0</span></div>
+          <div class="welcome-badge-row"><span class="help-kicker">WHAT'S NEW</span><span id="welcomeVersionBadge" class="help-version">v1.7.0</span></div>
           <h2 id="welcomeTitle">Kardii 已经准备好继续陪你工作了</h2>
           <p>这次除了新功能，也补上了可以随时重看的使用说明。</p>
           <ul id="welcomeHighlights"></ul>
@@ -437,6 +448,7 @@
       </section>
     </main>
     <script src="./kardii-task-title.js"></script>
+    <script src="./kardii-chat-sessions.js"></script>
     <script src="./kardii-capabilities.js"></script>
     <script src="./kardii-dialog.js"></script>
     <script src="./chat.js"></script>

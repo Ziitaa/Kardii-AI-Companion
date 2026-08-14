@@ -29,12 +29,12 @@ const taskTitleJs = read("src/kardii-task-title.js");
 const capabilityJs = read("src/kardii-capabilities.js");
 
 for (const version of [packageJson.version, packageLock.version, packageLock.packages[""].version, tauriConfig.version]) {
-  assert(version === "1.6.0", `当前版本号未统一: ${version}`);
+  assert(version === "1.7.0", `当前版本号未统一: ${version}`);
 }
-assert(/version = "1\.6\.0"/.test(cargo), "Cargo.toml 未更新到 v1.6.0");
-assert(chatJs.includes('appVersion: "1.6.0"'), "完整备份版本号未更新到 v1.6.0");
-assert(js.includes("version: 3") && js.includes("[1, 2, 3].includes(saved.version)"), "v3 工作台数据迁移缺失");
-assert(chatJs.includes("[1, 2, 3].includes(saved?.version)"), "完整备份未接受 v3 工作台数据");
+assert(/version = "1\.7\.0"/.test(cargo), "Cargo.toml 未更新到 v1.7.0");
+assert(chatJs.includes('appVersion: "1.7.0"'), "完整备份版本号未更新到 v1.7.0");
+assert(js.includes("version: 4") && js.includes("[1, 2, 3, 4].includes(saved.version)"), "v4 工作台数据迁移缺失");
+assert(chatJs.includes("[1, 2, 3, 4].includes(saved?.version)"), "完整备份未接受 v4 工作台数据");
 assert(chatJs.includes("...(saved.settings && typeof saved.settings === \"object\" ? saved.settings : {})"), "聊天自动记录会覆盖邮箱或云端连接设置");
 
 for (const id of [
@@ -278,9 +278,9 @@ const prelude = js.slice(0, js.indexOf("const navItems"));
 const migrationFunctions = js.slice(js.indexOf("function normalizeEmailAccount"), js.indexOf("function escapeHtml"));
 vm.runInContext(`${prelude}\n${migrationFunctions}`, context);
 const migrated = vm.runInContext("data", context);
-assert(migrated.version === 3, "v2 数据没有迁移到 v3");
+assert(migrated.version === 4, "v2 数据没有迁移到 v4");
 assert(migrated.settings.emailAccounts.length === 1 && migrated.settings.activeEmailAccountId === "primary", "旧单邮箱没有迁移为多邮箱");
 assert(migrated.emailMessages[0].accountId === "primary" && migrated.emailMessages[0].uid === 42, "旧邮件没有保留账号归属");
-assert(Array.isArray(migrated.cloudItems) && Object.keys(migrated.settings.cloudConnections).length === 0, "v3 云端集合初始化失败");
+assert(Array.isArray(migrated.cloudItems) && Object.keys(migrated.settings.cloudConnections).length === 0, "v4 云端集合初始化失败");
 
 console.log("Kardii v1.4 connected workspace checks passed.");
