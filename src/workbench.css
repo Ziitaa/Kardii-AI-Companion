@@ -552,6 +552,19 @@ button { cursor: pointer; }
 .wecom-remote-owner-row code { padding: 5px 8px; color: #326b55; font-family: ui-monospace, "Cascadia Code", monospace; font-size: 9px; font-weight: 800; letter-spacing: 0.1em; background: #e7f4ee; border-radius: 7px; }
 .wecom-remote-scopes { display: grid; gap: 6px; padding: 8px 9px; color: #62766e; font-size: 8px; background: rgba(255, 255, 255, 0.76); border: 1px solid #dfebe6; border-radius: 8px; }
 .wecom-remote-scopes label { display: flex; align-items: center; gap: 5px; }
+.wecom-remote-access-block { display: grid; gap: 6px; padding: 8px 9px; background: rgba(255, 255, 255, 0.76); border: 1px solid #dfebe6; border-radius: 8px; }
+.wecom-remote-access-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.wecom-remote-access-heading strong { color: #496f60; font-size: 8px; }
+.wecom-remote-access-heading > span { color: #8a9993; font-size: 7px; }
+.wecom-remote-access-heading button { min-height: 24px; padding: 4px 7px; font-size: 7px; }
+.wecom-remote-access-list { display: grid; gap: 5px; max-height: 116px; overflow: auto; color: #87958f; font-size: 7px; }
+.wecom-remote-access-list > div, .wecom-remote-access-list > label { display: flex; align-items: center; gap: 7px; min-width: 0; padding: 5px 6px; background: #f8fcfa; border: 1px solid #e4eee9; border-radius: 6px; }
+.wecom-remote-access-list > div > span, .wecom-remote-access-list label > span { display: grid; flex: 1; min-width: 0; gap: 1px; }
+.wecom-remote-access-list strong, .wecom-remote-access-list small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wecom-remote-access-list strong { color: #527266; font-size: 8px; }
+.wecom-remote-access-list small { color: #8b9994; font-size: 7px; }
+.wecom-remote-access-list button { width: 22px; height: 22px; flex: 0 0 22px; color: #a45c70; font-size: 14px; line-height: 1; background: transparent; border: 0; }
+.wecom-remote-access-list input { accent-color: #3f9a78; }
 .wecom-remote-panel > .connection-status, .wecom-remote-panel > .connection-help { min-height: 0; }
 .wecom-qr-panel { display: flex; align-items: center; gap: 12px; margin-top: 11px; padding: 10px; background: #fff; border: 1px solid #cfe4dc; border-radius: 10px; }
 .wecom-qr-panel img { width: 118px; height: 118px; object-fit: contain; background: #fff; border-radius: 7px; }

@@ -1,17 +1,24 @@
-use base64::{engine::general_purpose::STANDARD, Engine as _};
+use aes::Aes256;
+use base64::{
+    engine::general_purpose::{STANDARD, STANDARD_NO_PAD},
+    Engine as _,
+};
+use cbc::cipher::{block_padding::NoPadding, BlockDecryptMut, KeyIvInit};
 use futures_util::{SinkExt, StreamExt};
+use md5::{Digest as Md5Digest, Md5};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     collections::{HashMap, VecDeque},
     ffi::OsString,
-    path::PathBuf,
+    net::{IpAddr, SocketAddr, ToSocketAddrs},
+    path::{Path, PathBuf},
     process::Stdio,
     sync::{atomic::{AtomicU64, Ordering}, Arc, Mutex, OnceLock},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::{Emitter, Manager};
-use tokio::{process::Child, sync::{mpsc, watch, Mutex as AsyncMutex}};
+use tokio::{process::Child, sync::{mpsc, oneshot, watch, Mutex as AsyncMutex}};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 #[cfg(target_os = "windows")]
@@ -24,6 +31,10 @@ const WECOM_BOT_SECRET_ACCOUNT: &str = "wecom-api-bot-secret-v1";
 const MAX_CLI_OUTPUT_BYTES: usize = 2 * 1024 * 1024;
 const MAX_DOCUMENT_CONTENT_CHARS: usize = 120_000;
 const MAX_WECOM_REPLY_BYTES: usize = 20_000;
+const MAX_WECOM_ATTACHMENT_BYTES: usize = 20 * 1024 * 1024;
+const MAX_WECOM_ENCRYPTED_ATTACHMENT_BYTES: usize = MAX_WECOM_ATTACHMENT_BYTES + 32;
+const MAX_WECOM_ATTACHMENTS_TOTAL_BYTES: usize = 40 * 1024 * 1024;
+const WECOM_MEDIA_CHUNK_BYTES: usize = 512 * 1024;
 
 #[derive(Debug)]
 struct AuthSession {
@@ -34,7 +45,7 @@ struct AuthSession {
 #[derive(Clone)]
 struct BotRuntime {
     cancel: watch::Sender<bool>,
-    outbound: mpsc::Sender<OutboundReply>,
+    outbound: mpsc::Sender<OutboundCommand>,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -171,6 +182,29 @@ struct WecomIncomingMessage {
     from_user_id: String,
     chat_type: String,
     text: String,
+    attachments: Vec<WecomIncomingAttachment>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WecomIncomingAttachment {
+    name: String,
+    mime_type: String,
+    data_base64: String,
+}
+
+#[derive(Debug, Clone)]
+struct WecomIncomingAttachmentRef {
+    name: String,
+    media_type: String,
+    url: String,
+    aes_key: String,
+}
+
+#[derive(Debug)]
+struct ParsedIncomingMessage {
+    payload: WecomIncomingMessage,
+    attachment_refs: Vec<WecomIncomingAttachmentRef>,
 }
 
 #[derive(Debug)]
@@ -179,6 +213,15 @@ struct OutboundReply {
     stream_id: String,
     content: String,
     finish: bool,
+}
+
+#[derive(Debug)]
+enum OutboundCommand {
+    Reply(OutboundReply),
+    Request {
+        frame: Value,
+        responder: oneshot::Sender<Result<Value, String>>,
+    },
 }
 
 fn now_epoch() -> u64 {
@@ -998,19 +1041,89 @@ fn response_frame(reply: &OutboundReply) -> Value {
     })
 }
 
-fn incoming_text(body: &Value) -> Option<String> {
-    match body.get("msgtype").and_then(Value::as_str) {
-        Some("text") => body.pointer("/text/content").and_then(Value::as_str).map(str::to_string),
-        Some("voice") => body.pointer("/voice/content").and_then(Value::as_str).map(str::to_string),
-        _ => None,
-    }
+fn media_name_from_url(url: &str, media_type: &str, index: usize) -> String {
+    reqwest::Url::parse(url)
+        .ok()
+        .and_then(|value| value.path_segments()?.next_back().map(str::to_string))
+        .filter(|value| !value.trim().is_empty() && value.chars().count() <= 180)
+        .unwrap_or_else(|| format!("wecom-{media_type}-{}", index + 1))
 }
 
-fn incoming_payload(frame: &Value, expected_bot_id: &str) -> Option<WecomIncomingMessage> {
+fn incoming_attachment_ref(value: &Value, media_type: &str, index: usize) -> Option<WecomIncomingAttachmentRef> {
+    let url = value.get("url")?.as_str()?.trim();
+    let aes_key = value.get("aeskey").and_then(Value::as_str).unwrap_or_default().trim();
+    if url.is_empty() || aes_key.is_empty() {
+        return None;
+    }
+    Some(WecomIncomingAttachmentRef {
+        name: media_name_from_url(url, media_type, index),
+        media_type: media_type.to_string(),
+        url: url.to_string(),
+        aes_key: aes_key.to_string(),
+    })
+}
+
+fn incoming_content(body: &Value) -> (String, Vec<WecomIncomingAttachmentRef>) {
+    let mut text_parts = Vec::new();
+    let mut attachments = Vec::new();
+    match body.get("msgtype").and_then(Value::as_str) {
+        Some("text") => {
+            if let Some(text) = body.pointer("/text/content").and_then(Value::as_str) {
+                text_parts.push(text.to_string());
+            }
+        }
+        Some("voice") => {
+            if let Some(text) = body.pointer("/voice/content").and_then(Value::as_str) {
+                text_parts.push(text.to_string());
+            }
+        }
+        Some("image") => {
+            if let Some(value) = body.get("image").and_then(|value| incoming_attachment_ref(value, "image", 0)) {
+                attachments.push(value);
+            }
+        }
+        Some("file") => {
+            if let Some(value) = body.get("file").and_then(|value| incoming_attachment_ref(value, "file", 0)) {
+                attachments.push(value);
+            }
+        }
+        Some("mixed") => {
+            for (index, item) in body
+                .pointer("/mixed/msg_item")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .take(12)
+                .enumerate()
+            {
+                match item.get("msgtype").and_then(Value::as_str) {
+                    Some("text") => {
+                        if let Some(text) = item.pointer("/text/content").and_then(Value::as_str) {
+                            text_parts.push(text.to_string());
+                        }
+                    }
+                    Some("image") if attachments.len() < 6 => {
+                        if let Some(value) = item
+                            .get("image")
+                            .and_then(|value| incoming_attachment_ref(value, "image", index))
+                        {
+                            attachments.push(value);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        _ => {}
+    }
+    (text_parts.join("\n").trim().to_string(), attachments)
+}
+
+fn incoming_payload(frame: &Value, expected_bot_id: &str) -> Option<ParsedIncomingMessage> {
     let body = frame.get("body")?;
     let request_id = frame.pointer("/headers/req_id")?.as_str()?.trim();
-    let text = incoming_text(body)?.trim().to_string();
-    if request_id.is_empty() || text.is_empty() {
+    let (text, attachment_refs) = incoming_content(body);
+    if request_id.is_empty() || (text.is_empty() && attachment_refs.is_empty()) {
         return None;
     }
     let incoming_bot_id = body.get("aibotid").and_then(Value::as_str)?.trim();
@@ -1029,14 +1142,262 @@ fn incoming_payload(frame: &Value, expected_bot_id: &str) -> Option<WecomIncomin
     } else {
         format!("bot:{incoming_bot_id}:single:{from_user_id}")
     };
-    Some(WecomIncomingMessage {
-        message_id,
-        request_id: request_id.to_string(),
-        conversation_key,
-        from_user_id,
-        chat_type,
-        text: truncate_output(&text, 4_000),
+    Some(ParsedIncomingMessage {
+        payload: WecomIncomingMessage {
+            message_id,
+            request_id: request_id.to_string(),
+            conversation_key,
+            from_user_id,
+            chat_type,
+            text: truncate_output(&text, 4_000),
+            attachments: Vec::new(),
+        },
+        attachment_refs,
     })
+}
+
+fn public_wecom_media_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(value) => {
+            let octets = value.octets();
+            !(value.is_private()
+                || value.is_loopback()
+                || value.is_link_local()
+                || value.is_broadcast()
+                || value.is_documentation()
+                || value.is_unspecified()
+                || value.is_multicast()
+                || octets[0] == 0
+                || (octets[0] == 100 && (64..=127).contains(&octets[1]))
+                || octets[0] >= 240)
+        }
+        IpAddr::V6(value) => {
+            if let Some(ipv4) = value.to_ipv4() {
+                return public_wecom_media_ip(IpAddr::V4(ipv4));
+            }
+            !(value.is_loopback()
+                || value.is_unspecified()
+                || value.is_multicast()
+                || value.is_unique_local()
+                || value.is_unicast_link_local())
+        }
+    }
+}
+
+fn validated_wecom_media_url(raw: &str) -> Result<(reqwest::Url, String, Vec<SocketAddr>), String> {
+    let url = reqwest::Url::parse(raw.trim()).map_err(|_| "企微附件地址格式无效。".to_string())?;
+    if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
+        return Err("企微附件只能从不含账号信息的 HTTPS 地址下载。".into());
+    }
+    let host = url.host_str().ok_or_else(|| "企微附件地址缺少主机名。".to_string())?.to_ascii_lowercase();
+    let trusted_host = [
+        "work.weixin.qq.com",
+        ".work.weixin.qq.com",
+        ".weixin.qq.com",
+        ".wework.weixin.qq.com",
+        ".qpic.cn",
+        ".gtimg.com",
+        ".qq.com",
+    ]
+    .iter()
+    .any(|suffix| host == suffix.trim_start_matches('.') || host.ends_with(suffix));
+    if !trusted_host {
+        return Err("企微附件地址不属于受信任的腾讯媒体域名。".into());
+    }
+    let port = url.port_or_known_default().unwrap_or(443);
+    let resolved: Vec<SocketAddr> = (host.as_str(), port)
+        .to_socket_addrs()
+        .map_err(|_| "无法解析企微附件域名。".to_string())?
+        .collect();
+    if resolved.is_empty() || resolved.iter().any(|value| !public_wecom_media_ip(value.ip())) {
+        return Err("企微附件地址解析到了非公开网络，已拒绝下载。".into());
+    }
+    let addresses = resolved
+        .into_iter()
+        .map(|mut value| {
+            value.set_port(0);
+            value
+        })
+        .collect();
+    Ok((url, host, addresses))
+}
+
+fn decrypt_wecom_attachment(encrypted: &[u8], aes_key: &str) -> Result<Vec<u8>, String> {
+    let key = STANDARD
+        .decode(aes_key.as_bytes())
+        .or_else(|_| STANDARD_NO_PAD.decode(aes_key.as_bytes()))
+        .map_err(|_| "企微附件解密密钥无效。".to_string())?;
+    if key.len() != 32 || encrypted.is_empty() || encrypted.len() % 16 != 0 {
+        return Err("企微附件密钥长度或加密数据格式无效。".into());
+    }
+    let iv = &key[..16];
+    let mut buffer = encrypted.to_vec();
+    let decrypted = cbc::Decryptor::<Aes256>::new_from_slices(&key, iv)
+        .map_err(|_| "无法初始化企微附件解密。".to_string())?
+        .decrypt_padded_mut::<NoPadding>(&mut buffer)
+        .map_err(|_| "企微附件解密失败。".to_string())?;
+    let padding = *decrypted.last().ok_or_else(|| "企微附件解密结果为空。".to_string())? as usize;
+    if !(1..=32).contains(&padding)
+        || padding > decrypted.len()
+        || !decrypted[decrypted.len() - padding..]
+            .iter()
+            .all(|value| *value as usize == padding)
+    {
+        return Err("企微附件的 PKCS#7 填充无效。".into());
+    }
+    Ok(decrypted[..decrypted.len() - padding].to_vec())
+}
+
+fn attachment_extension(bytes: &[u8], mime_type: &str) -> &'static str {
+    if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
+        "png"
+    } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        "jpg"
+    } else if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        "webp"
+    } else if bytes.starts_with(b"%PDF") {
+        "pdf"
+    } else if mime_type.contains("json") {
+        "json"
+    } else if mime_type.starts_with("text/") {
+        "txt"
+    } else {
+        ""
+    }
+}
+
+fn safe_incoming_attachment_name(value: &str, bytes: &[u8], mime_type: &str) -> String {
+    let mut name: String = value
+        .trim()
+        .chars()
+        .map(|character| {
+            if character.is_control() || matches!(character, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
+                '_'
+            } else {
+                character
+            }
+        })
+        .take(150)
+        .collect();
+    if name.trim_matches(['_', '.']).is_empty() {
+        name = "wecom-attachment".into();
+    }
+    if Path::new(&name).extension().is_none() {
+        let extension = attachment_extension(bytes, mime_type);
+        if !extension.is_empty() {
+            name.push('.');
+            name.push_str(extension);
+        }
+    }
+    name
+}
+
+fn content_disposition_filename(value: &str) -> Option<String> {
+    let parsed = mailparse::parse_content_disposition(value);
+    let encoded = parsed.params.get("filename*").and_then(|value| {
+        mailparse::parse_content_disposition(&format!("attachment; filename*={value}"))
+            .params
+            .get("filename")
+            .cloned()
+    });
+    encoded
+        .or_else(|| parsed.params.get("filename").cloned())
+        .map(|name| name.trim().to_string())
+        .filter(|name| !name.is_empty())
+}
+
+async fn download_wecom_attachment(
+    reference: &WecomIncomingAttachmentRef,
+) -> Result<WecomIncomingAttachment, String> {
+    let (url, host, addresses) = validated_wecom_media_url(&reference.url)?;
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(8))
+        .timeout(Duration::from_secs(25))
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .resolve_to_addrs(&host, &addresses)
+        .build()
+        .map_err(|_| "无法创建企微附件下载连接。".to_string())?;
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|error| format!("下载企微附件失败：{error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("企微附件下载返回 HTTP {}。", response.status()));
+    }
+    if response
+        .content_length()
+        .is_some_and(|value| value > MAX_WECOM_ENCRYPTED_ATTACHMENT_BYTES as u64)
+    {
+        return Err("单个企微附件不能超过 20 MB。".into());
+    }
+    let mime_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or(if reference.media_type == "image" { "image/jpeg" } else { "application/octet-stream" })
+        .split(';')
+        .next()
+        .unwrap_or("application/octet-stream")
+        .trim()
+        .to_ascii_lowercase();
+    let header_name = response
+        .headers()
+        .get(reqwest::header::CONTENT_DISPOSITION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(content_disposition_filename);
+    let mut encrypted = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|error| format!("读取企微附件失败：{error}"))?;
+        if encrypted.len().saturating_add(chunk.len()) > MAX_WECOM_ENCRYPTED_ATTACHMENT_BYTES {
+            return Err("单个企微附件不能超过 20 MB。".into());
+        }
+        encrypted.extend_from_slice(&chunk);
+    }
+    let bytes = decrypt_wecom_attachment(&encrypted, &reference.aes_key)?;
+    if bytes.is_empty() || bytes.len() > MAX_WECOM_ATTACHMENT_BYTES {
+        return Err("企微附件为空或超过 20 MB。".into());
+    }
+    let name = safe_incoming_attachment_name(
+        header_name.as_deref().unwrap_or(&reference.name),
+        &bytes,
+        &mime_type,
+    );
+    Ok(WecomIncomingAttachment {
+        name,
+        mime_type,
+        data_base64: STANDARD.encode(bytes),
+    })
+}
+
+async fn resolve_incoming_attachments(mut parsed: ParsedIncomingMessage) -> WecomIncomingMessage {
+    let mut total = 0_usize;
+    let mut errors = Vec::new();
+    for reference in parsed.attachment_refs.iter().take(6) {
+        match download_wecom_attachment(reference).await {
+            Ok(attachment) => {
+                let decoded_size = attachment.data_base64.len().saturating_mul(3) / 4;
+                if total.saturating_add(decoded_size) > MAX_WECOM_ATTACHMENTS_TOTAL_BYTES {
+                    errors.push("本条消息的附件总量超过 40 MB，后续附件未读取。".to_string());
+                    break;
+                }
+                total += decoded_size;
+                parsed.payload.attachments.push(attachment);
+            }
+            Err(error) => errors.push(format!("附件“{}”未读取：{error}", reference.name)),
+        }
+    }
+    if !errors.is_empty() {
+        let prefix = if parsed.payload.text.is_empty() { "请处理我发送的附件。\n" } else { "\n" };
+        parsed.payload.text.push_str(prefix);
+        parsed.payload.text.push_str(&errors.join("\n"));
+        parsed.payload.text = truncate_output(&parsed.payload.text, 4_000);
+    } else if parsed.payload.text.is_empty() {
+        parsed.payload.text = "请分析我发送的附件。".into();
+    }
+    parsed.payload
 }
 
 async fn wait_before_reconnect(cancel: &mut watch::Receiver<bool>, seconds: u64) -> bool {
@@ -1051,7 +1412,7 @@ async fn run_bot_loop(
     state: WecomState,
     bot_id: String,
     secret: String,
-    mut outbound: mpsc::Receiver<OutboundReply>,
+    mut outbound: mpsc::Receiver<OutboundCommand>,
     mut cancel: watch::Receiver<bool>,
     generation: u64,
 ) {
@@ -1097,6 +1458,7 @@ async fn run_bot_loop(
         let authentication_deadline = tokio::time::sleep(Duration::from_secs(20));
         tokio::pin!(authentication_deadline);
         let mut should_reconnect = true;
+        let mut pending_requests: HashMap<String, oneshot::Sender<Result<Value, String>>> = HashMap::new();
 
         loop {
             tokio::select! {
@@ -1118,13 +1480,29 @@ async fn run_bot_loop(
                         break;
                     }
                 }
-                reply = outbound.recv(), if authenticated => {
-                    let Some(reply) = reply else {
+                command = outbound.recv(), if authenticated => {
+                    let Some(command) = command else {
                         should_reconnect = false;
                         break;
                     };
-                    if writer.send(Message::Text(response_frame(&reply).to_string().into())).await.is_err() {
-                        break;
+                    match command {
+                        OutboundCommand::Reply(reply) => {
+                            if writer.send(Message::Text(response_frame(&reply).to_string().into())).await.is_err() {
+                                break;
+                            }
+                        }
+                        OutboundCommand::Request { frame, responder } => {
+                            let request_id = frame.pointer("/headers/req_id").and_then(Value::as_str).unwrap_or_default().to_string();
+                            if request_id.is_empty() {
+                                let _ = responder.send(Err("企微媒体请求缺少请求 ID。".into()));
+                                continue;
+                            }
+                            if writer.send(Message::Text(frame.to_string().into())).await.is_err() {
+                                let _ = responder.send(Err("企业微信机器人连接已经断开。".into()));
+                                break;
+                            }
+                            pending_requests.insert(request_id, responder);
+                        }
                     }
                 }
                 message = reader.next() => {
@@ -1156,6 +1534,18 @@ async fn run_bot_loop(
                         });
                         continue;
                     }
+                    if let Some(responder) = pending_requests.remove(request_id) {
+                        let result = if frame.get("errcode").and_then(Value::as_i64).unwrap_or(-1) == 0 {
+                            Ok(frame)
+                        } else {
+                            Err(format!(
+                                "企业微信媒体请求失败：{}",
+                                frame.get("errmsg").and_then(Value::as_str).unwrap_or("未知错误")
+                            ))
+                        };
+                        let _ = responder.send(result);
+                        continue;
+                    }
                     if frame.get("cmd").and_then(Value::as_str) == Some("aibot_event_callback")
                         && frame.pointer("/body/event/eventtype").and_then(Value::as_str) == Some("disconnected_event")
                     {
@@ -1174,10 +1564,16 @@ async fn run_bot_loop(
                         should_reconnect = false;
                         break;
                     }
-                    if let Some(payload) = incoming_payload(&frame, &bot_id) {
-                        if !mark_message_pending(&state, &payload.message_id, &payload.request_id, generation) {
+                    if let Some(parsed) = incoming_payload(&frame, &bot_id) {
+                        if !mark_message_pending(
+                            &state,
+                            &parsed.payload.message_id,
+                            &parsed.payload.request_id,
+                            generation,
+                        ) {
                             continue;
                         }
+                        let payload = resolve_incoming_attachments(parsed).await;
                         set_bot_loop_status(&state, &app, generation, |status| {
                             status.last_message_at = now_epoch();
                             status.received_count = status.received_count.saturating_add(1);
@@ -1192,7 +1588,7 @@ async fn run_bot_loop(
                             let reply = OutboundReply {
                                 request_id: request_id.to_string(),
                                 stream_id: bot_request_id("kardii"),
-                                content: "Kardii 目前支持企业微信中的文字消息和已经转写成文字的语音消息。图片或文件请在桌面 Kardii 中上传。".into(),
+                                content: "Kardii 当前支持文字、已转写语音、图片、文件和图文混排消息；此消息类型暂不支持。".into(),
                                 finish: true,
                             };
                             let _ = writer.send(Message::Text(response_frame(&reply).to_string().into())).await;
@@ -1200,6 +1596,10 @@ async fn run_bot_loop(
                     }
                 }
             }
+        }
+
+        for (_, responder) in pending_requests.drain() {
+            let _ = responder.send(Err("企业微信机器人连接中断，媒体请求未完成。".into()));
         }
 
         set_bot_loop_status(&state, &app, generation, |status| status.connected = false);
@@ -1302,6 +1702,181 @@ pub fn wecom_bot_status(state: tauri::State<'_, WecomState>) -> WecomBotStatus {
     current_bot_status(state.inner())
 }
 
+async fn send_wecom_bot_request(
+    state: &WecomState,
+    command: &str,
+    request_id: String,
+    body: Value,
+) -> Result<Value, String> {
+    let sender = state
+        .bot_runtime
+        .lock()
+        .await
+        .as_ref()
+        .map(|runtime| runtime.outbound.clone())
+        .ok_or_else(|| "企业微信机器人没有运行。".to_string())?;
+    let (responder, response) = oneshot::channel();
+    sender
+        .send(OutboundCommand::Request {
+            frame: json!({
+                "cmd": command,
+                "headers": { "req_id": request_id },
+                "body": body,
+            }),
+            responder,
+        })
+        .await
+        .map_err(|_| "企业微信机器人连接已经断开。".to_string())?;
+    tokio::time::timeout(Duration::from_secs(15), response)
+        .await
+        .map_err(|_| "企业微信媒体请求响应超时。".to_string())?
+        .map_err(|_| "企业微信媒体请求在完成前被取消。".to_string())?
+}
+
+fn clean_wecom_media_filename(value: &str) -> Result<String, String> {
+    let clean = value.trim();
+    if clean.is_empty()
+        || clean.chars().count() > 120
+        || clean.chars().any(char::is_control)
+        || clean.contains('/')
+        || clean.contains('\\')
+    {
+        return Err("企微附件文件名无效。".into());
+    }
+    Ok(clean.to_string())
+}
+
+#[tauri::command]
+pub async fn reply_wecom_media(
+    state: tauri::State<'_, WecomState>,
+    message_id: String,
+    request_id: String,
+    media_type: String,
+    filename: String,
+    data_base64: String,
+) -> Result<(), String> {
+    let message_id = clean_identifier(&message_id, "企业微信消息 ID", 256)?;
+    let request_id = clean_identifier(&request_id, "企业微信请求 ID", 256)?;
+    let media_type = media_type.trim().to_ascii_lowercase();
+    if !matches!(media_type.as_str(), "file" | "image") {
+        return Err("Kardii 目前只向企微发送文件或图片附件。".into());
+    }
+    let filename = clean_wecom_media_filename(&filename)?;
+    if data_base64.len() > 28_000_000 {
+        return Err("企微附件不能超过 20 MB。".into());
+    }
+    let bytes = STANDARD
+        .decode(data_base64.as_bytes())
+        .map_err(|_| "企微附件数据已损坏。".to_string())?;
+    if bytes.is_empty() || bytes.len() > MAX_WECOM_ATTACHMENT_BYTES {
+        return Err("企微附件为空或超过 20 MB。".into());
+    }
+    if media_type == "image"
+        && (bytes.len() > 10 * 1024 * 1024
+            || !(bytes.starts_with(&[0x89, b'P', b'N', b'G'])
+                || bytes.starts_with(&[0xff, 0xd8, 0xff])))
+    {
+        return Err("企微图片必须是 10 MB 以内的 PNG 或 JPG。".into());
+    }
+    let (expected_request_id, expected_generation) = state
+        .pending_replies
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .get(&message_id)
+        .cloned()
+        .ok_or_else(|| "这条企业微信消息已经回复或已过期。".to_string())?;
+    if expected_request_id != request_id
+        || expected_generation != state.bot_generation.load(Ordering::SeqCst)
+    {
+        return Err("企业微信消息与附件回复请求不匹配，已拒绝发送。".into());
+    }
+    let total_chunks = bytes.len().div_ceil(WECOM_MEDIA_CHUNK_BYTES);
+    if total_chunks == 0 || total_chunks > 100 {
+        return Err("企微附件分片数量无效。".into());
+    }
+    let md5 = format!("{:x}", Md5::digest(&bytes));
+    let init = send_wecom_bot_request(
+        state.inner(),
+        "aibot_upload_media_init",
+        bot_request_id("aibot_upload_media_init"),
+        json!({
+            "type": media_type,
+            "filename": filename,
+            "total_size": bytes.len(),
+            "total_chunks": total_chunks,
+            "md5": md5,
+        }),
+    )
+    .await?;
+    let upload_id = init
+        .pointer("/body/upload_id")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "企微没有返回附件上传 ID。".to_string())?
+        .to_string();
+    for (index, chunk) in bytes.chunks(WECOM_MEDIA_CHUNK_BYTES).enumerate() {
+        let mut last_error = None;
+        for attempt in 0..3 {
+            match send_wecom_bot_request(
+                state.inner(),
+                "aibot_upload_media_chunk",
+                bot_request_id("aibot_upload_media_chunk"),
+                json!({
+                    "upload_id": upload_id,
+                    "chunk_index": index,
+                    "base64_data": STANDARD.encode(chunk),
+                }),
+            )
+            .await
+            {
+                Ok(_) => {
+                    last_error = None;
+                    break;
+                }
+                Err(error) => {
+                    last_error = Some(error);
+                    if attempt < 2 {
+                        tokio::time::sleep(Duration::from_millis(500 * (attempt + 1))).await;
+                    }
+                }
+            }
+        }
+        if let Some(error) = last_error {
+            return Err(format!("企微附件第 {} 个分片上传失败：{error}", index + 1));
+        }
+    }
+    let finish = send_wecom_bot_request(
+        state.inner(),
+        "aibot_upload_media_finish",
+        bot_request_id("aibot_upload_media_finish"),
+        json!({ "upload_id": upload_id }),
+    )
+    .await?;
+    let media_id = finish
+        .pointer("/body/media_id")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "企微没有返回附件 media_id。".to_string())?;
+    let mut reply_body = json!({ "msgtype": media_type });
+    reply_body
+        .as_object_mut()
+        .ok_or_else(|| "无法生成企微附件回复。".to_string())?
+        .insert(media_type.clone(), json!({ "media_id": media_id }));
+    send_wecom_bot_request(
+        state.inner(),
+        "aibot_respond_msg",
+        request_id,
+        reply_body,
+    )
+    .await?;
+    state
+        .pending_replies
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .remove(&message_id);
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn reply_wecom_message(
     state: tauri::State<'_, WecomState>,
@@ -1339,12 +1914,12 @@ pub async fn reply_wecom_message(
         .map(|runtime| runtime.outbound.clone())
         .ok_or_else(|| "企业微信机器人没有运行。".to_string())?;
     sender
-        .send(OutboundReply {
+        .send(OutboundCommand::Reply(OutboundReply {
             request_id,
             stream_id: stream_id.clone(),
             content: truncate_utf8_bytes(&content, MAX_WECOM_REPLY_BYTES),
             finish,
-        })
+        }))
         .await
         .map_err(|_| "企业微信机器人连接已经断开。".to_string())?;
     if finish {
@@ -1360,6 +1935,7 @@ pub async fn reply_wecom_message(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cbc::cipher::BlockEncryptMut;
 
     #[test]
     fn rejects_script_content() {
@@ -1410,7 +1986,89 @@ mod tests {
             }
         });
         assert!(incoming_payload(&frame, "another_bot").is_none());
-        let payload = incoming_payload(&frame, "bot_1").expect("matching bot message");
-        assert_eq!(payload.conversation_key, "bot:bot_1:chat:chat_1");
+        let parsed = incoming_payload(&frame, "bot_1").expect("matching bot message");
+        assert_eq!(parsed.payload.conversation_key, "bot:bot_1:chat:chat_1");
+        assert!(parsed.attachment_refs.is_empty());
+    }
+
+    #[test]
+    fn parses_file_and_mixed_attachments_without_accepting_empty_unknown_messages() {
+        let file = json!({
+            "headers": { "req_id": "request_file" },
+            "body": {
+                "msgid": "message_file", "aibotid": "bot_1", "chattype": "single",
+                "from": { "userid": "user_1" }, "msgtype": "file",
+                "file": { "url": "https://example.qpic.cn/report.pdf", "aeskey": STANDARD.encode([7_u8; 32]) }
+            }
+        });
+        let parsed = incoming_payload(&file, "bot_1").expect("file message");
+        assert_eq!(parsed.attachment_refs.len(), 1);
+        assert!(parsed.payload.text.is_empty());
+
+        let mixed = json!({
+            "headers": { "req_id": "request_mixed" },
+            "body": {
+                "msgid": "message_mixed", "aibotid": "bot_1", "chattype": "single",
+                "from": { "userid": "user_1" }, "msgtype": "mixed",
+                "mixed": { "msg_item": [
+                    { "msgtype": "text", "text": { "content": "请看这张图" } },
+                    { "msgtype": "image", "image": { "url": "https://example.qpic.cn/photo", "aeskey": STANDARD.encode([8_u8; 32]) } }
+                ] }
+            }
+        });
+        let parsed = incoming_payload(&mixed, "bot_1").expect("mixed message");
+        assert_eq!(parsed.payload.text, "请看这张图");
+        assert_eq!(parsed.attachment_refs.len(), 1);
+
+        let unknown = json!({
+            "headers": { "req_id": "request_unknown" },
+            "body": {
+                "msgid": "message_unknown", "aibotid": "bot_1", "chattype": "single",
+                "from": { "userid": "user_1" }, "msgtype": "location"
+            }
+        });
+        assert!(incoming_payload(&unknown, "bot_1").is_none());
+    }
+
+    #[test]
+    fn decrypts_wecom_attachment_with_padded_or_unpadded_base64_key() {
+        let key = [7_u8; 32];
+        let plaintext = b"Kardii attachment payload";
+        let padding = 32 - (plaintext.len() % 32);
+        let mut encrypted = plaintext.to_vec();
+        encrypted.extend(std::iter::repeat(padding as u8).take(padding));
+        let encrypted_len = encrypted.len();
+        cbc::Encryptor::<Aes256>::new_from_slices(&key, &key[..16])
+            .expect("valid test key")
+            .encrypt_padded_mut::<NoPadding>(&mut encrypted, encrypted_len)
+            .expect("aligned test input");
+
+        let padded_key = STANDARD.encode(key);
+        let unpadded_key = STANDARD_NO_PAD.encode(key);
+        assert_eq!(decrypt_wecom_attachment(&encrypted, &padded_key).unwrap(), plaintext);
+        assert_eq!(decrypt_wecom_attachment(&encrypted, &unpadded_key).unwrap(), plaintext);
+        assert!(decrypt_wecom_attachment(&encrypted, "bad-key").is_err());
+    }
+
+    #[test]
+    fn parses_standard_and_rfc5987_attachment_filenames() {
+        assert_eq!(
+            content_disposition_filename("attachment; filename=report.pdf").as_deref(),
+            Some("report.pdf")
+        );
+        assert_eq!(
+            content_disposition_filename(
+                "attachment; filename=fallback.pdf; filename*=UTF-8''%E9%A1%B9%E7%9B%AE%20%E6%8A%A5%E5%91%8A.pdf"
+            )
+            .as_deref(),
+            Some("项目 报告.pdf")
+        );
+        assert_eq!(
+            content_disposition_filename(
+                "attachment; filename*=UTF-8''%E9%A1%B9%E7%9B%AE%20%E6%8A%A5%E5%91%8A.pdf"
+            )
+            .as_deref(),
+            Some("项目 报告.pdf")
+        );
     }
 }

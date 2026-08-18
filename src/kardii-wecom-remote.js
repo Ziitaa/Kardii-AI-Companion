@@ -31,6 +31,7 @@
       "绑定": "bind", bind: "bind",
       "任务": "task", agent: "task", task: "task",
       "确认": "confirm", confirm: "confirm",
+      "模型": "model", model: "model",
       "回答": "answer", answer: "answer",
       "结果": "result", result: "result",
       "取消": "cancel", cancel: "cancel",
@@ -40,6 +41,7 @@
     if (["help", "status"].includes(type)) return argument
       ? { type: "invalid", error: `/${name} 后面不需要其他内容。` }
       : { type };
+    if (type === "model") return { type, model: argument.slice(0, 80) };
     if (type === "task") {
       const goal = argument.slice(0, 2_000).trim();
       return goal
@@ -55,6 +57,7 @@
         : { type: "invalid", error: "请使用：/回答 任务码 你的补充内容" };
     }
     if (type === "cancel" && !argument) return { type, code: "" };
+    if (type === "confirm" && !argument) return { type, code: "" };
     const code = cleanCode(argument);
     return code
       ? { type, code }
@@ -67,6 +70,16 @@
       ownerUserId: String(value.wecomRemoteOwnerUserId || "").trim().slice(0, 256),
       allowKnowledge: value.wecomRemoteAllowKnowledge === true,
       allowWecomDocuments: value.wecomRemoteAllowDocuments === true,
+      allowAuthorizedFiles: value.wecomRemoteAllowAuthorizedFiles === true,
+      allowedMcpTools: Array.isArray(value.wecomRemoteAllowedMcpTools)
+        ? [...new Set(value.wecomRemoteAllowedMcpTools.map((item) => String(item || "").trim()).filter(Boolean))].slice(0, 80)
+        : [],
+      authorizedFolders: Array.isArray(value.wecomRemoteAuthorizedFolders)
+        ? value.wecomRemoteAuthorizedFolders.filter((item) => item && typeof item === "object").slice(0, 8).map((item) => ({
+          id: String(item.id || "").slice(0, 100),
+          name: String(item.name || "").slice(0, 120),
+        })).filter((item) => item.id && item.name)
+        : [],
       pairingCode: cleanCode(value.wecomRemotePairingCode),
       pairingExpiresAt: Math.max(0, Number(value.wecomRemotePairingExpiresAt) || 0),
     };
@@ -81,6 +94,16 @@
       taskCode: cleanCode(value.taskCode),
       allowKnowledge: value.allowKnowledge === true,
       allowWecomDocuments: value.allowWecomDocuments === true,
+      allowAuthorizedFiles: value.allowAuthorizedFiles === true,
+      allowedMcpTools: Array.isArray(value.allowedMcpTools)
+        ? [...new Set(value.allowedMcpTools.map((item) => String(item || "").trim()).filter(Boolean))].slice(0, 80)
+        : [],
+      authorizedFolders: Array.isArray(value.authorizedFolders)
+        ? value.authorizedFolders.filter((item) => item && typeof item === "object").slice(0, 8).map((item) => ({
+          id: String(item.id || "").slice(0, 100),
+          name: String(item.name || "").slice(0, 120),
+        })).filter((item) => item.id && item.name)
+        : [],
       ai: {
         provider: ["deepseek", "gemini", "ollama", "codex"].includes(ai.provider) ? ai.provider : "deepseek",
         model: String(ai.model || "").slice(0, 120),
@@ -102,11 +125,31 @@
       if (["search", "read"].includes(mode)) return "";
       return "企微远程任务不允许创建、追加、覆盖或删除文档。";
     }
+    if (tool === "authorized_file") {
+      if (!source.allowAuthorizedFiles || !source.authorizedFolders.length) {
+        return "这个远程任务没有获得读取桌面授权目录的权限。";
+      }
+      const mode = String(action.arguments?.action || "").toLowerCase();
+      if (!["search", "read"].includes(mode)) return "企微远程授权目录只允许搜索和读取。";
+      if (mode === "read") {
+        const folderId = String(action.arguments?.folderId || "");
+        if (!source.authorizedFolders.some((folder) => folder.id === folderId)) {
+          return "目标目录不在这个企微远程任务的授权范围中。";
+        }
+      }
+      return "";
+    }
+    if (tool === "mcp_call") {
+      const serverId = String(action.arguments?.serverId || "");
+      const toolName = String(action.arguments?.toolName || "");
+      return source.allowedMcpTools.includes(`${serverId}::${toolName}`)
+        ? ""
+        : "这个 MCP 工具没有进入企微远程只读白名单。";
+    }
     return {
       memory_search: "企微远程任务不能读取桌面私人长期记忆。",
       browser_read: "企微远程任务不能读取或控制桌面浏览器。",
       browser_action: "企微远程任务不能读取或控制桌面浏览器。",
-      mcp_call: "企微远程任务首版不调用第三方 MCP 工具。",
       read_file: "企微远程任务首版不读取未在桌面明确选择的本机文件。",
       read_clipboard: "企微远程任务不能读取桌面剪贴板。",
       write_clipboard: "企微远程任务不能写入桌面剪贴板。",

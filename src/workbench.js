@@ -107,6 +107,9 @@ const seedData = {
     wecomRemoteOwnerUserId: "",
     wecomRemoteAllowKnowledge: false,
     wecomRemoteAllowDocuments: false,
+    wecomRemoteAllowAuthorizedFiles: false,
+    wecomRemoteAuthorizedFolders: [],
+    wecomRemoteAllowedMcpTools: [],
     dailyBriefReminderEnabled: false,
     dailyBriefReminderTime: "09:00",
     dailyBriefLastReminderDate: "",
@@ -156,6 +159,7 @@ let mcpLogs = loadMcpLogs();
 const mcpCredentialStatuses = new Map();
 let wecomAuthorizationStatus = null;
 let wecomBotRuntimeStatus = null;
+let wecomRemoteFolderRegistry = [];
 let wecomBotSecretPresent = null;
 let wecomDocumentResultsData = [];
 let selectedWecomDocumentId = "";
@@ -307,6 +311,10 @@ const wecomBotStatus = document.getElementById("wecomBotStatus");
 const wecomRemoteAgentEnabledInput = document.getElementById("wecomRemoteAgentEnabledInput");
 const wecomRemoteKnowledgeInput = document.getElementById("wecomRemoteKnowledgeInput");
 const wecomRemoteDocumentsInput = document.getElementById("wecomRemoteDocumentsInput");
+const wecomRemoteFilesInput = document.getElementById("wecomRemoteFilesInput");
+const wecomRemoteFolderList = document.getElementById("wecomRemoteFolderList");
+const addWecomRemoteFolderButton = document.getElementById("addWecomRemoteFolderButton");
+const wecomRemoteMcpList = document.getElementById("wecomRemoteMcpList");
 const wecomRemoteOwnerLabel = document.getElementById("wecomRemoteOwnerLabel");
 const wecomRemotePairingCode = document.getElementById("wecomRemotePairingCode");
 const generateWecomRemotePairingButton = document.getElementById("generateWecomRemotePairingButton");
@@ -581,6 +589,16 @@ function loadData() {
           : "",
         wecomRemoteAllowKnowledge: saved.settings?.wecomRemoteAllowKnowledge === true,
         wecomRemoteAllowDocuments: saved.settings?.wecomRemoteAllowDocuments === true,
+        wecomRemoteAllowAuthorizedFiles: saved.settings?.wecomRemoteAllowAuthorizedFiles === true,
+        wecomRemoteAuthorizedFolders: Array.isArray(saved.settings?.wecomRemoteAuthorizedFolders)
+          ? saved.settings.wecomRemoteAuthorizedFolders.filter((item) => item && typeof item === "object").slice(0, 8).map((item) => ({
+            id: String(item.id || "").slice(0, 100),
+            name: String(item.name || "").slice(0, 120),
+          })).filter((item) => item.id && item.name)
+          : [],
+        wecomRemoteAllowedMcpTools: Array.isArray(saved.settings?.wecomRemoteAllowedMcpTools)
+          ? [...new Set(saved.settings.wecomRemoteAllowedMcpTools.map((item) => String(item || "").trim()).filter(Boolean))].slice(0, 80)
+          : [],
         dailyBriefReminderEnabled: saved.settings?.dailyBriefReminderEnabled === true,
         dailyBriefReminderTime: /^([01]\d|2[0-3]):[0-5]\d$/.test(saved.settings?.dailyBriefReminderTime)
           ? saved.settings.dailyBriefReminderTime
@@ -2242,14 +2260,86 @@ function currentWecomRemoteSettings() {
   return window.KardiiWecomRemote.normalizeSettings({ ...data.settings, ...pairing });
 }
 
+function remoteReadOnlyMcpTools() {
+  return mcpServers().filter((server) => server.lastTestAt && !server.lastError).flatMap((server) => (
+    (Array.isArray(server.tools) ? server.tools : []).filter((tool) => mcpToolRisk(tool) === "read").map((tool) => ({
+      key: `${server.serverId}::${tool.name}`,
+      serverName: server.name || server.serverName || "MCP 服务器",
+      toolName: tool.name,
+    }))
+  )).slice(0, 80);
+}
+
+async function refreshWecomRemoteFolders() {
+  try {
+    const folders = await invoke("list_wecom_remote_folders");
+    wecomRemoteFolderRegistry = Array.isArray(folders) ? folders.slice(0, 8) : [];
+    const summaries = wecomRemoteFolderRegistry.map((item) => ({
+      id: String(item.id || "").slice(0, 100),
+      name: String(item.name || "").slice(0, 120),
+    })).filter((item) => item.id && item.name);
+    if (JSON.stringify(data.settings.wecomRemoteAuthorizedFolders || []) !== JSON.stringify(summaries)) {
+      data.settings.wecomRemoteAuthorizedFolders = summaries;
+      if (!summaries.length) data.settings.wecomRemoteAllowAuthorizedFiles = false;
+      saveData();
+    } else {
+      renderWecomRemoteAgent();
+    }
+  } catch (error) {
+    setWecomStatus(wecomRemoteAgentStatus, `无法读取授权目录：${String(error)}`, "error");
+  }
+}
+
+async function addWecomRemoteFolder() {
+  addWecomRemoteFolderButton.disabled = true;
+  try {
+    await invoke("select_wecom_remote_folder");
+    await refreshWecomRemoteFolders();
+  } catch (error) {
+    setWecomStatus(wecomRemoteAgentStatus, String(error), "error");
+  } finally {
+    addWecomRemoteFolderButton.disabled = !currentWecomRemoteSettings().enabled;
+  }
+}
+
+async function removeWecomRemoteFolder(folderId) {
+  const folder = wecomRemoteFolderRegistry.find((item) => item.id === folderId);
+  if (!folder) return;
+  const confirmed = await window.kardiiConfirm({
+    title: "移除远程只读目录？",
+    message: `企微远程 Agent 将立即失去对“${folder.name}”的读取权限，不会删除目录或其中的文件。`,
+    confirmLabel: "移除授权",
+    tone: "danger",
+  });
+  if (!confirmed) return;
+  await invoke("remove_wecom_remote_folder", { folderId });
+  await refreshWecomRemoteFolders();
+}
+
 function renderWecomRemoteAgent() {
   const settings = currentWecomRemoteSettings();
   const pairingActive = Boolean(settings.pairingCode && settings.pairingExpiresAt > Date.now());
   wecomRemoteAgentEnabledInput.checked = settings.enabled;
   wecomRemoteKnowledgeInput.checked = settings.allowKnowledge;
   wecomRemoteDocumentsInput.checked = settings.allowWecomDocuments;
+  wecomRemoteFilesInput.checked = settings.allowAuthorizedFiles;
   wecomRemoteKnowledgeInput.disabled = !settings.enabled;
   wecomRemoteDocumentsInput.disabled = !settings.enabled;
+  wecomRemoteFilesInput.disabled = !settings.enabled || !settings.authorizedFolders.length;
+  addWecomRemoteFolderButton.disabled = !settings.enabled;
+  wecomRemoteFolderList.innerHTML = wecomRemoteFolderRegistry.length
+    ? wecomRemoteFolderRegistry.map((folder) => `<div><span><strong>${escapeHtml(folder.name)}</strong><small>${escapeHtml(folder.path || "")}</small></span><button type="button" data-remove-wecom-folder="${escapeHtml(folder.id)}" title="移除目录授权">×</button></div>`).join("")
+    : "<span>尚未选择目录</span>";
+  const readOnlyMcpTools = remoteReadOnlyMcpTools();
+  const validMcpKeys = new Set(readOnlyMcpTools.map((tool) => tool.key));
+  const activeMcpKeys = settings.allowedMcpTools.filter((key) => validMcpKeys.has(key));
+  if (activeMcpKeys.length !== settings.allowedMcpTools.length) {
+    data.settings.wecomRemoteAllowedMcpTools = activeMcpKeys;
+    queueMicrotask(saveData);
+  }
+  wecomRemoteMcpList.innerHTML = readOnlyMcpTools.length
+    ? readOnlyMcpTools.map((tool) => `<label><input type="checkbox" data-wecom-mcp-key="${escapeHtml(tool.key)}" ${activeMcpKeys.includes(tool.key) ? "checked" : ""} ${settings.enabled ? "" : "disabled"}><span><strong>${escapeHtml(tool.toolName)}</strong><small>${escapeHtml(tool.serverName)}</small></span></label>`).join("")
+    : "<span>尚无已验证且明确标记为只读的 MCP 工具</span>";
   wecomRemoteOwnerLabel.textContent = settings.ownerUserId
     ? `已绑定企微账号：${settings.ownerUserId}`
     : "尚未绑定企微账号";
@@ -2265,6 +2355,8 @@ function renderWecomRemoteAgent() {
     const scopes = ["公开网页"];
     if (settings.allowKnowledge) scopes.push("Kardii 知识库只读");
     if (settings.allowWecomDocuments) scopes.push("企微文档只读");
+    if (settings.allowAuthorizedFiles && settings.authorizedFolders.length) scopes.push(`${settings.authorizedFolders.length} 个授权目录只读`);
+    if (settings.allowedMcpTools.length) scopes.push(`${settings.allowedMcpTools.length} 个 MCP 工具只读`);
     setWecomStatus(wecomRemoteAgentStatus, `远程 Agent 已就绪 · 允许：${scopes.join("、")}`, "success");
   } else if (pairingActive) {
     const minutes = Math.max(1, Math.ceil((settings.pairingExpiresAt - Date.now()) / 60_000));
@@ -5184,6 +5276,22 @@ wecomRemoteKnowledgeInput.addEventListener("change", () => {
 wecomRemoteDocumentsInput.addEventListener("change", () => {
   updateWecomRemoteSetting("wecomRemoteAllowDocuments", wecomRemoteDocumentsInput.checked);
 });
+wecomRemoteFilesInput.addEventListener("change", () => {
+  updateWecomRemoteSetting("wecomRemoteAllowAuthorizedFiles", wecomRemoteFilesInput.checked);
+});
+addWecomRemoteFolderButton.addEventListener("click", addWecomRemoteFolder);
+wecomRemoteFolderList.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-remove-wecom-folder]");
+  if (button) void removeWecomRemoteFolder(button.dataset.removeWecomFolder);
+});
+wecomRemoteMcpList.addEventListener("change", (event) => {
+  const input = event.target.closest("[data-wecom-mcp-key]");
+  if (!input) return;
+  const selected = new Set(currentWecomRemoteSettings().allowedMcpTools);
+  if (input.checked) selected.add(input.dataset.wecomMcpKey);
+  else selected.delete(input.dataset.wecomMcpKey);
+  updateWecomRemoteSetting("wecomRemoteAllowedMcpTools", [...selected].slice(0, 80));
+});
 generateWecomRemotePairingButton.addEventListener("click", generateWecomRemotePairingCode);
 copyWecomRemotePairingButton.addEventListener("click", copyWecomRemotePairingCode);
 unbindWecomRemoteOwnerButton.addEventListener("click", unbindWecomRemoteOwner);
@@ -5324,6 +5432,7 @@ consumeWorkbenchTarget();
 refreshEmailCredentialStatus();
 void refreshMcpCredentialStatuses();
 void refreshWecomConnection({ quiet: true });
+void refreshWecomRemoteFolders();
 void listen("kardii-wecom-status", ({ payload }) => {
   wecomBotRuntimeStatus = payload;
   renderConnections();
