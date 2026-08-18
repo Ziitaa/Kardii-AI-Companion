@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
@@ -8,7 +9,7 @@ const assert = (condition, message) => {
 };
 
 for (const file of ["src/agent.js", "src/chat.js", "src/workbench.js", "src/kardii-dialog.js", "src/kardii-task-title.js", "src/kardii-chat-sessions.js", "src/kardii-wecom-remote.js"]) {
-  execFileSync(process.execPath, ["--check", new URL(`../${file}`, import.meta.url).pathname], { stdio: "pipe" });
+  execFileSync(process.execPath, ["--check", fileURLToPath(new URL(`../${file}`, import.meta.url))], { stdio: "pipe" });
 }
 
 const agentHtml = read("src/agent.html");

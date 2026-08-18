@@ -1,12 +1,13 @@
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const assert = (condition, message) => {
   if (!condition) throw new Error(message);
 };
 
-execFileSync(process.execPath, [new URL("./check_v1.mjs", import.meta.url).pathname], { stdio: "inherit" });
+execFileSync(process.execPath, [fileURLToPath(new URL("./check_v1.mjs", import.meta.url))], { stdio: "inherit" });
 
 const rust = read("src-tauri/src/lib.rs");
 const cargo = read("src-tauri/Cargo.toml");

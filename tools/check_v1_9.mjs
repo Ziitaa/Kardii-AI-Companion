@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 function read(path) {
-  return fs.readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+  return fs.readFileSync(new URL(`../${path}`, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 }
 
 function json(path) {
