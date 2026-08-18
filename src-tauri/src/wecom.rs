@@ -394,7 +394,7 @@ pub async fn wecom_component_status(app: tauri::AppHandle) -> WecomComponentStat
 pub async fn wecom_authorization_status(
     app: tauri::AppHandle,
     state: tauri::State<'_, WecomState>,
-) -> WecomAuthorizationStatus {
+) -> Result<WecomAuthorizationStatus, String> {
     {
         let mut guard = state.auth_session.lock().await;
         let finished = guard
@@ -419,7 +419,7 @@ pub async fn wecom_authorization_status(
     } else {
         false
     };
-    WecomAuthorizationStatus { component, authorized }
+    Ok(WecomAuthorizationStatus { component, authorized })
 }
 
 #[tauri::command]

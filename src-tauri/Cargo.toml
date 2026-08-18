@@ -27,7 +27,7 @@ tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
 rfd = "0.15"
 arboard = "3"
 open = "5"
-tokio = { version = "1", features = ["io-util", "process", "sync", "time"] }
+tokio = { version = "1", features = ["io-util", "macros", "process", "sync", "time"] }
 cpal = "0.16"
 sherpa-onnx = { version = "1.13.4", default-features = false }
 bzip2 = "0.4"
