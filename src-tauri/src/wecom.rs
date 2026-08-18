@@ -178,6 +178,7 @@ struct OutboundReply {
     request_id: String,
     stream_id: String,
     content: String,
+    finish: bool,
 }
 
 fn now_epoch() -> u64 {
@@ -990,7 +991,7 @@ fn response_frame(reply: &OutboundReply) -> Value {
             "msgtype": "stream",
             "stream": {
                 "id": reply.stream_id,
-                "finish": true,
+                "finish": reply.finish,
                 "content": reply.content,
             }
         }
@@ -1192,6 +1193,7 @@ async fn run_bot_loop(
                                 request_id: request_id.to_string(),
                                 stream_id: bot_request_id("kardii"),
                                 content: "Kardii 目前支持企业微信中的文字消息和已经转写成文字的语音消息。图片或文件请在桌面 Kardii 中上传。".into(),
+                                finish: true,
                             };
                             let _ = writer.send(Message::Text(response_frame(&reply).to_string().into())).await;
                         }
@@ -1306,7 +1308,9 @@ pub async fn reply_wecom_message(
     message_id: String,
     request_id: String,
     content: String,
-) -> Result<(), String> {
+    stream_id: Option<String>,
+    finish: Option<bool>,
+) -> Result<String, String> {
     let message_id = clean_identifier(&message_id, "企业微信消息 ID", 256)?;
     let request_id = clean_identifier(&request_id, "企业微信请求 ID", 256)?;
     let (expected_request_id, expected_generation) = state
@@ -1322,6 +1326,11 @@ pub async fn reply_wecom_message(
         return Err("企业微信消息与回复请求不匹配，已拒绝发送。".into());
     }
     let content = clean_text(&content, "企业微信回复", MAX_WECOM_REPLY_BYTES)?;
+    let stream_id = match stream_id {
+        Some(value) => clean_identifier(&value, "企业微信流式回复 ID", 256)?,
+        None => bot_request_id("kardii"),
+    };
+    let finish = finish.unwrap_or(true);
     let sender = state
         .bot_runtime
         .lock()
@@ -1332,17 +1341,20 @@ pub async fn reply_wecom_message(
     sender
         .send(OutboundReply {
             request_id,
-            stream_id: bot_request_id("kardii"),
+            stream_id: stream_id.clone(),
             content: truncate_utf8_bytes(&content, MAX_WECOM_REPLY_BYTES),
+            finish,
         })
         .await
         .map_err(|_| "企业微信机器人连接已经断开。".to_string())?;
-    state
-        .pending_replies
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .remove(&message_id);
-    Ok(())
+    if finish {
+        state
+            .pending_replies
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .remove(&message_id);
+    }
+    Ok(stream_id)
 }
 
 #[cfg(test)]
@@ -1361,6 +1373,19 @@ mod tests {
         let truncated = truncate_utf8_bytes(&text, 20_000);
         assert!(truncated.is_char_boundary(truncated.len()));
         assert!(truncated.len() <= 20_000);
+    }
+
+    #[test]
+    fn response_frame_preserves_stream_id_and_finish_state() {
+        let frame = response_frame(&OutboundReply {
+            request_id: "request_1".into(),
+            stream_id: "stream_1".into(),
+            content: "正在生成".into(),
+            finish: false,
+        });
+        assert_eq!(frame.pointer("/headers/req_id").and_then(Value::as_str), Some("request_1"));
+        assert_eq!(frame.pointer("/body/stream/id").and_then(Value::as_str), Some("stream_1"));
+        assert_eq!(frame.pointer("/body/stream/finish").and_then(Value::as_bool), Some(false));
     }
 
     #[test]

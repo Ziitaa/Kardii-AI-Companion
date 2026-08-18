@@ -275,7 +275,7 @@ let chatDraftSaveTimer = null;
 let chatAttachmentProcessing = false;
 let chatDragDepth = 0;
 let browserContextLoading = false;
-let appVersion = window.KardiiCapabilities?.version || "2.0.0";
+let appVersion = window.KardiiCapabilities?.version || "2.1.0";
 let onboardingScheduled = false;
 let tourStepIndex = 0;
 let activeTourTarget = null;
@@ -2122,7 +2122,7 @@ function createFullBackup() {
   return {
     format: "kardii-backup",
     version: 1,
-    appVersion: "2.0.0",
+    appVersion: "2.1.0",
     createdAt: new Date().toISOString(),
     profile,
     memories,
@@ -3077,7 +3077,7 @@ function setUpdateStatus(text, type = "") {
 async function loadAppVersion() {
   try {
     const version = await invoke("get_app_version");
-    appVersion = String(version || window.KardiiCapabilities?.version || "2.0.0");
+    appVersion = String(version || window.KardiiCapabilities?.version || "2.1.0");
     appVersionLabel.textContent = `当前版本：${version}`;
     currentVersionBadges.forEach((badge) => { badge.textContent = `v${version}`; });
     helpVersionBadge.textContent = `v${appVersion}`;

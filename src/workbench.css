@@ -542,6 +542,17 @@ button { cursor: pointer; }
 .wecom-auth-panel > strong { display: block; color: #3f6758; font-size: 11px; }
 .wecom-auth-panel > p { min-height: 38px; margin: 6px 0 10px; color: #7e9089; font-size: 8px; line-height: 1.55; }
 .wecom-auth-panel > .connection-status { min-height: 0; margin-top: 9px; }
+.wecom-remote-panel { display: grid; gap: 9px; padding: 11px; background: linear-gradient(145deg, #f4fbf8, #fff); border: 1px solid #cfe5dc; border-radius: 10px; }
+.wecom-remote-heading, .wecom-remote-owner-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.wecom-remote-heading > div { display: grid; gap: 2px; }
+.wecom-remote-heading strong { color: #356250; font-size: 10px; }
+.wecom-remote-heading span, .wecom-remote-owner-row > span { color: #7e9189; font-size: 8px; line-height: 1.45; }
+.wecom-remote-toggle { display: flex; align-items: center; gap: 5px; color: #4d7968; font-size: 8px; font-weight: 700; }
+.wecom-remote-toggle input, .wecom-remote-scopes input { accent-color: #3f9a78; }
+.wecom-remote-owner-row code { padding: 5px 8px; color: #326b55; font-family: ui-monospace, "Cascadia Code", monospace; font-size: 9px; font-weight: 800; letter-spacing: 0.1em; background: #e7f4ee; border-radius: 7px; }
+.wecom-remote-scopes { display: grid; gap: 6px; padding: 8px 9px; color: #62766e; font-size: 8px; background: rgba(255, 255, 255, 0.76); border: 1px solid #dfebe6; border-radius: 8px; }
+.wecom-remote-scopes label { display: flex; align-items: center; gap: 5px; }
+.wecom-remote-panel > .connection-status, .wecom-remote-panel > .connection-help { min-height: 0; }
 .wecom-qr-panel { display: flex; align-items: center; gap: 12px; margin-top: 11px; padding: 10px; background: #fff; border: 1px solid #cfe4dc; border-radius: 10px; }
 .wecom-qr-panel img { width: 118px; height: 118px; object-fit: contain; background: #fff; border-radius: 7px; }
 .wecom-qr-panel div { display: grid; align-content: center; gap: 6px; }

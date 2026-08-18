@@ -1,7 +1,7 @@
 {
   "name": "kardii-ai-companion",
   "private": true,
-  "version": "2.0.0",
+  "version": "2.1.0",
   "scripts": {
     "dev": "tauri dev",
     "build": "tauri build",
@@ -20,7 +20,9 @@
     "test:v1.7": "node tools/check_v1_7.mjs",
     "test:v1.8": "node tools/check_v1_8.mjs",
     "test:v1.9": "node tools/check_v1_9.mjs",
-    "test:v2.0": "node tools/check_v2_0.mjs"
+    "test:v2.0": "node tools/check_v2_0.mjs",
+    "test:v2.0.1": "node tools/check_v2_0_1.mjs",
+    "test:v2.1": "node tools/check_v2_1.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0"

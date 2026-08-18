@@ -29,10 +29,10 @@ const taskTitleJs = read("src/kardii-task-title.js");
 const capabilityJs = read("src/kardii-capabilities.js");
 
 for (const version of [packageJson.version, packageLock.version, packageLock.packages[""].version, tauriConfig.version]) {
-  assert(version === "2.0.0", `当前版本号未统一: ${version}`);
+  assert(version === "2.1.0", `当前版本号未统一: ${version}`);
 }
-assert(/version = "2\.0\.0"/.test(cargo), "Cargo.toml 未更新到 v2.0.0");
-assert(chatJs.includes('appVersion: "2.0.0"'), "完整备份版本号未更新到 v2.0.0");
+assert(/version = "2\.1\.0"/.test(cargo), "Cargo.toml 未更新到 v2.1.0");
+assert(chatJs.includes('appVersion: "2.1.0"'), "完整备份版本号未更新到 v2.1.0");
 assert(js.includes("version: 4") && js.includes("[1, 2, 3, 4].includes(saved.version)"), "v4 工作台数据迁移缺失");
 assert(chatJs.includes("[1, 2, 3, 4].includes(saved?.version)"), "完整备份未接受 v4 工作台数据");
 assert(chatJs.includes("...(saved.settings && typeof saved.settings === \"object\" ? saved.settings : {})"), "聊天自动记录会覆盖邮箱或云端连接设置");
@@ -276,6 +276,7 @@ const context = vm.createContext({
 });
 const prelude = js.slice(0, js.indexOf("const navItems"));
 const migrationFunctions = js.slice(js.indexOf("function normalizeEmailAccount"), js.indexOf("function escapeHtml"));
+vm.runInContext(read("src/kardii-wecom-remote.js"), context);
 vm.runInContext(`${prelude}\n${migrationFunctions}`, context);
 const migrated = vm.runInContext("data", context);
 assert(migrated.version === 4, "v2 数据没有迁移到 v4");

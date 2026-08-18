@@ -32,10 +32,10 @@ const capabilities = read("src/kardii-capabilities.js");
 const readme = read("README.md");
 
 for (const version of [packageJson.version, packageLock.version, packageLock.packages[""].version, tauri.version, extension.version]) {
-  assert(version === "2.0.0", `v1.9 版本号未统一：${version}`);
+  assert(version === "2.1.0", `v1.9 版本号未统一：${version}`);
 }
-assert(/version = "2\.0\.0"/.test(cargo), "Cargo.toml 未更新为 2.0.0");
-assert(capabilities.includes('const VERSION = "2.0.0"'), "共享功能清单未更新为 2.0.0");
+assert(/version = "2\.1\.0"/.test(cargo), "Cargo.toml 未更新为 2.1.0");
+assert(capabilities.includes('const VERSION = "2.1.0"'), "共享功能清单未更新为 2.1.0");
 assert(packageJson.scripts["test:v1.9"] === "node tools/check_v1_9.mjs", "v1.9 回归脚本未注册");
 
 for (const id of ["parallelStatus", "taskWorkerBadge"]) {
@@ -151,6 +151,7 @@ const context = vm.createContext({
   clearTimeout() {},
 });
 vm.runInContext(read("src/kardii-task-title.js"), context);
+vm.runInContext(read("src/kardii-wecom-remote.js"), context);
 vm.runInContext(agentJs, context);
 const queueState = vm.runInContext(`(() => {
   tasks = [1, 2, 3, 4].map((number) => normalizeTask({

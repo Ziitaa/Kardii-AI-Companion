@@ -68,6 +68,7 @@ const migrationFunctions = workbenchJs.slice(
   workbenchJs.indexOf("function normalizeEmailAccount"),
   workbenchJs.indexOf("function escapeHtml"),
 );
+vm.runInContext(read("src/kardii-wecom-remote.js"), migrationContext);
 vm.runInContext(`${migrationPrelude}\n${migrationFunctions}`, migrationContext);
 const migrated = vm.runInContext("data", migrationContext);
 assert(migrated.version === 4 && migrated.customers[0].company === "旧版服务商", "旧版关系数据迁移失败");

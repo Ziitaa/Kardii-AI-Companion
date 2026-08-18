@@ -194,13 +194,32 @@ function connectedMcpTools() {
   }
 }
 
-function agentToolContext() {
-  const tools = connectedMcpTools();
+function agentToolContext(task = null) {
+  const remoteSource = task?.remoteSource || null;
+  const tools = remoteSource ? [] : connectedMcpTools();
   let wecomDocumentsConnected = false;
   try {
     const business = JSON.parse(localStorage.getItem(BUSINESS_DATA_KEY) || "null");
     wecomDocumentsConnected = business?.settings?.wecomDocumentsConnected === true;
   } catch { wecomDocumentsConnected = false; }
+  if (remoteSource) {
+    return {
+      mcpTools: [],
+      wecomDocumentsConnected: remoteSource.allowWecomDocuments && wecomDocumentsConnected,
+      remotePolicy: {
+        source: "bound_wecom_private_chat",
+        allowed: [
+          "web_search",
+          remoteSource.allowKnowledge ? "knowledge_search" : "",
+          remoteSource.allowWecomDocuments ? "wecom_document.search/read" : "",
+          "ask_user",
+          "finish",
+        ].filter(Boolean),
+        blocked: ["memory_search", "browser_read/action", "mcp_call", "file", "clipboard", "terminal", "external_write"],
+      },
+      policy: "这是已绑定企微账号二次确认发起的远程任务。只能使用 remotePolicy.allowed；不得读取私人长期记忆，不得操作浏览器、文件、剪贴板、终端或 MCP，不得创建、修改或删除任何外部内容。",
+    };
+  }
   return {
     mcpTools: tools.map((tool) => ({
       serverId: tool.serverId,
@@ -610,6 +629,9 @@ function matchedSkill(goal) {
 function normalizeTask(value) {
   const status = Object.hasOwn(STATUS_LABELS, value?.status) ? value.status : "draft";
   const goal = String(value?.goal || "").slice(0, 4_000);
+  const remoteSource = value?.remoteSource?.taskCode
+    ? window.KardiiWecomRemote.normalizeSource(value.remoteSource)
+    : null;
   return {
     id: String(value?.id || crypto.randomUUID()),
     goal,
@@ -637,7 +659,8 @@ function normalizeTask(value) {
     skillSnapshot: String(value?.skillSnapshot || "").slice(0, 12_000),
     automationId: String(value?.automationId || ""),
     automationName: String(value?.automationName || "").slice(0, 80),
-    background: value?.background === true || Boolean(value?.automationId),
+    background: value?.background === true || Boolean(value?.automationId) || Boolean(remoteSource),
+    remoteSource,
     workerSlot: ["planning", "running"].includes(status)
       ? Math.min(MAX_PARALLEL_AGENTS, Math.max(0, Number(value?.workerSlot) || 0))
       : 0,
@@ -733,6 +756,19 @@ function notifyBackgroundTask(task, status, message) {
   const key = `${task.id}:${status}:${activityId}`;
   if (notifiedTaskStates.has(key)) return;
   notifiedTaskStates.add(key);
+  if (task.remoteSource?.requestId) {
+    void emitTo("main", "kardii-wecom-remote-update", {
+      remoteRequestId: task.remoteSource.requestId,
+      taskId: task.id,
+      taskCode: task.remoteSource.taskCode,
+      status,
+      title: task.title || "企微远程任务",
+      message: String(message || STATUS_LABELS[task.status] || "任务有新进展").slice(0, 4_000),
+      question: String(task.question || "").slice(0, 4_000),
+      finalAnswer: String(task.finalAnswer || "").slice(0, 50_000),
+      error: String(task.error || "").slice(0, 4_000),
+    }).catch(() => {});
+  }
   void emitTo("main", "kardii-agent-notice", {
     taskId: task.id,
     title: task.title || task.automationName || "后台 Agent 任务",
@@ -794,7 +830,11 @@ function formatTime(value) {
   return new Intl.DateTimeFormat("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(date);
 }
 
-function currentAiConfig() {
+function currentAiConfig(task = null) {
+  if (task?.remoteSource?.ai) {
+    const remote = window.KardiiWecomRemote.normalizeSource(task.remoteSource).ai;
+    if (["deepseek", "gemini", "ollama", "codex"].includes(remote.provider)) return remote;
+  }
   let saved = {};
   try { saved = JSON.parse(localStorage.getItem(AI_SETTINGS_KEY) || "{}"); } catch { saved = {}; }
   const provider = ["deepseek", "gemini", "ollama", "codex"].includes(saved.provider) ? saved.provider : "deepseek";
@@ -825,6 +865,17 @@ function addActivity(task, kind, title, detail = "") {
 }
 
 function contextSummary(task = null) {
+  if (task?.remoteSource) {
+    const scopes = ["公开网页搜索"];
+    if (task.remoteSource.allowKnowledge) scopes.push("Kardii 本机知识库只读检索");
+    if (task.remoteSource.allowWecomDocuments) scopes.push("企业微信文档只读搜索与读取");
+    return [
+      "这是从已绑定企业微信账号私聊发起，并已在手机端使用一次性验证码二次确认的远程任务。",
+      `本任务唯一允许范围：${scopes.join("、")}、向用户提问、完成总结。`,
+      "禁止读取私人长期记忆，禁止本机文件、剪贴板、桌面浏览器、终端和 MCP，禁止创建、修改、删除、发送、上传或发布任何内容。",
+      "如果目标必须超出范围，不要请求远程授权；应明确说明只能回到桌面 Kardii 继续。",
+    ].join("\n");
+  }
   let knowledgeCount = 0;
   try {
     const data = JSON.parse(localStorage.getItem(BUSINESS_DATA_KEY) || "null");
@@ -852,7 +903,7 @@ function renderTaskList() {
     <button class="task-card ${task.id === selectedTaskId ? "active" : ""} ${["planning", "running"].includes(task.status) ? "busy" : ""} ${task.status === "queued" ? "queued" : ""} ${task.background ? "background" : ""}" type="button" data-task-id="${escapeHtml(task.id)}">
       <strong>${escapeHtml(task.title || task.goal || "Agent 任务")}</strong>
       <span>${escapeHtml(clipText(task.goal, 58))}</span>
-      <footer><b>${task.workerSlot ? `Agent ${task.workerSlot} · ` : ""}${escapeHtml(STATUS_LABELS[task.status])}</b><span>${escapeHtml(formatTime(task.updatedAt))}</span></footer>
+      <footer><b>${task.remoteSource ? "企微 · " : ""}${task.workerSlot ? `Agent ${task.workerSlot} · ` : ""}${escapeHtml(STATUS_LABELS[task.status])}</b><span>${escapeHtml(formatTime(task.updatedAt))}</span></footer>
     </button>
   `).join("") || '<div class="task-list-empty">这里还没有任务。</div>';
 }
@@ -1212,8 +1263,10 @@ function renderAll() {
 function createTask(goal, maxSteps = 12, requestedSkillId = "", options = {}) {
   const cleanGoal = String(goal || "").trim().slice(0, 4_000);
   if (!cleanGoal) throw new Error("请先填写任务目标。");
-  const selectedSkill = skills.find((skill) => skill.id === requestedSkillId && skill.enabled)
-    || (!requestedSkillId ? matchedSkill(cleanGoal) : null);
+  const selectedSkill = options.disableSkills === true
+    ? null
+    : skills.find((skill) => skill.id === requestedSkillId && skill.enabled)
+      || (!requestedSkillId ? matchedSkill(cleanGoal) : null);
   const task = normalizeTask({
     id: crypto.randomUUID(),
     goal: cleanGoal,
@@ -1224,6 +1277,7 @@ function createTask(goal, maxSteps = 12, requestedSkillId = "", options = {}) {
     skillName: selectedSkill?.name || "",
     skillSnapshot: selectedSkill?.instructions || "",
     background: options.background === true,
+    remoteSource: options.remoteSource || null,
     createdAt: nowIso(),
     updatedAt: nowIso(),
   });
@@ -1285,7 +1339,7 @@ async function planTask(taskId) {
   saveTasks();
   let continueAfterPlan = false;
   try {
-    const ai = currentAiConfig();
+    const ai = currentAiConfig(task);
     if (!ai.model) throw new Error("当前 Ollama 还没有选择模型，请先在聊天窗口的 AI 设置中选择模型。");
     const result = await invoke("create_agent_plan", {
       request: {
@@ -1306,7 +1360,11 @@ async function planTask(taskId) {
     task.authorizationGrantedAt = "";
     task.currentAction = null;
     if (task.status === "planning") {
-      if (task.requestedPermissions.length) {
+      if (task.remoteSource && task.requestedPermissions.length) {
+        task.status = "failed";
+        task.error = "这个目标需要本机或写入权限，超出企微远程任务的安全只读范围。请回到桌面 Kardii 继续。";
+        addActivity(task, "error", "远程安全范围不足", task.error);
+      } else if (task.requestedPermissions.length) {
         task.status = "waiting_authorization";
         addActivity(task, "permission", "等待任务范围确认", `计划可能使用：${task.requestedPermissions.join("、")}`);
       } else {
@@ -1402,7 +1460,11 @@ function searchMemories(query) {
   return selected.map((item, index) => `${index + 1}. ${item.memory}`).join("\n");
 }
 
-async function executeAutomaticTool(action, citationGroup = 1) {
+async function executeAutomaticTool(action, citationGroup = 1, task = null) {
+  if (task?.remoteSource) {
+    const violation = window.KardiiWecomRemote.actionViolation(task.remoteSource, action);
+    if (violation) throw new Error(violation);
+  }
   const args = action.arguments || {};
   if (action.tool === "web_search") {
     const query = String(args.query || "").trim();
@@ -1440,7 +1502,7 @@ async function executeAutomaticTool(action, citationGroup = 1) {
   }
   if (action.tool === "wecom_document") {
     const mode = String(args.action || "").toLowerCase();
-    if (!agentToolContext().wecomDocumentsConnected) {
+    if (!agentToolContext(task).wecomDocumentsConnected) {
       throw new Error("企业微信文档尚未授权。请先在工作台的“外部连接”中扫码连接。 ");
     }
     if (mode === "search") {
@@ -1597,7 +1659,7 @@ async function executeLoop(taskId, slotAlreadyHeld = false) {
       saveTasks();
       let action;
       try {
-        const ai = currentAiConfig();
+        const ai = currentAiConfig(task);
         if (!ai.model) throw new Error("当前 Ollama 还没有选择模型，请先在聊天窗口的 AI 设置中选择模型。");
         action = await invoke("decide_agent_action", {
           request: {
@@ -1609,7 +1671,7 @@ async function executeLoop(taskId, slotAlreadyHeld = false) {
               skill: task.skillSnapshot ? { name: task.skillName, instructions: task.skillSnapshot } : null,
             },
             history: compactHistory(task),
-            toolContext: agentToolContext(),
+            toolContext: agentToolContext(task),
             provider: ai.provider,
             model: ai.model,
             ollamaBaseUrl: ai.ollamaBaseUrl,
@@ -1629,6 +1691,18 @@ async function executeLoop(taskId, slotAlreadyHeld = false) {
         task.currentAction = null;
         saveTasks();
         break;
+      }
+      if (task.remoteSource) {
+        const violation = window.KardiiWecomRemote.actionViolation(task.remoteSource, action);
+        if (violation) {
+          task.status = "failed";
+          task.error = `${violation} 请回到桌面 Kardii 继续这个任务。`;
+          task.currentAction = null;
+          addActivity(task, "error", "远程动作被安全策略阻止", `${action.title || action.tool}：${task.error}`);
+          saveTasks();
+          notifyBackgroundTask(task, "failed", task.error);
+          break;
+        }
       }
       task.stepCount += 1;
       task.currentAction = action;
@@ -1687,7 +1761,7 @@ async function executeLoop(taskId, slotAlreadyHeld = false) {
 
       task.toolCalls += 1;
       try {
-        const result = await executeAutomaticTool(action, task.stepCount);
+        const result = await executeAutomaticTool(action, task.stepCount, task);
         appendHistory(task, action, true, result);
         addActivity(task, "tool", `${action.title || action.tool}完成`, clipText(result, 1_200));
       } catch (error) {
@@ -1901,6 +1975,143 @@ function consumeBrowserAgentRequest() {
   } catch (error) {
     showToast(`无法创建浏览器任务：${String(error)}`);
   }
+}
+
+function currentWecomRemoteSettings() {
+  try {
+    const business = JSON.parse(localStorage.getItem(BUSINESS_DATA_KEY) || "null");
+    return window.KardiiWecomRemote.normalizeSettings(business?.settings || {});
+  } catch {
+    return window.KardiiWecomRemote.normalizeSettings({});
+  }
+}
+
+function emitWecomRemoteFailure(payload, error, taskCode = "") {
+  void emitTo("main", "kardii-wecom-remote-update", {
+    remoteRequestId: String(payload?.remoteRequestId || ""),
+    taskId: String(payload?.taskId || ""),
+    taskCode: window.KardiiWecomRemote.cleanCode(taskCode || payload?.taskCode),
+    status: "failed",
+    error: String(error || "无法启动企微远程任务。").slice(0, 4_000),
+  }).catch(() => {});
+}
+
+async function startWecomRemoteTask(payload = {}) {
+  const settings = currentWecomRemoteSettings();
+  const fromUserId = String(payload.fromUserId || "").slice(0, 256);
+  const conversationKey = String(payload.conversationKey || "").slice(0, 300);
+  const goal = String(payload.goal || "").trim().slice(0, 2_000);
+  const taskCode = window.KardiiWecomRemote.cleanCode(payload.taskCode);
+  if (!settings.enabled || !settings.ownerUserId || settings.ownerUserId !== fromUserId) {
+    emitWecomRemoteFailure(payload, "企微远程 Agent 已关闭、未绑定，或发起账号与桌面绑定不一致。", taskCode);
+    return;
+  }
+  if (!goal || !taskCode || !conversationKey || !payload.remoteRequestId) {
+    emitWecomRemoteFailure(payload, "企微远程任务信息不完整，已拒绝创建。", taskCode);
+    return;
+  }
+  if (tasks.some((task) => task.remoteSource?.taskCode === taskCode
+    && task.remoteSource?.fromUserId === fromUserId)) {
+    emitWecomRemoteFailure(payload, "这个任务码已经使用，已拒绝重复执行。", taskCode);
+    return;
+  }
+  try {
+    const remoteSource = window.KardiiWecomRemote.normalizeSource({
+      requestId: payload.remoteRequestId,
+      conversationKey,
+      fromUserId,
+      taskCode,
+      allowKnowledge: payload.allowKnowledge === true && settings.allowKnowledge,
+      allowWecomDocuments: payload.allowWecomDocuments === true && settings.allowWecomDocuments,
+      ai: payload.ai,
+    });
+    const task = createTask(goal, 10, "", {
+      background: true,
+      disableSkills: true,
+      remoteSource,
+    });
+    addActivity(
+      task,
+      "system",
+      "来自已绑定企微账号",
+      `任务码 ${taskCode}；已在手机端二次确认。只允许当前桌面设置中的安全只读范围。`,
+    );
+    saveTasks();
+    await planTask(task.id);
+  } catch (error) {
+    emitWecomRemoteFailure(payload, String(error), taskCode);
+  }
+}
+
+async function answerWecomRemoteTask(payload = {}) {
+  const task = tasks.find((item) => item.id === String(payload.taskId || ""));
+  const settings = currentWecomRemoteSettings();
+  const answer = String(payload.answer || "").trim().slice(0, 4_000);
+  const fromUserId = String(payload.fromUserId || "");
+  const conversationKey = String(payload.conversationKey || "");
+  if (!task?.remoteSource || task.status !== "waiting_input" || !answer
+    || !settings.enabled || settings.ownerUserId !== fromUserId
+    || task.remoteSource.fromUserId !== fromUserId
+    || task.remoteSource.conversationKey !== conversationKey) {
+    emitWecomRemoteFailure(payload, "任务没有等待回答，或远程绑定已经变化。", task?.remoteSource?.taskCode);
+    return;
+  }
+  task.remoteSource.requestId = String(payload.remoteRequestId || "").slice(0, 100);
+  task.remoteSource.allowKnowledge = settings.allowKnowledge;
+  task.remoteSource.allowWecomDocuments = settings.allowWecomDocuments;
+  const action = task.currentAction || { tool: "ask_user", title: "询问用户", arguments: { question: task.question } };
+  appendHistory(task, action, true, `用户通过已绑定企微账号回答：${answer}`);
+  addActivity(task, "user", "已从企微收到回答", answer.slice(0, 900));
+  task.question = "";
+  task.currentAction = null;
+  task.status = "running";
+  saveTasks();
+  await executeLoop(task.id);
+}
+
+function cancelWecomRemoteTask(payload = {}) {
+  const task = tasks.find((item) => item.id === String(payload.taskId || ""));
+  const fromUserId = String(payload.fromUserId || "");
+  const conversationKey = String(payload.conversationKey || "");
+  if (!task?.remoteSource || !window.KardiiWecomRemote.isActiveStatus(task.status)
+    || task.remoteSource.fromUserId !== fromUserId
+    || task.remoteSource.conversationKey !== conversationKey) return;
+  task.status = "cancelled";
+  task.currentAction = null;
+  task.pendingAction = null;
+  task.question = "";
+  addActivity(task, "system", "已从企微取消", "Kardii 会在当前不可中断的 AI 请求结束后停止，不会开始下一步。 ");
+  saveTasks();
+  notifyBackgroundTask(task, "cancelled", "任务已由绑定的企微账号取消。 ");
+}
+
+function enforceWecomRemoteSettings() {
+  const settings = currentWecomRemoteSettings();
+  let changed = false;
+  const cancelled = [];
+  tasks.forEach((task) => {
+    if (!task.remoteSource || !window.KardiiWecomRemote.isActiveStatus(task.status)) return;
+    if (!settings.enabled || !settings.ownerUserId || task.remoteSource.fromUserId !== settings.ownerUserId) {
+      task.status = "cancelled";
+      task.currentAction = null;
+      task.pendingAction = null;
+      task.question = "";
+      addActivity(task, "system", "远程绑定已关闭", "任务已安全停止；普通桌面任务不受影响。 ");
+      cancelled.push(task);
+      changed = true;
+      return;
+    }
+    if (task.remoteSource.allowKnowledge !== settings.allowKnowledge
+      || task.remoteSource.allowWecomDocuments !== settings.allowWecomDocuments) {
+      task.remoteSource.allowKnowledge = settings.allowKnowledge;
+      task.remoteSource.allowWecomDocuments = settings.allowWecomDocuments;
+      addActivity(task, "system", "远程只读范围已更新", "后续步骤将使用最新桌面设置。 ");
+      changed = true;
+    }
+  });
+  if (!changed) return;
+  saveTasks();
+  cancelled.forEach((task) => notifyBackgroundTask(task, "cancelled", "远程 Agent 已在电脑端关闭或解除绑定。"));
 }
 
 createTaskForm.addEventListener("submit", (event) => {
@@ -2436,6 +2647,7 @@ window.addEventListener("storage", (event) => {
     renderAll();
   }
   if (event.key === AI_SETTINGS_KEY) renderAll();
+  if (event.key === BUSINESS_DATA_KEY) enforceWecomRemoteSettings();
   if (event.key === AGENT_TARGET_KEY && event.newValue) consumeTarget();
   if (event.key === BROWSER_AGENT_REQUEST_KEY && event.newValue) consumeBrowserAgentRequest();
 });
@@ -2450,6 +2662,10 @@ consumeTarget();
 consumeBrowserAgentRequest();
 checkAutomations();
 drainAgentQueue();
+enforceWecomRemoteSettings();
+void listen("kardii-wecom-remote-start", ({ payload }) => void startWecomRemoteTask(payload));
+void listen("kardii-wecom-remote-answer", ({ payload }) => void answerWecomRemoteTask(payload));
+void listen("kardii-wecom-remote-cancel", ({ payload }) => cancelWecomRemoteTask(payload));
 void listen("kardii-background-tick", () => {
   checkAutomations();
   drainAgentQueue();

@@ -16,8 +16,8 @@ const html = read("src/workbench.html");
 const js = read("src/workbench.js");
 const chatJs = read("src/chat.js");
 
-assert(packageJson.version === "2.0.0" && tauriConfig.version === "2.0.0", "当前版本号未统一");
-assert(chatJs.includes('appVersion: "2.0.0"'), "备份版本号未更新");
+assert(packageJson.version === "2.1.0" && tauriConfig.version === "2.1.0", "当前版本号未统一");
+assert(chatJs.includes('appVersion: "2.1.0"'), "备份版本号未更新");
 assert(cargo.includes('imap = "2.4.1"') && cargo.includes('mailparse = "0.15"'), "IMAP 或邮件解析依赖缺失");
 
 for (const command of [

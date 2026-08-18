@@ -498,7 +498,31 @@
                   <form id="wecomBotForm" class="connection-form">
                     <label class="form-field full"><span>API 模式智能机器人 Bot ID</span><input id="wecomBotIdInput" type="text" maxlength="256" spellcheck="false" placeholder="在企业微信智能机器人配置页获取"></label>
                     <label class="form-field full"><span>Secret</span><input id="wecomBotSecretInput" type="password" maxlength="1024" autocomplete="new-password" placeholder="只保存到系统安全凭据库"></label>
-                    <p class="connection-help full">企微消息使用当前 Kardii AI；每个 Bot、单聊与群聊分别保留本机会话。不会带入桌面端私人长期记忆，也不执行 Agent 或文档写入；外部写入仍回到桌面逐次确认。</p>
+                    <label class="form-field"><span>企微专用模型</span><select id="wecomBotModelSelect"><option value="inherit">跟随桌面聊天模型</option><option value="gemini-flash-lite">Gemini 3.1 Flash Lite</option><option value="deepseek-flash">DeepSeek V4 Flash</option><option value="codex">Codex · ChatGPT 方案</option><option value="gemini-flash">Gemini 3.5 Flash</option><option value="ollama-current">当前 Ollama 模型</option></select></label>
+                    <label class="form-field"><span>回复模式</span><select id="wecomBotResponseModeSelect"><option value="fast">快速 · 更短上下文与回答</option><option value="complete">完整 · 更多上下文与细节</option></select></label>
+                    <p class="connection-help full">收到消息会立即显示“Kardii 正在思考…”，随后在同一条企微消息中流式更新。普通聊天始终不会带入桌面私人长期记忆，也不会自动执行 Agent；只有下面单独开启、绑定本人并用命令二次确认的远程任务才会进入安全只读 Agent。</p>
+                    <section class="wecom-remote-panel full" aria-labelledby="wecomRemoteAgentTitle">
+                      <div class="wecom-remote-heading">
+                        <div><strong id="wecomRemoteAgentTitle">手机远程 Agent</strong><span>默认关闭 · 仅绑定账号私聊 · 每个任务二次确认</span></div>
+                        <label class="wecom-remote-toggle"><input id="wecomRemoteAgentEnabledInput" type="checkbox"><span>启用</span></label>
+                      </div>
+                      <div class="wecom-remote-owner-row">
+                        <span id="wecomRemoteOwnerLabel">尚未绑定企微账号</span>
+                        <code id="wecomRemotePairingCode">未生成绑定码</code>
+                      </div>
+                      <div class="wecom-remote-scopes">
+                        <label><input id="wecomRemoteKnowledgeInput" type="checkbox"> 允许只读检索 Kardii 知识库</label>
+                        <label><input id="wecomRemoteDocumentsInput" type="checkbox"> 允许只读搜索和读取企微文档</label>
+                      </div>
+                      <div class="connection-actions">
+                        <button id="unbindWecomRemoteOwnerButton" class="delete-action" type="button" disabled>解除绑定</button>
+                        <span class="modal-action-spacer"></span>
+                        <button id="copyWecomRemotePairingButton" class="ghost-action" type="button" disabled>复制绑定码</button>
+                        <button id="generateWecomRemotePairingButton" class="outline-button" type="button">生成绑定码</button>
+                      </div>
+                      <p id="wecomRemoteAgentStatus" class="connection-status">开启后先在这里生成 6 位码，再到机器人私聊发送“/绑定 绑定码”。</p>
+                      <p class="connection-help">绑定后可发送 /任务、/确认、/状态、/结果、/回答 和 /取消。首版永久禁止远程终端、剪贴板、浏览器控制、MCP、私人长期记忆及任何外部写入。</p>
+                    </section>
                     <div class="connection-actions full">
                       <button id="stopWecomBotButton" class="delete-action" type="button" disabled>停止</button>
                       <button id="deleteWecomBotSecretButton" class="ghost-action danger" type="button">删除 Secret</button>
@@ -818,6 +842,7 @@
         </div>
       </section>
     </div>
+    <script src="./kardii-wecom-remote.js"></script>
     <script src="./kardii-dialog.js"></script>
     <script src="./kardii-storage.js" data-main="./workbench.js"></script>
   </body>

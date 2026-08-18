@@ -7,13 +7,14 @@ const assert = (condition, message) => {
   if (!condition) throw new Error(message);
 };
 
-for (const file of ["src/agent.js", "src/chat.js", "src/workbench.js", "src/kardii-dialog.js", "src/kardii-task-title.js", "src/kardii-chat-sessions.js"]) {
+for (const file of ["src/agent.js", "src/chat.js", "src/workbench.js", "src/kardii-dialog.js", "src/kardii-task-title.js", "src/kardii-chat-sessions.js", "src/kardii-wecom-remote.js"]) {
   execFileSync(process.execPath, ["--check", new URL(`../${file}`, import.meta.url).pathname], { stdio: "pipe" });
 }
 
 const agentHtml = read("src/agent.html");
 const agentJs = read("src/agent.js");
 const taskTitleJs = read("src/kardii-task-title.js");
+const wecomRemoteJs = read("src/kardii-wecom-remote.js");
 const rust = read("src-tauri/src/lib.rs");
 const config = JSON.parse(read("src-tauri/tauri.conf.json"));
 const capability = JSON.parse(read("src-tauri/capabilities/default.json"));
@@ -34,9 +35,9 @@ for (const command of ["create_agent_plan", "decide_agent_action", "run_web_sear
   assert(agentJs.includes(`invoke("${command}"`), `Agent UI does not call command: ${command}`);
 }
 
-assert(config.version === "2.0.0", "tauri.conf.json version is not 2.0.0");
-assert(packageJson.version === "2.0.0", "package.json version is not 2.0.0");
-assert(/version = "2\.0\.0"/.test(cargo), "Cargo.toml version is not 2.0.0");
+assert(config.version === "2.1.0", "tauri.conf.json version is not 2.1.0");
+assert(packageJson.version === "2.1.0", "package.json version is not 2.1.0");
+assert(/version = "2\.1\.0"/.test(cargo), "Cargo.toml version is not 2.1.0");
 assert(config.app.windows.some((window) => window.label === "agent" && window.url === "agent.html"), "Agent window is missing from Tauri config");
 assert(capability.windows.includes("agent"), "Agent window is missing from capabilities");
 assert(chatHtml.includes('id="agentModeButton"') && chatHtml.includes('id="agentCenterButton"'), "Chat Agent entry points are missing");
@@ -128,6 +129,7 @@ const runtimeContext = vm.createContext({
   clearTimeout() {},
 });
 vm.runInContext(taskTitleJs, runtimeContext);
+vm.runInContext(wecomRemoteJs, runtimeContext);
 const summarizedTitle = vm.runInContext(`window.summarizeAgentTaskTitle(
   "今天做合规的Daria过来找我聊了之前关于入驻target需要的美国独立商用地址的服务协议分付款事宜，然后协议上还有一些"
 )`, runtimeContext);

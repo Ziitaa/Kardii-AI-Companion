@@ -24,10 +24,10 @@ const capabilities = read("src/kardii-capabilities.js");
 const readme = read("README.md");
 
 for (const version of [packageJson.version, packageLock.version, packageLock.packages[""].version, tauriConfig.version, manifest.version]) {
-  assert(version === "2.0.0", `v2.0.0 版本号未统一：${version}`);
+  assert(version === "2.1.0", `v2.1.0 版本号未统一：${version}`);
 }
-assert(/version = "2\.0\.0"/.test(cargo), "Cargo.toml 未更新为 v2.0.0");
-assert(capabilities.includes('const VERSION = "2.0.0"'), "共享功能说明没有更新为 v2.0.0");
+assert(/version = "2\.1\.0"/.test(cargo), "Cargo.toml 未更新为 v2.1.0");
+assert(capabilities.includes('const VERSION = "2.1.0"'), "共享功能说明没有更新为 v2.1.0");
 assert(capabilities.includes("const LIMITATIONS") && capabilities.includes("最多并行执行 3 个 Agent 任务") && capabilities.includes("SQLite 已作为耐久数据层"), "Kardii 没有掌握当前并行或数据边界");
 
 for (const id of ["chatSessionsButton", "chatSessionsPanel", "newChatSessionButton", "chatSessionList", "chatSessionTitle"]) {

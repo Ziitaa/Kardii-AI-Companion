@@ -32,10 +32,10 @@ const wecomLicense = read("src-tauri/wecom-cli/LICENSE.wecom-cli");
 const readme = read("README.md");
 
 for (const version of [packageJson.version, packageLock.version, packageLock.packages[""].version, tauri.version, extension.version]) {
-  assert(version === "2.0.0", `v2.0 版本号未统一：${version}`);
+  assert(version === "2.1.0", `v2.0 版本号未统一：${version}`);
 }
-assert(/version = "2\.0\.0"/.test(cargo), "Cargo.toml 未更新为 2.0.0");
-assert(capabilities.includes('const VERSION = "2.0.0"'), "共享功能清单未更新为 2.0.0");
+assert(/version = "2\.1\.0"/.test(cargo), "Cargo.toml 未更新为 2.1.0");
+assert(capabilities.includes('const VERSION = "2.1.0"'), "共享功能清单未更新为 2.1.0");
 assert(packageJson.scripts["test:v2.0"] === "node tools/check_v2_0.mjs", "v2.0 回归脚本未注册");
 
 for (const id of [
@@ -60,7 +60,7 @@ for (const command of [
 assert(cargo.includes("tokio-tungstenite") && wecom.includes("wss://openws.work.weixin.qq.com"), "企业微信 WebSocket 长连接缺失");
 assert(wecom.includes('"aibot_subscribe"') && wecom.includes('"aibot_msg_callback"') && wecom.includes('"aibot_respond_msg"'), "企业微信机器人协议帧不完整");
 assert(wecom.includes("Duration::from_secs(30)") && wecom.includes('"cmd": "ping"'), "企业微信机器人心跳缺失");
-assert(mainJs.includes('listen("kardii-wecom-message"') && mainJs.includes('invoke("answer_wecom_message"') && mainJs.includes('invoke("reply_wecom_message"'), "桌宠没有处理企微消息并回复");
+assert(mainJs.includes('listen("kardii-wecom-message"') && (mainJs.includes('invoke("answer_wecom_message"') || mainJs.includes('invoke("stream_wecom_message"')) && mainJs.includes('invoke("reply_wecom_message"'), "桌宠没有处理企微消息并回复");
 assert(mainJs.includes("WECOM_HISTORY_KEY") && mainJs.includes("conversationKey"), "企业微信聊天没有隔离会话历史");
 assert(mainJs.includes("wecomMessageQueues = new Map()") && wecom.includes("bot:{incoming_bot_id}:chat:"), "企业微信不同 Bot 与会话没有独立排队和隔离");
 assert(mainJs.includes("memories: []") && mainJs.includes('customInstructions: ""'), "企业微信聊天不应带入桌面私人记忆或自定义指令");

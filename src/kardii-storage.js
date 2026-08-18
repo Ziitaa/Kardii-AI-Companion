@@ -14,6 +14,8 @@
     "kardii-browser-context-v1",
     "kardii-browser-agent-request-v1",
     "kardii-browser-capture-seen-v1",
+    "kardii-wecom-remote-pairing-v1",
+    "kardii-wecom-remote-pending-v1",
   ]);
   const BLOCKED_KEY_PARTS = ["password", "api-key", "apikey", "credential", "bearer-token", "oauth-token"];
 

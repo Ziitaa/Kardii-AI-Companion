@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Kardii Browser Connector",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "由你主动发送当前网页，并逐步确认 Kardii 提议的受控网页操作。",
   "permissions": [
     "activeTab",

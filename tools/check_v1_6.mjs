@@ -24,10 +24,10 @@ const capabilities = read("src/kardii-capabilities.js");
 const readme = read("README.md");
 
 for (const version of [packageJson.version, lock.version, lock.packages[""].version, tauriConfig.version]) {
-  assert(version === "2.0.0", `版本号未统一：${version}`);
+  assert(version === "2.1.0", `版本号未统一：${version}`);
 }
-assert(/version = "2\.0\.0"/.test(cargo), "Cargo.toml 未更新为 2.0.0");
-assert(capabilities.includes('const VERSION = "2.0.0"'), "共享功能清单版本未更新");
+assert(/version = "2\.1\.0"/.test(cargo), "Cargo.toml 未更新为 2.1.0");
+assert(capabilities.includes('const VERSION = "2.1.0"'), "共享功能清单版本未更新");
 
 assert(browserRust.includes("BrowserInteractiveElement") && browserRust.includes("targets: Vec<BrowserInteractiveElement>"), "网页快照缺少可交互目标");
 assert(browserRust.includes("BrowserPendingAction") && browserRust.includes("execute_browser_action"), "受控浏览器操作队列缺失");

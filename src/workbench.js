@@ -13,6 +13,8 @@ const BROWSER_AGENT_REQUEST_KEY = "kardii-browser-agent-request-v1";
 const MCP_LOGS_KEY = "kardii-mcp-logs-v1";
 const WECOM_HISTORY_KEY = "kardii-wecom-chat-history-v1";
 const WECOM_HISTORY_EPOCH_KEY = "kardii-wecom-chat-history-epoch-v1";
+const WECOM_REMOTE_PAIRING_KEY = "kardii-wecom-remote-pairing-v1";
+const WECOM_REMOTE_PENDING_KEY = "kardii-wecom-remote-pending-v1";
 const STAGES = {
   lead: "潜在线索",
   contacted: "已联系",
@@ -99,6 +101,12 @@ const seedData = {
     wecomDocumentsConnected: false,
     wecomBotId: "",
     wecomBotEnabled: false,
+    wecomBotModel: "inherit",
+    wecomBotResponseMode: "fast",
+    wecomRemoteAgentEnabled: false,
+    wecomRemoteOwnerUserId: "",
+    wecomRemoteAllowKnowledge: false,
+    wecomRemoteAllowDocuments: false,
     dailyBriefReminderEnabled: false,
     dailyBriefReminderTime: "09:00",
     dailyBriefLastReminderDate: "",
@@ -289,11 +297,22 @@ const cancelWecomQrButton = document.getElementById("cancelWecomQrButton");
 const wecomBotForm = document.getElementById("wecomBotForm");
 const wecomBotIdInput = document.getElementById("wecomBotIdInput");
 const wecomBotSecretInput = document.getElementById("wecomBotSecretInput");
+const wecomBotModelSelect = document.getElementById("wecomBotModelSelect");
+const wecomBotResponseModeSelect = document.getElementById("wecomBotResponseModeSelect");
 const saveWecomBotButton = document.getElementById("saveWecomBotButton");
 const stopWecomBotButton = document.getElementById("stopWecomBotButton");
 const deleteWecomBotSecretButton = document.getElementById("deleteWecomBotSecretButton");
 const clearWecomChatHistoryButton = document.getElementById("clearWecomChatHistoryButton");
 const wecomBotStatus = document.getElementById("wecomBotStatus");
+const wecomRemoteAgentEnabledInput = document.getElementById("wecomRemoteAgentEnabledInput");
+const wecomRemoteKnowledgeInput = document.getElementById("wecomRemoteKnowledgeInput");
+const wecomRemoteDocumentsInput = document.getElementById("wecomRemoteDocumentsInput");
+const wecomRemoteOwnerLabel = document.getElementById("wecomRemoteOwnerLabel");
+const wecomRemotePairingCode = document.getElementById("wecomRemotePairingCode");
+const generateWecomRemotePairingButton = document.getElementById("generateWecomRemotePairingButton");
+const copyWecomRemotePairingButton = document.getElementById("copyWecomRemotePairingButton");
+const unbindWecomRemoteOwnerButton = document.getElementById("unbindWecomRemoteOwnerButton");
+const wecomRemoteAgentStatus = document.getElementById("wecomRemoteAgentStatus");
 const wecomDocumentSearchInput = document.getElementById("wecomDocumentSearchInput");
 const searchWecomDocumentsButton = document.getElementById("searchWecomDocumentsButton");
 const wecomDocumentResults = document.getElementById("wecomDocumentResults");
@@ -552,6 +571,16 @@ function loadData() {
         wecomDocumentsConnected: saved.settings?.wecomDocumentsConnected === true,
         wecomBotId: typeof saved.settings?.wecomBotId === "string" ? saved.settings.wecomBotId.trim().slice(0, 256) : "",
         wecomBotEnabled: saved.settings?.wecomBotEnabled === true,
+        wecomBotModel: ["inherit", "gemini-flash-lite", "deepseek-flash", "codex", "gemini-flash", "ollama-current"].includes(saved.settings?.wecomBotModel)
+          ? saved.settings.wecomBotModel
+          : "inherit",
+        wecomBotResponseMode: saved.settings?.wecomBotResponseMode === "complete" ? "complete" : "fast",
+        wecomRemoteAgentEnabled: saved.settings?.wecomRemoteAgentEnabled === true,
+        wecomRemoteOwnerUserId: typeof saved.settings?.wecomRemoteOwnerUserId === "string"
+          ? saved.settings.wecomRemoteOwnerUserId.trim().slice(0, 256)
+          : "",
+        wecomRemoteAllowKnowledge: saved.settings?.wecomRemoteAllowKnowledge === true,
+        wecomRemoteAllowDocuments: saved.settings?.wecomRemoteAllowDocuments === true,
         dailyBriefReminderEnabled: saved.settings?.dailyBriefReminderEnabled === true,
         dailyBriefReminderTime: /^([01]\d|2[0-3]):[0-5]\d$/.test(saved.settings?.dailyBriefReminderTime)
           ? saved.settings.dailyBriefReminderTime
@@ -2207,11 +2236,99 @@ function renderWecomDocuments() {
     : "";
 }
 
+function currentWecomRemoteSettings() {
+  let pairing = {};
+  try { pairing = JSON.parse(localStorage.getItem(WECOM_REMOTE_PAIRING_KEY) || "null") || {}; } catch { pairing = {}; }
+  return window.KardiiWecomRemote.normalizeSettings({ ...data.settings, ...pairing });
+}
+
+function renderWecomRemoteAgent() {
+  const settings = currentWecomRemoteSettings();
+  const pairingActive = Boolean(settings.pairingCode && settings.pairingExpiresAt > Date.now());
+  wecomRemoteAgentEnabledInput.checked = settings.enabled;
+  wecomRemoteKnowledgeInput.checked = settings.allowKnowledge;
+  wecomRemoteDocumentsInput.checked = settings.allowWecomDocuments;
+  wecomRemoteKnowledgeInput.disabled = !settings.enabled;
+  wecomRemoteDocumentsInput.disabled = !settings.enabled;
+  wecomRemoteOwnerLabel.textContent = settings.ownerUserId
+    ? `已绑定企微账号：${settings.ownerUserId}`
+    : "尚未绑定企微账号";
+  wecomRemotePairingCode.textContent = pairingActive ? settings.pairingCode : "未生成绑定码";
+  generateWecomRemotePairingButton.disabled = !settings.enabled || wecomBotRuntimeStatus?.connected !== true;
+  copyWecomRemotePairingButton.disabled = !pairingActive;
+  unbindWecomRemoteOwnerButton.disabled = !settings.ownerUserId;
+  if (!settings.enabled) {
+    setWecomStatus(wecomRemoteAgentStatus, "远程 Agent 已关闭；普通企微聊天仍然可用。 ");
+  } else if (!wecomBotRuntimeStatus?.connected) {
+    setWecomStatus(wecomRemoteAgentStatus, "请先连接企业微信机器人，才能生成绑定码。", "error");
+  } else if (settings.ownerUserId) {
+    const scopes = ["公开网页"];
+    if (settings.allowKnowledge) scopes.push("Kardii 知识库只读");
+    if (settings.allowWecomDocuments) scopes.push("企微文档只读");
+    setWecomStatus(wecomRemoteAgentStatus, `远程 Agent 已就绪 · 允许：${scopes.join("、")}`, "success");
+  } else if (pairingActive) {
+    const minutes = Math.max(1, Math.ceil((settings.pairingExpiresAt - Date.now()) / 60_000));
+    setWecomStatus(wecomRemoteAgentStatus, `绑定码约 ${minutes} 分钟内有效。请到机器人私聊发送：/绑定 ${settings.pairingCode}`);
+  } else {
+    setWecomStatus(wecomRemoteAgentStatus, "点击“生成绑定码”，再到机器人私聊完成本人绑定。 ");
+  }
+}
+
+function updateWecomRemoteSetting(key, value) {
+  data.settings = { ...data.settings, [key]: value };
+  saveData();
+  renderWecomRemoteAgent();
+}
+
+function generateWecomRemotePairingCode() {
+  const settings = currentWecomRemoteSettings();
+  if (!settings.enabled || wecomBotRuntimeStatus?.connected !== true) return;
+  const code = window.KardiiWecomRemote.createCode();
+  localStorage.setItem(WECOM_REMOTE_PAIRING_KEY, JSON.stringify({
+    wecomRemotePairingCode: code,
+    wecomRemotePairingExpiresAt: Date.now() + 10 * 60_000,
+  }));
+  renderWecomRemoteAgent();
+  showToast("企微远程绑定码已生成");
+}
+
+async function copyWecomRemotePairingCode() {
+  const settings = currentWecomRemoteSettings();
+  if (!settings.pairingCode || settings.pairingExpiresAt <= Date.now()) return;
+  try {
+    await invoke("write_clipboard_text", { text: settings.pairingCode });
+    setWecomStatus(wecomRemoteAgentStatus, `绑定码 ${settings.pairingCode} 已复制；请在机器人私聊发送“/绑定 ${settings.pairingCode}”。`, "success");
+  } catch (error) {
+    setWecomStatus(wecomRemoteAgentStatus, String(error), "error");
+  }
+}
+
+async function unbindWecomRemoteOwner() {
+  const settings = currentWecomRemoteSettings();
+  if (!settings.ownerUserId) return;
+  const confirmed = await window.kardiiConfirm({
+    title: "解除企微远程 Agent 绑定？",
+    message: "远程 Agent 会立即关闭，尚未完成的远程任务会安全停止。普通企微聊天和文档授权不会改变。",
+    confirmLabel: "解除并关闭",
+    tone: "danger",
+  });
+  if (!confirmed) return;
+  data.settings.wecomRemoteAgentEnabled = false;
+  data.settings.wecomRemoteOwnerUserId = "";
+  localStorage.removeItem(WECOM_REMOTE_PAIRING_KEY);
+  localStorage.removeItem(WECOM_REMOTE_PENDING_KEY);
+  saveData();
+  renderWecomRemoteAgent();
+  showToast("企微远程 Agent 已解除绑定");
+}
+
 function renderWecomConnection() {
   const authorized = wecomAuthorizationStatus?.authorized === true;
   const componentInstalled = wecomAuthorizationStatus?.component?.installed === true;
   const botConnected = wecomBotRuntimeStatus?.connected === true;
   const botRunning = wecomBotRuntimeStatus?.running === true;
+  const botModelLabel = wecomBotModelSelect.selectedOptions[0]?.textContent || "跟随桌面聊天模型";
+  const botModeLabel = wecomBotResponseModeSelect.value === "complete" ? "完整模式" : "快速模式";
   const connectedParts = [authorized ? "文档已授权" : "文档未授权", botConnected ? "聊天已连接" : botRunning ? "聊天连接中" : "聊天未连接"];
   wecomConnectionSummary.textContent = connectedParts.join(" · ");
   wecomConnectionBadge.textContent = authorized && botConnected ? "全部已连接" : authorized || botConnected ? "部分已连接" : "未连接";
@@ -2227,12 +2344,13 @@ function renderWecomConnection() {
   if (wecomBotRuntimeStatus?.lastError) {
     setWecomStatus(wecomBotStatus, wecomBotRuntimeStatus.lastError, "error");
   } else if (botConnected) {
-    setWecomStatus(wecomBotStatus, `机器人已连接${wecomBotRuntimeStatus.lastMessageAt ? ` · 最近收到消息 ${new Date(wecomBotRuntimeStatus.lastMessageAt * 1000).toLocaleString("zh-CN")}` : ""}`, "success");
+    setWecomStatus(wecomBotStatus, `机器人已连接 · ${botModelLabel} · ${botModeLabel}${wecomBotRuntimeStatus.lastMessageAt ? ` · 最近收到消息 ${new Date(wecomBotRuntimeStatus.lastMessageAt * 1000).toLocaleString("zh-CN")}` : ""}`, "success");
   } else if (botRunning) {
     setWecomStatus(wecomBotStatus, "正在连接企业微信 API 模式机器人…");
   } else {
     setWecomStatus(wecomBotStatus, wecomBotSecretPresent ? "Bot Secret 已安全保存；点击保存并连接。" : "需要填写 Bot ID 与 Secret。 ");
   }
+  renderWecomRemoteAgent();
   renderWecomDocuments();
 }
 
@@ -2338,6 +2456,9 @@ async function saveAndStartWecomBot(event) {
       wecomBotSecretInput.value = "";
     }
     if (!wecomBotSecretPresent && !(await invoke("has_wecom_bot_secret"))) throw new Error("请填写并保存 Bot Secret。 ");
+    data.settings.wecomBotModel = wecomBotModelSelect.value;
+    data.settings.wecomBotResponseMode = wecomBotResponseModeSelect.value === "complete" ? "complete" : "fast";
+    saveData();
     wecomBotRuntimeStatus = await invoke("start_wecom_bot", { botId });
     data.settings.wecomBotId = botId.slice(0, 256);
     data.settings.wecomBotEnabled = true;
@@ -5048,6 +5169,24 @@ wecomBotForm.addEventListener("submit", saveAndStartWecomBot);
 stopWecomBotButton.addEventListener("click", stopWecomBotConnection);
 deleteWecomBotSecretButton.addEventListener("click", removeWecomBotSecret);
 clearWecomChatHistoryButton.addEventListener("click", clearWecomChatHistory);
+wecomRemoteAgentEnabledInput.addEventListener("change", () => {
+  updateWecomRemoteSetting("wecomRemoteAgentEnabled", wecomRemoteAgentEnabledInput.checked);
+  if (!wecomRemoteAgentEnabledInput.checked) {
+    localStorage.removeItem(WECOM_REMOTE_PAIRING_KEY);
+    localStorage.removeItem(WECOM_REMOTE_PENDING_KEY);
+    saveData();
+  }
+  renderWecomRemoteAgent();
+});
+wecomRemoteKnowledgeInput.addEventListener("change", () => {
+  updateWecomRemoteSetting("wecomRemoteAllowKnowledge", wecomRemoteKnowledgeInput.checked);
+});
+wecomRemoteDocumentsInput.addEventListener("change", () => {
+  updateWecomRemoteSetting("wecomRemoteAllowDocuments", wecomRemoteDocumentsInput.checked);
+});
+generateWecomRemotePairingButton.addEventListener("click", generateWecomRemotePairingCode);
+copyWecomRemotePairingButton.addEventListener("click", copyWecomRemotePairingCode);
+unbindWecomRemoteOwnerButton.addEventListener("click", unbindWecomRemoteOwner);
 searchWecomDocumentsButton.addEventListener("click", searchWecomDocumentList);
 wecomDocumentSearchInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
@@ -5176,6 +5315,8 @@ loadEmailConnectionForm();
 loadCloudConnectionForms();
 loadMcpConnectionForm();
 wecomBotIdInput.value = data.settings.wecomBotId || "";
+wecomBotModelSelect.value = data.settings.wecomBotModel || "inherit";
+wecomBotResponseModeSelect.value = data.settings.wecomBotResponseMode || "fast";
 ensureDailyBriefReminder();
 navigate("dashboard");
 renderAll();
