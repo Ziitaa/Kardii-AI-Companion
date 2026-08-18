@@ -1,5 +1,6 @@
 mod browser;
 mod mcp;
+mod storage;
 mod voice;
 mod oauth;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
@@ -28,6 +29,10 @@ use mcp::{
 use oauth::{
     disconnect_oauth_connection, oauth_connection_status, start_oauth_connection,
     sync_cloud_overview,
+};
+use storage::{
+    storage_bootstrap, storage_clear, storage_create_snapshot, storage_remove,
+    storage_restore_snapshot, storage_set, storage_status, StorageState,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -5236,8 +5241,11 @@ pub fn run() {
                 .path()
                 .app_data_dir()
                 .map_err(|error| format!("无法打开 Kardii 数据文件夹：{error}"))?;
+            let storage_state = StorageState::new(&app_data_dir)
+                .map_err(|error| format!("无法初始化 Kardii 本机数据库：{error}"))?;
             let voice_state = VoiceState::new(app_data_dir);
             voice_state.initialize_if_installed();
+            app.manage(storage_state);
             app.manage(voice_state);
 
             let show = MenuItem::with_id(app, "show", "显示 Kardii", true, None::<&str>)?;
@@ -5263,6 +5271,13 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            storage_bootstrap,
+            storage_set,
+            storage_remove,
+            storage_clear,
+            storage_status,
+            storage_create_snapshot,
+            storage_restore_snapshot,
             start_browser_bridge,
             stop_browser_bridge,
             browser_bridge_status,

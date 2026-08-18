@@ -1,6 +1,6 @@
 [package]
 name = "kardii-ai-companion"
-version = "1.7.0"
+version = "1.8.0"
 description = "Kardii cross-platform floating desktop pet"
 authors = ["Zt S"]
 edition = "2021"
@@ -39,6 +39,7 @@ native-tls = "0.2"
 chrono = "0.4"
 rand = "0.8"
 sha2 = "0.10"
+rusqlite = { version = "0.40.2", features = ["bundled", "backup"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3", features = ["windows-native"] }

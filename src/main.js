@@ -216,7 +216,10 @@ document.addEventListener("click", async (event) => {
   if (action === "workbench") await openWorkbench();
   if (action === "chat") await toggleChat();
   if (action === "hide") await appWindow.hide();
-  if (action === "quit") await invoke("quit_app");
+  if (action === "quit") {
+    await window.KardiiStorage.flush();
+    await invoke("quit_app");
+  }
 
   if (!menu.contains(event.target)) await closeContextMenu();
 });

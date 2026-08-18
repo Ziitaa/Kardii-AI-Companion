@@ -1370,6 +1370,20 @@ textarea {
   opacity: 0.55;
 }
 
+.storage-card {
+  background:
+    radial-gradient(circle at 96% 8%, rgba(216, 111, 152, 0.12), transparent 34%),
+    linear-gradient(145deg, #fff, #fff7fa);
+}
+
+.storage-note {
+  color: #a08690;
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.storage-actions { flex-wrap: wrap; }
+
 .help-panel { z-index: 32; }
 
 .help-box {

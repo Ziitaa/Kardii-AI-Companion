@@ -29,10 +29,10 @@ const taskTitleJs = read("src/kardii-task-title.js");
 const capabilityJs = read("src/kardii-capabilities.js");
 
 for (const version of [packageJson.version, packageLock.version, packageLock.packages[""].version, tauriConfig.version]) {
-  assert(version === "1.7.0", `当前版本号未统一: ${version}`);
+  assert(version === "1.8.0", `当前版本号未统一: ${version}`);
 }
-assert(/version = "1\.7\.0"/.test(cargo), "Cargo.toml 未更新到 v1.7.0");
-assert(chatJs.includes('appVersion: "1.7.0"'), "完整备份版本号未更新到 v1.7.0");
+assert(/version = "1\.8\.0"/.test(cargo), "Cargo.toml 未更新到 v1.8.0");
+assert(chatJs.includes('appVersion: "1.8.0"'), "完整备份版本号未更新到 v1.8.0");
 assert(js.includes("version: 4") && js.includes("[1, 2, 3, 4].includes(saved.version)"), "v4 工作台数据迁移缺失");
 assert(chatJs.includes("[1, 2, 3, 4].includes(saved?.version)"), "完整备份未接受 v4 工作台数据");
 assert(chatJs.includes("...(saved.settings && typeof saved.settings === \"object\" ? saved.settings : {})"), "聊天自动记录会覆盖邮箱或云端连接设置");
@@ -199,7 +199,7 @@ const summarizedTitle = vm.runInContext(`window.summarizeAgentTaskTitle(
   "今天做合规的Daria过来找我聊了之前关于入驻target需要的美国独立商用地址的服务协议分付款事宜，然后协议上还有一些"
 )`, titleContext);
 assert(summarizedTitle.includes("Target 入驻") && !summarizedTitle.includes("Daria") && [...summarizedTitle].length <= 35, "Agent 任务标题没有根据用户话语生成简短摘要");
-assert((chatHtml.match(/data-current-version/g) || []).length === 3, "设置页版本标识没有统一动态更新");
+assert((chatHtml.match(/data-current-version/g) || []).length === 4, "设置页版本标识没有统一动态更新");
 for (const staleVersion of [">v1.1<", ">v0.8.1<", ">v0.6<"]) {
   assert(!chatHtml.includes(staleVersion), `设置页仍显示旧版本标识: ${staleVersion}`);
 }

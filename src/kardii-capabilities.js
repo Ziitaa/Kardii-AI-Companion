@@ -1,5 +1,5 @@
 (() => {
-  const VERSION = "1.7.0";
+  const VERSION = "1.8.0";
 
   const FEATURES = [
     {
@@ -199,6 +199,20 @@
       promptFact: "个性设置包括称呼、6 种性格和自定义相处方式；最多保存 20 条本机长期记忆，并支持迁移码与完整备份，API Key 和登录令牌不会导出。",
     },
     {
+      id: "local-storage",
+      icon: "▣",
+      group: "设置与数据",
+      title: "SQLite 本机数据与恢复",
+      summary: "聊天、记忆、工作台和 Agent 数据会写入本机 SQLite，并保留有限恢复点。",
+      steps: [
+        "首次升级会把旧版 WebView 数据自动迁移到 SQLite，不需要重新设置。",
+        "打开齿轮中的“本机数据”，可以检查完整性或立即建立恢复点。",
+        "需要回退时选择“恢复最近一次”；恢复前还会自动保留当前状态。",
+      ],
+      example: "请告诉我 Kardii 当前的 SQLite 数据库是否正常，以及有几个本机恢复点。",
+      promptFact: "Kardii v1.8 使用本机 SQLite 作为聊天、设置、记忆、工作台、Agent、技能和自动化的耐久数据层，同时保留 WebView 缓存以兼容旧版。首次运行自动迁移旧数据；每天首次启动最多自动建立一次恢复点并只保留最近 5 个，也可手动建立或恢复。API Key、邮箱密码和登录令牌不会写入 SQLite。",
+    },
+    {
       id: "guidance",
       icon: "?",
       group: "设置与数据",
@@ -215,6 +229,7 @@
   ];
 
   const VERSION_HIGHLIGHTS = [
+    "新增 SQLite 本机数据层：旧数据自动迁移，聊天、记忆、工作台、Agent、技能和自动化拥有修订保护与最多 5 个恢复点。",
     "新增企业资料联合分析：跨工作台、邮件、云端、知识库、网站和当前聊天生成带 [S] 来源的简报与待办。",
     "知识库新增公开网站导入：最多 20 个同域页面、2 层链接深度，先预览后保存并支持整组更新或删除。",
     "新增最多 30 个独立聊天会话，自动生成标题，并隔离聊天历史、草稿和 Codex 线程。",
@@ -235,7 +250,7 @@
     "同一时间只执行一个 Agent 任务；多 Agent 并行分工尚未加入。",
     "自动化需要 Kardii 在本机运行；完全退出后的后台服务器调度尚未加入。",
     "语音是录完后本机识别；实时连续对话、持续监听和唤醒词尚未加入。",
-    "聊天、记忆和设置仍保存在本机 WebView；SQLite 数据层、网页端、iOS 与跨设备同步尚未加入。",
+    "SQLite 已作为耐久数据层，WebView 本机存储仍保留为兼容缓存；网页端、iOS 与跨设备同步尚未加入。",
     "复杂文档版面、批注和逐元素还原仍有限；Windows 与 macOS 正式签名、公证和崩溃日志也尚未完成。",
     "MCP 服务器需要手动配置，没有第三方工具市场；付款、购买、下单、资金转移和敏感凭据填写是永久安全禁区，不列入自动化计划。",
   ];
@@ -399,6 +414,14 @@
         tone: status.voiceModelState === "ready" ? "success" : "neutral",
       },
       {
+        id: "storage",
+        label: "本机数据",
+        value: status.storageReady
+          ? `SQLite 正常 · ${Number(status.storageItemCount || 0)} 项 · ${Number(status.storageSnapshotCount || 0)} 个恢复点`
+          : status.storageIntegrity ? `SQLite 需要检查 · ${status.storageIntegrity}` : "SQLite 尚未检测",
+        tone: status.storageReady ? "success" : status.storageIntegrity ? "warning" : "neutral",
+      },
+      {
         id: "connections",
         label: "外部连接",
         value: `${browserStatus} · ${connectionStatus(emailConfigured, emailConnected, "邮箱")} · ${connectionStatus(cloudConfigured, cloudConnected, "云端")} · ${connectionStatus(mcpConfigured, mcpConnected, "MCP")}`,
@@ -487,6 +510,16 @@
         action: "agent-settings",
         actionLabel: "设置",
       },
+      {
+        id: "storage",
+        title: "SQLite 本机数据",
+        detail: status.storageReady
+          ? `${Number(status.storageItemCount || 0)} 项数据 · ${Number(status.storageSnapshotCount || 0)} 个恢复点`
+          : status.storageIntegrity ? `完整性结果：${status.storageIntegrity}` : "尚未检测",
+        tone: status.storageReady ? "success" : status.storageIntegrity ? "warning" : "neutral",
+        action: "settings",
+        actionLabel: "查看",
+      },
     ];
   }
 
@@ -500,6 +533,9 @@
     }
     if (Number.isFinite(Number(status.memoryCount))) {
       optional.push(`- 长期记忆：当前保存 ${Math.max(0, Number(status.memoryCount))}/20 条。`);
+    }
+    if (status.storageReady || status.storageIntegrity) {
+      optional.push(`- SQLite：${status.storageReady ? "完整性正常" : `需要检查（${status.storageIntegrity || "未知"}）`}，${Math.max(0, Number(status.storageSnapshotCount || 0))} 个恢复点。`);
     }
     return [
       `Kardii v${status.appVersion || VERSION} 的真实功能清单：`,
@@ -515,7 +551,7 @@
 
   function isCapabilityQuestion(value) {
     const text = String(value || "").toLowerCase();
-    return /(?:你|kardii).{0,8}(?:会什么|能做什么|有什么功能|支持什么|怎么用|使用说明|帮助)|(?:功能|能力|使用说明|怎么使用|如何使用|已连接|连接状态|登录状态|支持.*文件|支持.*图片|支持.*表格|还剩|没做|未添加|路线图|后续功能)|(?:新手引导|更新介绍|版本介绍|一键自检|常见问题|故障排查|帮助面板)|(?:邮箱|邮件|google|microsoft|云端|云盘|日历|codex|chrome|edge|浏览器|网页|扩展|mcp).{0,14}(?:连接|登录|配置|可用|状态|同步|读取|发送|工具|调用)|(?:图片|表格|文件|网页).{0,12}(?:上传|支持|识别|读取|发送)/i.test(text);
+    return /(?:你|kardii).{0,8}(?:会什么|能做什么|有什么功能|支持什么|怎么用|使用说明|帮助)|(?:功能|能力|使用说明|怎么使用|如何使用|已连接|连接状态|登录状态|支持.*文件|支持.*图片|支持.*表格|还剩|没做|未添加|路线图|后续功能)|(?:新手引导|更新介绍|版本介绍|一键自检|常见问题|故障排查|帮助面板)|(?:邮箱|邮件|google|microsoft|云端|云盘|日历|codex|chrome|edge|浏览器|网页|扩展|mcp|sqlite|数据库|恢复点).{0,14}(?:连接|登录|配置|可用|状态|同步|读取|发送|工具|调用|检查|恢复)|(?:图片|表格|文件|网页).{0,12}(?:上传|支持|识别|读取|发送)/i.test(text);
   }
 
   window.KardiiCapabilities = Object.freeze({

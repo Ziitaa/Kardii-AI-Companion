@@ -34,9 +34,9 @@ for (const command of ["create_agent_plan", "decide_agent_action", "run_web_sear
   assert(agentJs.includes(`invoke("${command}"`), `Agent UI does not call command: ${command}`);
 }
 
-assert(config.version === "1.7.0", "tauri.conf.json version is not 1.7.0");
-assert(packageJson.version === "1.7.0", "package.json version is not 1.7.0");
-assert(/version = "1\.7\.0"/.test(cargo), "Cargo.toml version is not 1.7.0");
+assert(config.version === "1.8.0", "tauri.conf.json version is not 1.8.0");
+assert(packageJson.version === "1.8.0", "package.json version is not 1.8.0");
+assert(/version = "1\.8\.0"/.test(cargo), "Cargo.toml version is not 1.8.0");
 assert(config.app.windows.some((window) => window.label === "agent" && window.url === "agent.html"), "Agent window is missing from Tauri config");
 assert(capability.windows.includes("agent"), "Agent window is missing from capabilities");
 assert(chatHtml.includes('id="agentModeButton"') && chatHtml.includes('id="agentCenterButton"'), "Chat Agent entry points are missing");

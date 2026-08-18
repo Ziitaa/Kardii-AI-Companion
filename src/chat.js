@@ -38,6 +38,11 @@ const updateStatus = document.getElementById("updateStatus");
 const updateNotes = document.getElementById("updateNotes");
 const checkUpdateButton = document.getElementById("checkUpdateButton");
 const installUpdateButton = document.getElementById("installUpdateButton");
+const storageDataLabel = document.getElementById("storageDataLabel");
+const storageDataStatus = document.getElementById("storageDataStatus");
+const checkStorageButton = document.getElementById("checkStorageButton");
+const restoreStorageButton = document.getElementById("restoreStorageButton");
+const createStorageSnapshotButton = document.getElementById("createStorageSnapshotButton");
 const replyActions = document.getElementById("replyActions");
 const copyReplyButton = document.getElementById("copyReplyButton");
 const readReplyButton = document.getElementById("readReplyButton");
@@ -270,7 +275,7 @@ let chatDraftSaveTimer = null;
 let chatAttachmentProcessing = false;
 let chatDragDepth = 0;
 let browserContextLoading = false;
-let appVersion = window.KardiiCapabilities?.version || "1.7.0";
+let appVersion = window.KardiiCapabilities?.version || "1.8.0";
 let onboardingScheduled = false;
 let tourStepIndex = 0;
 let activeTourTarget = null;
@@ -283,6 +288,10 @@ let capabilityRuntime = {
   codexChecked: false,
   codexInstalled: false,
   codexAuthenticated: false,
+  storageReady: false,
+  storageItemCount: 0,
+  storageSnapshotCount: 0,
+  storageIntegrity: null,
   checkedAt: null,
 };
 
@@ -1098,6 +1107,10 @@ function currentCapabilityStatus() {
     codexChecked: capabilityRuntime.codexChecked,
     codexInstalled: capabilityRuntime.codexInstalled,
     codexAuthenticated: capabilityRuntime.codexAuthenticated,
+    storageReady: capabilityRuntime.storageReady,
+    storageItemCount: capabilityRuntime.storageItemCount,
+    storageSnapshotCount: capabilityRuntime.storageSnapshotCount,
+    storageIntegrity: capabilityRuntime.storageIntegrity,
     memoryCount: memories.length,
   };
 }
@@ -1178,6 +1191,18 @@ async function refreshCapabilityRuntime({ checkConnections = true, checkCodex = 
       }
     })());
   }
+  tasks.push((async () => {
+    try {
+      const status = await window.KardiiStorage.status();
+      capabilityRuntime.storageReady = status.ready === true;
+      capabilityRuntime.storageItemCount = Number(status.itemCount || 0);
+      capabilityRuntime.storageSnapshotCount = Number(status.snapshotCount || 0);
+      capabilityRuntime.storageIntegrity = String(status.integrity || "");
+    } catch (error) {
+      capabilityRuntime.storageReady = false;
+      capabilityRuntime.storageIntegrity = String(error || "SQLite 尚未准备好");
+    }
+  })());
 
   try {
     await Promise.all(tasks);
@@ -2076,7 +2101,7 @@ function createFullBackup() {
   return {
     format: "kardii-backup",
     version: 1,
-    appVersion: "1.7.0",
+    appVersion: "1.8.0",
     createdAt: new Date().toISOString(),
     profile,
     memories,
@@ -3031,7 +3056,7 @@ function setUpdateStatus(text, type = "") {
 async function loadAppVersion() {
   try {
     const version = await invoke("get_app_version");
-    appVersion = String(version || window.KardiiCapabilities?.version || "1.7.0");
+    appVersion = String(version || window.KardiiCapabilities?.version || "1.8.0");
     appVersionLabel.textContent = `当前版本：${version}`;
     currentVersionBadges.forEach((badge) => { badge.textContent = `v${version}`; });
     helpVersionBadge.textContent = `v${appVersion}`;
@@ -3092,6 +3117,7 @@ async function installAppUpdate() {
   setUpdateStatus("正在下载、验证并安装更新，请不要关闭 Kardii……");
 
   try {
+    await window.KardiiStorage.flush();
     await invoke("install_app_update");
     setUpdateStatus("安装完成，正在重新启动 Kardii……", "success");
   } catch (error) {
@@ -3102,9 +3128,98 @@ async function installAppUpdate() {
   }
 }
 
+function formatStorageTime(value) {
+  const timestamp = Number(value || 0);
+  if (!timestamp) return "";
+  return new Date(timestamp).toLocaleString("zh-CN", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function setStorageDataStatus(text, type = "") {
+  storageDataStatus.textContent = text;
+  storageDataStatus.className = `update-status ${type}`.trim();
+}
+
+function renderStorageStatus(status) {
+  if (!status?.ready) {
+    storageDataLabel.textContent = "SQLite 本机数据库需要检查";
+    setStorageDataStatus(`完整性结果：${status?.integrity || "未知"}`, "error");
+    restoreStorageButton.classList.toggle("hidden", !status?.latestSnapshotId);
+    restoreStorageButton.dataset.snapshotId = status?.latestSnapshotId || "";
+    return;
+  }
+  const migrated = Number(status.migratedItemCount || 0);
+  const latest = formatStorageTime(status.latestSnapshotAt);
+  storageDataLabel.textContent = `SQLite 已启用 · ${Number(status.itemCount || 0)} 项本机数据`;
+  setStorageDataStatus([
+    `数据库 ${formatBytes(Number(status.databaseBytes || 0)) || "已建立"}`,
+    `${Number(status.revisionCount || 0)} 条修订保护`,
+    `${Number(status.snapshotCount || 0)}/5 个恢复点${latest ? `（最近 ${latest}）` : ""}`,
+    migrated ? `已从旧版自动迁移 ${migrated} 项` : "旧版迁移已检查",
+  ].join(" · "), "success");
+  restoreStorageButton.classList.toggle("hidden", !status.latestSnapshotId);
+  restoreStorageButton.dataset.snapshotId = status.latestSnapshotId || "";
+}
+
+async function refreshStorageStatus() {
+  checkStorageButton.disabled = true;
+  setStorageDataStatus("正在检查数据库完整性、修订记录和恢复点……");
+  try {
+    renderStorageStatus(await window.KardiiStorage.status());
+  } catch (error) {
+    storageDataLabel.textContent = "当前继续使用 WebView 本机缓存";
+    setStorageDataStatus(String(error), "error");
+  } finally {
+    checkStorageButton.disabled = false;
+  }
+}
+
+async function createStorageSnapshot() {
+  createStorageSnapshotButton.disabled = true;
+  restoreStorageButton.disabled = true;
+  setStorageDataStatus("正在建立 SQLite 恢复点……");
+  try {
+    renderStorageStatus(await window.KardiiStorage.createSnapshot());
+    setStorageDataStatus(`${storageDataStatus.textContent} · 新恢复点已建立`, "success");
+  } catch (error) {
+    setStorageDataStatus(String(error), "error");
+  } finally {
+    createStorageSnapshotButton.disabled = false;
+    restoreStorageButton.disabled = false;
+  }
+}
+
+async function restoreStorageSnapshot() {
+  const snapshotId = restoreStorageButton.dataset.snapshotId || "";
+  if (!snapshotId) return;
+  const confirmed = await window.kardiiConfirm({
+    title: "恢复最近一次本机数据？",
+    message: "会先自动保留当前状态，再把聊天、记忆、工作台、Agent、技能和自动化恢复到最近的 SQLite 恢复点。Kardii 的窗口随后会重新载入。",
+    confirmLabel: "恢复并重新载入",
+    tone: "danger",
+  });
+  if (!confirmed) return;
+  restoreStorageButton.disabled = true;
+  createStorageSnapshotButton.disabled = true;
+  setStorageDataStatus("正在恢复 SQLite 数据，并检查恢复结果……");
+  try {
+    await window.KardiiStorage.restoreSnapshot(snapshotId);
+    await window.KardiiStorage.reloadAllWindows();
+  } catch (error) {
+    setStorageDataStatus(String(error), "error");
+    restoreStorageButton.disabled = false;
+    createStorageSnapshotButton.disabled = false;
+  }
+}
+
 function showSettings() {
   openHeaderPanel(settingsPanel, settingsButton);
   void refreshVoiceModelStatus();
+  void refreshStorageStatus();
   setTimeout(() => {
     if (aiSettings.provider === "ollama") ollamaBaseUrlInput.focus();
     else if (aiSettings.provider === "codex") codexLoginButton.focus();
@@ -3985,10 +4100,11 @@ showImportCodeButton.addEventListener("click", () => {
   if (!migrationImportBox.classList.contains("hidden")) migrationCodeInput.focus();
 });
 
-importMigrationButton.addEventListener("click", () => {
+importMigrationButton.addEventListener("click", async () => {
   try {
     const data = decodeMigrationCode(migrationCodeInput.value);
     applyImportedPersonalization(data);
+    await window.KardiiStorage.flush();
     migrationCodeInput.value = "";
     migrationImportBox.classList.add("hidden");
     setProfileStatus("个性和长期记忆导入成功。", "success");
@@ -3999,8 +4115,10 @@ importMigrationButton.addEventListener("click", () => {
 
 exportBackupButton.addEventListener("click", async () => {
   try {
+    const backup = createFullBackup();
+    await window.KardiiStorage.flush();
     const path = await invoke("export_backup_file", {
-      contents: JSON.stringify(createFullBackup(), null, 2),
+      contents: JSON.stringify(backup, null, 2),
     });
     if (path) setProfileStatus("完整备份已保存。", "success");
   } catch (error) {
@@ -4022,6 +4140,7 @@ importBackupButton.addEventListener("click", async () => {
     if (!confirmed) return;
     const previousSessions = [...chatSessionStore.sessions];
     applyFullBackup(data);
+    await window.KardiiStorage.flush();
     await resetAllCodexSessionThreads(previousSessions);
     await resetAllCodexSessionThreads();
     setProfileStatus("完整备份导入成功。API Key 与 Codex 登录均未被修改。", "success");
@@ -4570,6 +4689,9 @@ window.addEventListener("storage", (event) => {
 });
 checkUpdateButton.addEventListener("click", checkForAppUpdate);
 installUpdateButton.addEventListener("click", installAppUpdate);
+checkStorageButton.addEventListener("click", refreshStorageStatus);
+createStorageSnapshotButton.addEventListener("click", createStorageSnapshot);
+restoreStorageButton.addEventListener("click", restoreStorageSnapshot);
 
 restoreChatSessionTransient();
 renderConversation();
@@ -4589,3 +4711,4 @@ if ("speechSynthesis" in window) {
 refreshVoiceModelStatus();
 setMicPhase("idle");
 void loadAppVersion();
+void refreshStorageStatus();

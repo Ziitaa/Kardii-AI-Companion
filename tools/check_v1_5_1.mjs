@@ -21,8 +21,8 @@ const workbenchJs = read("src/workbench.js");
 const capabilities = read("src/kardii-capabilities.js");
 const readme = read("README.md");
 
-assert(packageJson.version === "1.7.0" && tauriConfig.version === "1.7.0", "最终版本号未统一为 1.7.0");
-assert(/version = "1\.7\.0"/.test(cargo), "Cargo.toml 未更新为 1.7.0");
+assert(packageJson.version === "1.8.0" && tauriConfig.version === "1.8.0", "最终版本号未统一为 1.8.0");
+assert(/version = "1\.8\.0"/.test(cargo), "Cargo.toml 未更新为 1.8.0");
 
 for (const extension of [".pdf", ".docx", ".pptx", ".xlsx", ".csv", ".txt", ".md", ".json"]) {
   assert(chatHtml.includes(extension), `普通聊天文件选择器缺少 ${extension}`);
