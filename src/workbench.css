@@ -535,6 +535,39 @@ button { cursor: pointer; }
 .connection-status { min-height: 17px; margin: 0; color: #8b929b; font-size: 8px; line-height: 1.5; }
 .connection-status.success { color: #4d8167; }
 .connection-status.error { color: #aa4760; }
+.wecom-connection-card { margin-top: 14px; border-color: #cfe8df; background: linear-gradient(145deg, #fff, #f8fdfb); }
+.connection-icon.wecom-icon { color: #16845e; background: linear-gradient(145deg, #dff5ec, #eef9f5); box-shadow: inset 0 0 0 1px rgba(22, 132, 94, 0.08); }
+.wecom-connection-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
+.wecom-auth-panel, .wecom-bot-panel, .wecom-document-panel { min-width: 0; padding: 13px; background: rgba(249, 253, 251, 0.9); border: 1px solid #dcece6; border-radius: 11px; }
+.wecom-auth-panel > strong { display: block; color: #3f6758; font-size: 11px; }
+.wecom-auth-panel > p { min-height: 38px; margin: 6px 0 10px; color: #7e9089; font-size: 8px; line-height: 1.55; }
+.wecom-auth-panel > .connection-status { min-height: 0; margin-top: 9px; }
+.wecom-qr-panel { display: flex; align-items: center; gap: 12px; margin-top: 11px; padding: 10px; background: #fff; border: 1px solid #cfe4dc; border-radius: 10px; }
+.wecom-qr-panel img { width: 118px; height: 118px; object-fit: contain; background: #fff; border-radius: 7px; }
+.wecom-qr-panel div { display: grid; align-content: center; gap: 6px; }
+.wecom-qr-panel strong { color: #3d6556; font-size: 10px; }
+.wecom-qr-panel span { color: #879790; font-size: 8px; line-height: 1.45; }
+.wecom-qr-panel button { justify-self: start; padding-inline: 0; color: #9a6477; font-size: 8px; background: transparent; border: 0; }
+.wecom-document-panel { margin-top: 13px; }
+.wecom-document-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.wecom-document-toolbar input, .wecom-document-editor input, .wecom-document-selection select, .wecom-document-editor textarea { width: 100%; padding: 9px 10px; color: var(--ink); outline: 0; background: #fff; border: 1px solid #dce7e2; border-radius: 8px; }
+.wecom-document-toolbar input:focus, .wecom-document-editor input:focus, .wecom-document-editor textarea:focus { border-color: #62aa8f; box-shadow: 0 0 0 3px rgba(62, 152, 119, 0.09); }
+.wecom-document-layout { display: grid; grid-template-columns: minmax(260px, 0.75fr) minmax(390px, 1.25fr); gap: 11px; margin-top: 10px; }
+.wecom-document-results { display: grid; align-content: start; gap: 6px; max-height: 330px; overflow-y: auto; }
+.wecom-document-results > p { margin: 0; padding: 14px; color: #8d9994; font-size: 8px; line-height: 1.55; text-align: center; background: #f6faf8; border: 1px dashed #d5e5df; border-radius: 9px; }
+.wecom-document-result { display: grid; gap: 3px; padding: 9px 10px; color: #53645e; text-align: left; background: #fff; border: 1px solid #dfe9e5; border-radius: 8px; }
+.wecom-document-result:hover, .wecom-document-result.active { border-color: #72b198; background: #f4fbf8; }
+.wecom-document-result strong, .wecom-document-result span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wecom-document-result strong { font-size: 9px; }
+.wecom-document-result span { color: #8b9893; font-size: 7px; }
+.wecom-document-result small { color: #73857e; font-size: 7px; line-height: 1.45; }
+.wecom-document-editor { display: grid; gap: 8px; }
+.wecom-document-editor textarea { min-height: 145px; resize: vertical; font-size: 9px; line-height: 1.55; }
+.wecom-document-preview { max-height: 170px; margin: 0; padding: 10px; overflow: auto; color: #607069; font-family: ui-monospace, "Cascadia Code", monospace; font-size: 8px; line-height: 1.55; white-space: pre-wrap; background: #f7faf9; border: 1px solid #e0e9e5; border-radius: 8px; }
+.wecom-document-selection { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(120px, 0.8fr) auto auto; align-items: center; gap: 7px; }
+.wecom-document-selection strong { overflow: hidden; color: #50635b; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.wecom-document-selection select { padding-block: 7px; font-size: 8px; }
+.wecom-document-editor > .connection-status { min-height: 0; }
 .browser-connection-card { margin-top: 14px; border-color: #ead7df; background: linear-gradient(145deg, #fff, #fffafb); }
 .connection-icon.browser-icon { color: #a64f74; background: linear-gradient(145deg, #f9e6ee, #f4eef7); box-shadow: inset 0 0 0 1px rgba(180, 91, 128, 0.08); }
 .browser-connection-layout { display: grid; grid-template-columns: minmax(310px, 0.9fr) minmax(360px, 1.1fr); gap: 13px; }
@@ -901,6 +934,9 @@ button { cursor: pointer; }
   .connections-layout { grid-template-columns: 1fr; }
   .browser-connection-layout { grid-template-columns: 1fr; }
   .mcp-connection-layout { grid-template-columns: 1fr; }
+  .wecom-connection-grid, .wecom-document-layout { grid-template-columns: 1fr; }
+  .wecom-document-selection { grid-template-columns: 1fr auto auto; }
+  .wecom-document-selection select { grid-column: 1 / -1; }
   .cloud-connections-grid, .cloud-overview-list { grid-template-columns: 1fr; }
   .future-connections-grid { grid-template-columns: 1fr; }
   .report-grid { grid-template-columns: 1fr; }

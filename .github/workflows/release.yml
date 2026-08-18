@@ -49,8 +49,9 @@ jobs:
           releaseBody: |
             Kardii AI Companion 新版本。
 
-            - 新增桌面上下文感知
-            - 新增应用内检查与安装更新
+            - 新增企业微信文档扫码连接、搜索、读取与受控写入
+            - 新增企业微信 API 模式智能机器人聊天通道
+            - 新增最多 3 个隔离 Agent 与托盘后台自动化
             - 支持 Windows、Intel Mac 和 Apple 芯片 Mac
           releaseDraft: true
           prerelease: false

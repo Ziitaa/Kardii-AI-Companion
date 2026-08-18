@@ -1,5 +1,6 @@
 const { getCurrentWindow, getAllWindows } = window.__TAURI__.window;
 const { invoke } = window.__TAURI__.core;
+const listen = window.__TAURI__.event?.listen || (async () => () => {});
 
 const appWindow = getCurrentWindow();
 const BUSINESS_DATA_KEY = "kardii-business-data-v1";
@@ -10,6 +11,8 @@ const CHAT_SESSIONS_KEY = "kardii-chat-sessions-v1";
 const BROWSER_CONTEXT_KEY = "kardii-browser-context-v1";
 const BROWSER_AGENT_REQUEST_KEY = "kardii-browser-agent-request-v1";
 const MCP_LOGS_KEY = "kardii-mcp-logs-v1";
+const WECOM_HISTORY_KEY = "kardii-wecom-chat-history-v1";
+const WECOM_HISTORY_EPOCH_KEY = "kardii-wecom-chat-history-epoch-v1";
 const STAGES = {
   lead: "潜在线索",
   contacted: "已联系",
@@ -93,6 +96,9 @@ const seedData = {
     browserBridgeEnabled: false,
     mcpServers: [],
     activeMcpServerId: "",
+    wecomDocumentsConnected: false,
+    wecomBotId: "",
+    wecomBotEnabled: false,
     dailyBriefReminderEnabled: false,
     dailyBriefReminderTime: "09:00",
     dailyBriefLastReminderDate: "",
@@ -140,6 +146,14 @@ let editingMcpServerId = "";
 let activeMcpTools = [];
 let mcpLogs = loadMcpLogs();
 const mcpCredentialStatuses = new Map();
+let wecomAuthorizationStatus = null;
+let wecomBotRuntimeStatus = null;
+let wecomBotSecretPresent = null;
+let wecomDocumentResultsData = [];
+let selectedWecomDocumentId = "";
+let activeWecomDocumentContent = null;
+let wecomQrPollTimer = 0;
+let wecomQrExpiresAt = 0;
 
 const navItems = [...document.querySelectorAll(".nav-item")];
 const viewPanels = [...document.querySelectorAll("[data-view-panel]")];
@@ -261,6 +275,39 @@ const cloudProviderFilter = document.getElementById("cloudProviderFilter");
 const cloudServiceFilter = document.getElementById("cloudServiceFilter");
 const cloudOverviewSummary = document.getElementById("cloudOverviewSummary");
 const cloudOverviewList = document.getElementById("cloudOverviewList");
+const wecomConnectionSummary = document.getElementById("wecomConnectionSummary");
+const wecomConnectionBadge = document.getElementById("wecomConnectionBadge");
+const wecomDocumentAuthLabel = document.getElementById("wecomDocumentAuthLabel");
+const wecomDocumentStatus = document.getElementById("wecomDocumentStatus");
+const authorizeWecomButton = document.getElementById("authorizeWecomButton");
+const disconnectWecomDocumentsButton = document.getElementById("disconnectWecomDocumentsButton");
+const refreshWecomButton = document.getElementById("refreshWecomButton");
+const wecomQrPanel = document.getElementById("wecomQrPanel");
+const wecomQrImage = document.getElementById("wecomQrImage");
+const wecomQrCountdown = document.getElementById("wecomQrCountdown");
+const cancelWecomQrButton = document.getElementById("cancelWecomQrButton");
+const wecomBotForm = document.getElementById("wecomBotForm");
+const wecomBotIdInput = document.getElementById("wecomBotIdInput");
+const wecomBotSecretInput = document.getElementById("wecomBotSecretInput");
+const saveWecomBotButton = document.getElementById("saveWecomBotButton");
+const stopWecomBotButton = document.getElementById("stopWecomBotButton");
+const deleteWecomBotSecretButton = document.getElementById("deleteWecomBotSecretButton");
+const clearWecomChatHistoryButton = document.getElementById("clearWecomChatHistoryButton");
+const wecomBotStatus = document.getElementById("wecomBotStatus");
+const wecomDocumentSearchInput = document.getElementById("wecomDocumentSearchInput");
+const searchWecomDocumentsButton = document.getElementById("searchWecomDocumentsButton");
+const wecomDocumentResults = document.getElementById("wecomDocumentResults");
+const wecomSelectedDocumentTitle = document.getElementById("wecomSelectedDocumentTitle");
+const wecomDocumentPageSelect = document.getElementById("wecomDocumentPageSelect");
+const wecomDocumentPreview = document.getElementById("wecomDocumentPreview");
+const openWecomDocumentButton = document.getElementById("openWecomDocumentButton");
+const readWecomDocumentButton = document.getElementById("readWecomDocumentButton");
+const wecomNewDocumentTitle = document.getElementById("wecomNewDocumentTitle");
+const wecomDocumentContentInput = document.getElementById("wecomDocumentContentInput");
+const createWecomDocumentButton = document.getElementById("createWecomDocumentButton");
+const appendWecomDocumentButton = document.getElementById("appendWecomDocumentButton");
+const overwriteWecomDocumentButton = document.getElementById("overwriteWecomDocumentButton");
+const wecomDocumentEditorStatus = document.getElementById("wecomDocumentEditorStatus");
 const browserConnectionSummary = document.getElementById("browserConnectionSummary");
 const browserConnectionBadge = document.getElementById("browserConnectionBadge");
 const browserConnectionStatus = document.getElementById("browserConnectionStatus");
@@ -502,6 +549,9 @@ function loadData() {
         browserBridgeEnabled: saved.settings?.browserBridgeEnabled === true,
         mcpServers,
         activeMcpServerId,
+        wecomDocumentsConnected: saved.settings?.wecomDocumentsConnected === true,
+        wecomBotId: typeof saved.settings?.wecomBotId === "string" ? saved.settings.wecomBotId.trim().slice(0, 256) : "",
+        wecomBotEnabled: saved.settings?.wecomBotEnabled === true,
         dailyBriefReminderEnabled: saved.settings?.dailyBriefReminderEnabled === true,
         dailyBriefReminderTime: /^([01]\d|2[0-3]):[0-5]\d$/.test(saved.settings?.dailyBriefReminderTime)
           ? saved.settings.dailyBriefReminderTime
@@ -2114,6 +2164,345 @@ async function callSelectedMcpTool() {
   }
 }
 
+function setWecomStatus(element, message, tone = "") {
+  element.textContent = message;
+  element.className = `connection-status${tone ? ` ${tone}` : ""}`;
+}
+
+function selectedWecomDocument() {
+  return wecomDocumentResultsData.find((document) => document.docId === selectedWecomDocumentId) || null;
+}
+
+function clearWecomQrPanel() {
+  window.clearInterval(wecomQrPollTimer);
+  wecomQrPollTimer = 0;
+  wecomQrExpiresAt = 0;
+  wecomQrImage.removeAttribute("src");
+  wecomQrPanel.classList.add("hidden");
+}
+
+function renderWecomDocuments() {
+  const authorized = wecomAuthorizationStatus?.authorized === true;
+  const selected = selectedWecomDocument();
+  searchWecomDocumentsButton.disabled = !authorized;
+  createWecomDocumentButton.disabled = !authorized;
+  readWecomDocumentButton.disabled = !authorized || !selected || !["doc", "smartpage"].includes(selected.docType);
+  openWecomDocumentButton.disabled = !selected?.url;
+  const smartpageReady = selected?.docType !== "smartpage" || activeWecomDocumentContent?.docId === selected?.docId;
+  appendWecomDocumentButton.disabled = !authorized || !selected || !["doc", "smartpage"].includes(selected.docType) || !smartpageReady;
+  overwriteWecomDocumentButton.disabled = appendWecomDocumentButton.disabled;
+  wecomSelectedDocumentTitle.textContent = selected ? `${selected.name} · ${selected.docType}` : "尚未选择文档";
+  wecomDocumentResults.innerHTML = wecomDocumentResultsData.map((document) => `
+    <button class="wecom-document-result ${document.docId === selectedWecomDocumentId ? "active" : ""}" type="button" data-wecom-document-id="${escapeHtml(document.docId)}">
+      <strong>${escapeHtml(document.name || "未命名文档")}</strong>
+      <span>${escapeHtml(document.docType || "unknown")}${document.modifiedAt ? ` · ${escapeHtml(document.modifiedAt)}` : ""}</span>
+      ${document.highlights?.length ? `<small>${escapeHtml(document.highlights.join("；"))}</small>` : ""}
+    </button>
+  `).join("") || `<p>${authorized ? "输入关键词搜索当前账号有权访问的文档。" : "扫码授权后，可以搜索当前账号有权访问的企微文档。"}</p>`;
+  const pages = Array.isArray(activeWecomDocumentContent?.pages) ? activeWecomDocumentContent.pages : [];
+  const showPages = selected?.docType === "smartpage" && activeWecomDocumentContent?.docId === selected?.docId && pages.length > 0;
+  wecomDocumentPageSelect.classList.toggle("hidden", !showPages);
+  wecomDocumentPageSelect.innerHTML = showPages
+    ? pages.map((page) => `<option value="${escapeHtml(page.pageId)}">${escapeHtml(page.title || "未命名页面")}</option>`).join("")
+    : "";
+}
+
+function renderWecomConnection() {
+  const authorized = wecomAuthorizationStatus?.authorized === true;
+  const componentInstalled = wecomAuthorizationStatus?.component?.installed === true;
+  const botConnected = wecomBotRuntimeStatus?.connected === true;
+  const botRunning = wecomBotRuntimeStatus?.running === true;
+  const connectedParts = [authorized ? "文档已授权" : "文档未授权", botConnected ? "聊天已连接" : botRunning ? "聊天连接中" : "聊天未连接"];
+  wecomConnectionSummary.textContent = connectedParts.join(" · ");
+  wecomConnectionBadge.textContent = authorized && botConnected ? "全部已连接" : authorized || botConnected ? "部分已连接" : "未连接";
+  wecomConnectionBadge.className = `connection-state ${authorized || botConnected ? "connected" : botRunning ? "testing" : "disconnected"}`;
+  wecomDocumentAuthLabel.textContent = authorized ? "当前企业微信账号已授权" : componentInstalled ? "等待扫码授权" : "官方组件不可用";
+  authorizeWecomButton.disabled = !componentInstalled || Boolean(wecomQrPollTimer);
+  authorizeWecomButton.textContent = authorized ? "重新授权" : "扫码连接";
+  disconnectWecomDocumentsButton.disabled = !authorized;
+  refreshWecomButton.disabled = Boolean(wecomQrPollTimer);
+  stopWecomBotButton.disabled = !botRunning;
+  deleteWecomBotSecretButton.disabled = wecomBotSecretPresent !== true;
+  saveWecomBotButton.textContent = botRunning ? "重新连接" : "保存并连接";
+  if (wecomBotRuntimeStatus?.lastError) {
+    setWecomStatus(wecomBotStatus, wecomBotRuntimeStatus.lastError, "error");
+  } else if (botConnected) {
+    setWecomStatus(wecomBotStatus, `机器人已连接${wecomBotRuntimeStatus.lastMessageAt ? ` · 最近收到消息 ${new Date(wecomBotRuntimeStatus.lastMessageAt * 1000).toLocaleString("zh-CN")}` : ""}`, "success");
+  } else if (botRunning) {
+    setWecomStatus(wecomBotStatus, "正在连接企业微信 API 模式机器人…");
+  } else {
+    setWecomStatus(wecomBotStatus, wecomBotSecretPresent ? "Bot Secret 已安全保存；点击保存并连接。" : "需要填写 Bot ID 与 Secret。 ");
+  }
+  renderWecomDocuments();
+}
+
+async function refreshWecomConnection({ quiet = false } = {}) {
+  if (!quiet) setWecomStatus(wecomDocumentStatus, "正在检查企业微信授权与机器人连接…");
+  try {
+    const [authorization, botStatus, secretPresent] = await Promise.all([
+      invoke("wecom_authorization_status"),
+      invoke("wecom_bot_status"),
+      invoke("has_wecom_bot_secret"),
+    ]);
+    wecomAuthorizationStatus = authorization;
+    wecomBotRuntimeStatus = botStatus;
+    wecomBotSecretPresent = secretPresent === true;
+    if (data.settings.wecomDocumentsConnected !== authorization.authorized) {
+      data.settings.wecomDocumentsConnected = authorization.authorized === true;
+      saveData();
+    }
+    if (authorization.authorized) {
+      setWecomStatus(wecomDocumentStatus, `文档授权可用 · 官方组件 ${authorization.component.version || authorization.component.expectedVersion}`, "success");
+      if (wecomQrPollTimer) {
+        try { await invoke("cancel_wecom_qr_authorization"); } catch { /* credentials are already available */ }
+        clearWecomQrPanel();
+        showToast("企业微信文档已连接");
+      }
+    } else if (authorization.component.installed) {
+      setWecomStatus(wecomDocumentStatus, `官方组件 ${authorization.component.version || authorization.component.expectedVersion} 已准备，等待扫码授权。`);
+    } else {
+      setWecomStatus(wecomDocumentStatus, "未检测到企业微信官方组件。正式安装包会自动内置；本地开发请运行 npm run prepare:wecom。", "error");
+    }
+  } catch (error) {
+    setWecomStatus(wecomDocumentStatus, String(error), "error");
+  }
+  renderWecomConnection();
+  renderConnections();
+}
+
+async function startWecomAuthorization() {
+  authorizeWecomButton.disabled = true;
+  setWecomStatus(wecomDocumentStatus, "正在生成企业微信扫码二维码…");
+  try {
+    const result = await invoke("start_wecom_qr_authorization");
+    wecomQrImage.src = result.qrDataUrl;
+    wecomQrExpiresAt = Number(result.expiresAt || 0) * 1000;
+    wecomQrPanel.classList.remove("hidden");
+    wecomQrPollTimer = window.setInterval(() => {
+      const seconds = Math.max(0, Math.ceil((wecomQrExpiresAt - Date.now()) / 1000));
+      wecomQrCountdown.textContent = seconds ? `二维码约 ${Math.ceil(seconds / 60)} 分钟内有效 · 扫码后会自动刷新` : "二维码已过期，请取消后重试";
+      void refreshWecomConnection({ quiet: true });
+      if (!seconds) clearWecomQrPanel();
+    }, 2_000);
+    setWecomStatus(wecomDocumentStatus, "请使用企业微信扫码并按页面提示完成授权。 ");
+  } catch (error) {
+    clearWecomQrPanel();
+    setWecomStatus(wecomDocumentStatus, String(error), "error");
+  } finally {
+    renderWecomConnection();
+  }
+}
+
+async function cancelWecomAuthorization() {
+  try { await invoke("cancel_wecom_qr_authorization"); } catch { /* status refresh below */ }
+  clearWecomQrPanel();
+  setWecomStatus(wecomDocumentStatus, "扫码已取消；需要时可以重新生成二维码。 ");
+  renderWecomConnection();
+}
+
+async function disconnectWecomDocumentAccount() {
+  const confirmed = await window.kardiiConfirm({
+    title: "断开企业微信文档连接？",
+    message: "Kardii 会删除这台电脑中由扫码产生的企微文档授权凭据与缓存。企业微信里的原文档不会删除，机器人聊天凭据也不会改变。",
+    confirmLabel: "断开文档连接",
+    tone: "danger",
+  });
+  if (!confirmed) return;
+  try {
+    await invoke("disconnect_wecom_documents");
+    data.settings.wecomDocumentsConnected = false;
+    wecomDocumentResultsData = [];
+    selectedWecomDocumentId = "";
+    activeWecomDocumentContent = null;
+    wecomDocumentPreview.textContent = "读取后在这里显示最新内容；编辑框始终只放准备写入的新内容。";
+    saveData();
+    await refreshWecomConnection();
+  } catch (error) {
+    setWecomStatus(wecomDocumentStatus, String(error), "error");
+  }
+}
+
+async function saveAndStartWecomBot(event) {
+  event.preventDefault();
+  const botId = wecomBotIdInput.value.trim();
+  const secret = wecomBotSecretInput.value.trim();
+  if (!botId) {
+    setWecomStatus(wecomBotStatus, "请填写 API 模式智能机器人的 Bot ID。", "error");
+    return;
+  }
+  saveWecomBotButton.disabled = true;
+  try {
+    if (secret) {
+      await invoke("save_wecom_bot_secret", { secret });
+      wecomBotSecretPresent = true;
+      wecomBotSecretInput.value = "";
+    }
+    if (!wecomBotSecretPresent && !(await invoke("has_wecom_bot_secret"))) throw new Error("请填写并保存 Bot Secret。 ");
+    wecomBotRuntimeStatus = await invoke("start_wecom_bot", { botId });
+    data.settings.wecomBotId = botId.slice(0, 256);
+    data.settings.wecomBotEnabled = true;
+    saveData();
+    setWecomStatus(wecomBotStatus, "已保存，正在连接企业微信机器人…");
+  } catch (error) {
+    setWecomStatus(wecomBotStatus, String(error), "error");
+  } finally {
+    saveWecomBotButton.disabled = false;
+    renderWecomConnection();
+  }
+}
+
+async function stopWecomBotConnection() {
+  try {
+    wecomBotRuntimeStatus = await invoke("stop_wecom_bot");
+    data.settings.wecomBotEnabled = false;
+    saveData();
+    renderWecomConnection();
+  } catch (error) {
+    setWecomStatus(wecomBotStatus, String(error), "error");
+  }
+}
+
+async function removeWecomBotSecret() {
+  const confirmed = await window.kardiiConfirm({
+    title: "删除企业微信机器人 Secret？",
+    message: "机器人聊天会立即停止，Secret 会从系统安全凭据库删除。文档扫码授权不会改变。",
+    confirmLabel: "删除 Secret",
+    tone: "danger",
+  });
+  if (!confirmed) return;
+  try {
+    await invoke("delete_wecom_bot_secret");
+    wecomBotSecretPresent = false;
+    wecomBotRuntimeStatus = await invoke("wecom_bot_status");
+    data.settings.wecomBotEnabled = false;
+    saveData();
+    renderWecomConnection();
+  } catch (error) {
+    setWecomStatus(wecomBotStatus, String(error), "error");
+  }
+}
+
+async function clearWecomChatHistory() {
+  const confirmed = await window.kardiiConfirm({
+    title: "清空企业微信聊天历史？",
+    message: "会删除这台电脑上所有企业微信 Bot、单聊和群聊与 Kardii 的会话历史。企业微信里的原消息不会删除，文档与机器人连接也不会改变。",
+    confirmLabel: "清空聊天历史",
+    tone: "danger",
+  });
+  if (!confirmed) return;
+  localStorage.setItem(WECOM_HISTORY_EPOCH_KEY, crypto.randomUUID());
+  localStorage.removeItem(WECOM_HISTORY_KEY);
+  showToast("企业微信聊天历史已清空");
+}
+
+async function searchWecomDocumentList() {
+  const query = wecomDocumentSearchInput.value.trim();
+  if (!query) {
+    setWecomStatus(wecomDocumentEditorStatus, "请先输入文档标题或正文关键词。", "error");
+    return;
+  }
+  searchWecomDocumentsButton.disabled = true;
+  setWecomStatus(wecomDocumentEditorStatus, "正在搜索当前账号有权访问的企微文档…");
+  try {
+    wecomDocumentResultsData = await invoke("search_wecom_documents", { query, limit: 10 });
+    selectedWecomDocumentId = wecomDocumentResultsData.length === 1 ? wecomDocumentResultsData[0].docId : "";
+    activeWecomDocumentContent = null;
+    wecomDocumentPreview.textContent = wecomDocumentResultsData.length
+      ? "请选择一份文档后读取；搜索到多个结果时 Kardii 不会自行猜测。"
+      : "当前账号有权访问的范围内没有找到匹配文档。";
+    setWecomStatus(wecomDocumentEditorStatus, `搜索完成，共 ${wecomDocumentResultsData.length} 个结果。`, wecomDocumentResultsData.length ? "success" : "");
+  } catch (error) {
+    setWecomStatus(wecomDocumentEditorStatus, String(error), "error");
+  } finally {
+    renderWecomDocuments();
+  }
+}
+
+async function readSelectedWecomDocument() {
+  const document = selectedWecomDocument();
+  if (!document) return;
+  readWecomDocumentButton.disabled = true;
+  setWecomStatus(wecomDocumentEditorStatus, "正在读取文档最新内容…");
+  try {
+    activeWecomDocumentContent = await invoke("read_wecom_document", {
+      request: { docId: document.docId, docType: document.docType },
+    });
+    wecomDocumentPreview.textContent = activeWecomDocumentContent.content || "文档当前没有可显示的文字内容。";
+    setWecomStatus(wecomDocumentEditorStatus, `已读取“${activeWecomDocumentContent.name || document.name}”的最新内容。编辑框仍为空，不会误把全文再次追加。`, "success");
+  } catch (error) {
+    setWecomStatus(wecomDocumentEditorStatus, String(error), "error");
+  } finally {
+    renderWecomDocuments();
+  }
+}
+
+async function writeWecomDocument(action) {
+  const selected = selectedWecomDocument();
+  const content = wecomDocumentContentInput.value.trim();
+  const title = wecomNewDocumentTitle.value.trim();
+  if (!content) {
+    setWecomStatus(wecomDocumentEditorStatus, "请先填写准备写入的新内容。", "error");
+    return;
+  }
+  if (action === "create" && !title) {
+    setWecomStatus(wecomDocumentEditorStatus, "创建智能文档时需要填写标题。", "error");
+    return;
+  }
+  if (action !== "create" && !selected) {
+    setWecomStatus(wecomDocumentEditorStatus, "请先从搜索结果中明确选择目标文档。", "error");
+    return;
+  }
+  const pageId = selected?.docType === "smartpage" ? wecomDocumentPageSelect.value : "";
+  const actionLabel = action === "create" ? "创建" : action === "append" ? "追加" : "覆盖";
+  const targetLabel = action === "create" ? `新智能文档“${title}”` : `“${selected.name}”${pageId ? `的页面“${wecomDocumentPageSelect.selectedOptions[0]?.textContent || pageId}”` : ""}`;
+  const confirmed = await window.kardiiConfirm({
+    title: `${actionLabel}${targetLabel}？`,
+    message: [
+      `目标：${targetLabel}`,
+      `动作：${actionLabel}`,
+      `内容预览：\n${content.slice(0, 2_000)}${content.length > 2_000 ? "\n…（预览已截取）" : ""}`,
+      action === "overwrite" ? "\n覆盖会替换目标文档或页面的全部原内容。" : "",
+      "\nKardii 会在写入前重新读取最新内容；本次确认不会用于下一次写入。",
+    ].join("\n"),
+    confirmLabel: `确认${actionLabel}`,
+    tone: action === "overwrite" ? "danger" : "default",
+  });
+  if (!confirmed) return;
+  for (const button of [createWecomDocumentButton, appendWecomDocumentButton, overwriteWecomDocumentButton]) button.disabled = true;
+  setWecomStatus(wecomDocumentEditorStatus, `正在${actionLabel}企业微信文档…`);
+  try {
+    const result = await invoke("write_wecom_document", {
+      request: {
+        action,
+        docId: selected?.docId || "",
+        docType: selected?.docType || "",
+        pageId,
+        title,
+        content,
+      },
+    });
+    wecomDocumentContentInput.value = "";
+    if (action === "create") {
+      wecomNewDocumentTitle.value = "";
+      if (result.docId) {
+        const created = { docId: result.docId, name: title, docType: "smartpage", url: result.url || "", modifiedAt: "", highlights: [] };
+        wecomDocumentResultsData = [created, ...wecomDocumentResultsData.filter((item) => item.docId !== created.docId)].slice(0, 10);
+        selectedWecomDocumentId = created.docId;
+        activeWecomDocumentContent = null;
+      }
+    }
+    setWecomStatus(wecomDocumentEditorStatus, `${actionLabel}完成${result.url ? "，可以在企业微信中打开核对。" : "。"}`, "success");
+    if (action !== "create") await readSelectedWecomDocument();
+    else if (result.url) {
+      wecomDocumentPreview.textContent = `新文档已创建：\n${result.url}`;
+    }
+  } catch (error) {
+    setWecomStatus(wecomDocumentEditorStatus, String(error), "error");
+  } finally {
+    renderWecomDocuments();
+  }
+}
+
 function renderConnections() {
   const config = emailConnectionConfig();
   emailCredentialPresent = activeEmailCredentialPresent();
@@ -2122,7 +2511,9 @@ function renderConnections() {
   const connectedCount = [...emailCredentialStatuses.values()].filter(Boolean).length
     + [...cloudCredentialStatuses.values()].filter(Boolean).length
     + (browserBridgeStatus?.paired ? 1 : 0)
-    + mcpServers().filter((server) => server.lastTestAt && !server.lastError).length;
+    + mcpServers().filter((server) => server.lastTestAt && !server.lastError).length
+    + (wecomAuthorizationStatus?.authorized ? 1 : 0)
+    + (wecomBotRuntimeStatus?.connected ? 1 : 0);
   connectionNavStatus.textContent = String(connectedCount);
   renderEmailAccountSelect();
   emailConnectionSummary.textContent = config
@@ -2143,6 +2534,7 @@ function renderConnections() {
   renderCloudConnections();
   renderBrowserConnection();
   renderMcpConnection();
+  renderWecomConnection();
 }
 
 function renderDailyBriefReminderSettings() {
@@ -4648,6 +5040,37 @@ syncMicrosoftButton.addEventListener("click", () => syncCloudProvider("microsoft
 disconnectMicrosoftButton.addEventListener("click", () => disconnectCloudProvider("microsoft"));
 cloudProviderFilter.addEventListener("change", renderCloudConnections);
 cloudServiceFilter.addEventListener("change", renderCloudConnections);
+authorizeWecomButton.addEventListener("click", startWecomAuthorization);
+cancelWecomQrButton.addEventListener("click", cancelWecomAuthorization);
+disconnectWecomDocumentsButton.addEventListener("click", disconnectWecomDocumentAccount);
+refreshWecomButton.addEventListener("click", () => refreshWecomConnection());
+wecomBotForm.addEventListener("submit", saveAndStartWecomBot);
+stopWecomBotButton.addEventListener("click", stopWecomBotConnection);
+deleteWecomBotSecretButton.addEventListener("click", removeWecomBotSecret);
+clearWecomChatHistoryButton.addEventListener("click", clearWecomChatHistory);
+searchWecomDocumentsButton.addEventListener("click", searchWecomDocumentList);
+wecomDocumentSearchInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    void searchWecomDocumentList();
+  }
+});
+wecomDocumentResults.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-wecom-document-id]");
+  if (!button) return;
+  selectedWecomDocumentId = button.dataset.wecomDocumentId;
+  activeWecomDocumentContent = null;
+  wecomDocumentPreview.textContent = "点击“读取最新内容”后显示正文；编辑框始终只放准备写入的新内容。";
+  renderWecomDocuments();
+});
+readWecomDocumentButton.addEventListener("click", readSelectedWecomDocument);
+openWecomDocumentButton.addEventListener("click", async () => {
+  const document = selectedWecomDocument();
+  if (document?.url) await invoke("open_external_url", { url: document.url });
+});
+createWecomDocumentButton.addEventListener("click", () => writeWecomDocument("create"));
+appendWecomDocumentButton.addEventListener("click", () => writeWecomDocument("append"));
+overwriteWecomDocumentButton.addEventListener("click", () => writeWecomDocument("overwrite"));
 startBrowserBridgeButton.addEventListener("click", startBrowserConnection);
 stopBrowserBridgeButton.addEventListener("click", stopBrowserConnection);
 copyBrowserPairingButton.addEventListener("click", copyBrowserPairingCode);
@@ -4752,12 +5175,18 @@ window.addEventListener("storage", (event) => {
 loadEmailConnectionForm();
 loadCloudConnectionForms();
 loadMcpConnectionForm();
+wecomBotIdInput.value = data.settings.wecomBotId || "";
 ensureDailyBriefReminder();
 navigate("dashboard");
 renderAll();
 consumeWorkbenchTarget();
 refreshEmailCredentialStatus();
 void refreshMcpCredentialStatuses();
+void refreshWecomConnection({ quiet: true });
+void listen("kardii-wecom-status", ({ payload }) => {
+  wecomBotRuntimeStatus = payload;
+  renderConnections();
+});
 void refreshBrowserConnection({ start: data.settings.browserBridgeEnabled === true, quiet: true });
 browserPollTimer = window.setInterval(() => {
   if (browserBridgeStatus?.running) void refreshBrowserConnection({ quiet: true });

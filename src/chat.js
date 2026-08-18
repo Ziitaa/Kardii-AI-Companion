@@ -275,7 +275,7 @@ let chatDraftSaveTimer = null;
 let chatAttachmentProcessing = false;
 let chatDragDepth = 0;
 let browserContextLoading = false;
-let appVersion = window.KardiiCapabilities?.version || "1.8.0";
+let appVersion = window.KardiiCapabilities?.version || "2.0.0";
 let onboardingScheduled = false;
 let tourStepIndex = 0;
 let activeTourTarget = null;
@@ -292,6 +292,8 @@ let capabilityRuntime = {
   storageItemCount: 0,
   storageSnapshotCount: 0,
   storageIntegrity: null,
+  wecomDocumentsAuthorized: false,
+  wecomBotConnected: false,
   checkedAt: null,
 };
 
@@ -896,6 +898,7 @@ async function createAgentTaskFromChat(goal, options = {}) {
     }
 
     const statusLabel = {
+      queued: "正在等待空闲 Agent",
       planning: "正在规划",
       running: "正在执行",
       waiting_authorization: "正在等待任务范围授权",
@@ -1080,6 +1083,7 @@ function capabilityConnections() {
 function currentCapabilityStatus() {
   const ai = currentAiConfig();
   const connections = capabilityConnections();
+  const agentTasks = [...agentTasksById().values()];
   const modelName = ai.provider === "deepseek"
     ? "V4 Flash"
     : ai.provider === "gemini"
@@ -1094,6 +1098,8 @@ function currentCapabilityStatus() {
     providerReady,
     agentMode,
     autoAgentHandoff,
+    agentRunning: agentTasks.filter((task) => ["planning", "running"].includes(task.status)).length,
+    agentQueued: agentTasks.filter((task) => task.status === "queued").length,
     voiceModelState,
     emailConfigured: connections.emailAccounts.length,
     cloudConfigured: connections.cloudConnections.length,
@@ -1111,6 +1117,8 @@ function currentCapabilityStatus() {
     storageItemCount: capabilityRuntime.storageItemCount,
     storageSnapshotCount: capabilityRuntime.storageSnapshotCount,
     storageIntegrity: capabilityRuntime.storageIntegrity,
+    wecomDocumentsAuthorized: capabilityRuntime.wecomDocumentsAuthorized,
+    wecomBotConnected: capabilityRuntime.wecomBotConnected,
     memoryCount: memories.length,
   };
 }
@@ -1173,6 +1181,19 @@ async function refreshCapabilityRuntime({ checkConnections = true, checkCodex = 
         capabilityRuntime.browserRunning = false;
         capabilityRuntime.browserPaired = false;
         capabilityRuntime.browserCaptureTitle = "";
+      }
+    })());
+    tasks.push((async () => {
+      try {
+        const [authorization, bot] = await Promise.all([
+          invoke("wecom_authorization_status"),
+          invoke("wecom_bot_status"),
+        ]);
+        capabilityRuntime.wecomDocumentsAuthorized = authorization.authorized === true;
+        capabilityRuntime.wecomBotConnected = bot.connected === true;
+      } catch {
+        capabilityRuntime.wecomDocumentsAuthorized = false;
+        capabilityRuntime.wecomBotConnected = false;
       }
     })());
   }
@@ -2101,7 +2122,7 @@ function createFullBackup() {
   return {
     format: "kardii-backup",
     version: 1,
-    appVersion: "1.8.0",
+    appVersion: "2.0.0",
     createdAt: new Date().toISOString(),
     profile,
     memories,
@@ -3056,7 +3077,7 @@ function setUpdateStatus(text, type = "") {
 async function loadAppVersion() {
   try {
     const version = await invoke("get_app_version");
-    appVersion = String(version || window.KardiiCapabilities?.version || "1.8.0");
+    appVersion = String(version || window.KardiiCapabilities?.version || "2.0.0");
     appVersionLabel.textContent = `当前版本：${version}`;
     currentVersionBadges.forEach((badge) => { badge.textContent = `v${version}`; });
     helpVersionBadge.textContent = `v${appVersion}`;

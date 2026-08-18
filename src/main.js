@@ -12,6 +12,15 @@ const appWindow = getCurrentWindow();
 const pet = document.getElementById("pet");
 const petImage = document.getElementById("petImage");
 const menu = document.getElementById("menu");
+const agentNotice = document.getElementById("agentNotice");
+const agentNoticeBadge = document.getElementById("agentNoticeBadge");
+const agentNoticeTitle = document.getElementById("agentNoticeTitle");
+const agentNoticeMessage = document.getElementById("agentNoticeMessage");
+const AI_SETTINGS_KEY = "kardii-ai-settings-v1";
+const PROFILE_KEY = "kardii-profile-v1";
+const BUSINESS_DATA_KEY = "kardii-business-data-v1";
+const WECOM_HISTORY_KEY = "kardii-wecom-chat-history-v1";
+const WECOM_HISTORY_EPOCH_KEY = "kardii-wecom-chat-history-epoch-v1";
 
 const states = ["idle", "thinking", "talking", "happy", "loading", "sleep", "error"];
 const BASE_WINDOW = { width: 440, height: 360 };
@@ -25,6 +34,131 @@ let stateReturnTimer;
 let dragStart = null;
 let didDrag = false;
 let menuLayout = null;
+let agentNoticeTaskId = "";
+let agentNoticeCount = 0;
+let agentNoticeTimer;
+const wecomMessageQueues = new Map();
+
+function storedJson(key, fallback) {
+  try {
+    const value = JSON.parse(localStorage.getItem(key) || "null");
+    return value ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function wecomAiConfig() {
+  const settings = storedJson(AI_SETTINGS_KEY, {});
+  const provider = ["deepseek", "gemini", "ollama", "codex"].includes(settings.provider) ? settings.provider : "deepseek";
+  return {
+    provider,
+    model: provider === "deepseek"
+      ? "deepseek-v4-flash"
+      : provider === "gemini"
+        ? (["gemini-3.1-flash-lite", "gemini-3.5-flash"].includes(settings.geminiModel) ? settings.geminiModel : "gemini-3.1-flash-lite")
+        : provider === "codex" ? "codex-default" : String(settings.ollamaModel || "").slice(0, 120),
+    ollamaBaseUrl: String(settings.ollamaBaseUrl || "http://127.0.0.1:11434").slice(0, 200),
+  };
+}
+
+function wecomProfile() {
+  const profile = storedJson(PROFILE_KEY, {});
+  const business = storedJson(BUSINESS_DATA_KEY, {});
+  const featureKnowledge = window.KardiiCapabilities?.knowledgeText({
+    appVersion: window.KardiiCapabilities.version,
+    providerName: wecomAiConfig().provider,
+    modelName: wecomAiConfig().model,
+    providerReady: true,
+    agentRunning: 0,
+    agentQueued: 0,
+    wecomDocumentsAuthorized: business?.settings?.wecomDocumentsConnected === true,
+    wecomBotConnected: business?.settings?.wecomBotEnabled === true,
+  }) || "";
+  return {
+    userName: "",
+    personality: typeof profile.personality === "string" ? profile.personality : "healing",
+    customInstructions: "",
+    memories: [],
+    featureKnowledge,
+  };
+}
+
+function loadWecomHistories() {
+  const value = storedJson(WECOM_HISTORY_KEY, {});
+  return value && !Array.isArray(value) && typeof value === "object" ? value : {};
+}
+
+function saveWecomTurn(conversationKey, userText, assistantText, expectedEpoch) {
+  if ((localStorage.getItem(WECOM_HISTORY_EPOCH_KEY) || "") !== expectedEpoch) return;
+  const histories = loadWecomHistories();
+  const history = Array.isArray(histories[conversationKey]) ? histories[conversationKey] : [];
+  history.push({ role: "user", content: String(userText).slice(0, 4_000) });
+  history.push({ role: "assistant", content: String(assistantText).slice(0, 10_000) });
+  histories[conversationKey] = history.slice(-20);
+  const keys = Object.keys(histories);
+  if (keys.length > 50) keys.slice(0, keys.length - 50).forEach((key) => delete histories[key]);
+  try { localStorage.setItem(WECOM_HISTORY_KEY, JSON.stringify(histories)); } catch { /* history is optional */ }
+}
+
+async function handleWecomMessage(payload = {}) {
+  const messageId = String(payload.messageId || "");
+  const requestId = String(payload.requestId || "");
+  const conversationKey = String(payload.conversationKey || "single:unknown").slice(0, 300);
+  const text = String(payload.text || "").trim().slice(0, 4_000);
+  if (!messageId || !requestId || !text) return;
+  const historyEpoch = localStorage.getItem(WECOM_HISTORY_EPOCH_KEY) || "";
+  const histories = loadWecomHistories();
+  const history = (Array.isArray(histories[conversationKey]) ? histories[conversationKey] : []).slice(-12);
+  let answer;
+  try {
+    const ai = wecomAiConfig();
+    if (ai.provider === "ollama" && !ai.model) throw new Error("本机 Ollama 尚未选择模型");
+    answer = await invoke("answer_wecom_message", {
+      request: {
+        text,
+        history,
+        profile: wecomProfile(),
+        provider: ai.provider,
+        model: ai.model,
+        ollamaBaseUrl: ai.ollamaBaseUrl,
+      },
+    });
+    saveWecomTurn(conversationKey, text, answer, historyEpoch);
+  } catch (error) {
+    answer = "Kardii 暂时无法生成回复。请打开桌面 Kardii 检查当前 AI 连接。";
+  }
+  await invoke("reply_wecom_message", { messageId, requestId, content: String(answer) });
+}
+
+function enqueueWecomMessage(payload = {}) {
+  const conversationKey = String(payload.conversationKey || "unknown").slice(0, 300);
+  const previous = wecomMessageQueues.get(conversationKey) || Promise.resolve();
+  const current = previous
+    .catch(() => {})
+    .then(() => handleWecomMessage(payload))
+    .catch(() => {});
+  wecomMessageQueues.set(conversationKey, current);
+  void current.finally(() => {
+    if (wecomMessageQueues.get(conversationKey) === current) wecomMessageQueues.delete(conversationKey);
+  });
+}
+
+function configuredWecomBot() {
+  const business = storedJson(BUSINESS_DATA_KEY, {});
+  const settings = business?.settings || {};
+  return settings.wecomBotEnabled === true && typeof settings.wecomBotId === "string" && settings.wecomBotId.trim()
+    ? settings.wecomBotId.trim()
+    : "";
+}
+
+async function restoreWecomBotConnection() {
+  const botId = configuredWecomBot();
+  if (!botId) return;
+  try {
+    if (await invoke("has_wecom_bot_secret")) await invoke("start_wecom_bot", { botId });
+  } catch { /* workbench shows the actionable connection error */ }
+}
 
 function touch() {
   lastInteraction = Date.now();
@@ -181,6 +315,34 @@ async function openWorkbench() {
   await workbenchWindow.setFocus();
 }
 
+async function openAgent(taskId = "") {
+  const agentWindow = (await getAllWindows()).find((window) => window.label === "agent");
+  if (!agentWindow) return;
+  if (taskId) {
+    localStorage.setItem("kardii-agent-open-target-v1", JSON.stringify({ taskId, autoStart: false }));
+  }
+  agentNotice.classList.add("hidden");
+  agentNoticeCount = 0;
+  clearTimeout(agentNoticeTimer);
+  await agentWindow.show();
+  await agentWindow.unminimize();
+  await agentWindow.setFocus();
+}
+
+function showAgentNotice(payload = {}) {
+  agentNoticeTaskId = String(payload.taskId || "");
+  agentNoticeCount += 1;
+  agentNoticeBadge.textContent = agentNoticeCount > 1 ? `AGENT · ${agentNoticeCount}` : "AGENT";
+  agentNoticeTitle.textContent = String(payload.title || "Agent 有新进展").slice(0, 120);
+  agentNoticeMessage.textContent = String(payload.message || "点击查看任务").slice(0, 180);
+  agentNotice.classList.remove("hidden");
+  clearTimeout(agentNoticeTimer);
+  agentNoticeTimer = setTimeout(() => {
+    agentNotice.classList.add("hidden");
+    agentNoticeCount = 0;
+  }, 12_000);
+}
+
 async function keepWindowOnScreen() {
   const margin = 8;
   const left = Number.isFinite(window.screen.availLeft) ? window.screen.availLeft : 0;
@@ -215,6 +377,7 @@ document.addEventListener("click", async (event) => {
   if (action === "reset") await setScale(1);
   if (action === "workbench") await openWorkbench();
   if (action === "chat") await toggleChat();
+  if (action === "agent") await openAgent();
   if (action === "hide") await appWindow.hide();
   if (action === "quit") {
     await window.KardiiStorage.flush();
@@ -236,6 +399,10 @@ appWindow.onMoved(({ payload }) => {
 });
 
 listen("kardii-state", ({ payload }) => setState(payload));
+listen("kardii-agent-notice", ({ payload }) => showAgentNotice(payload));
+listen("kardii-wecom-message", ({ payload }) => enqueueWecomMessage(payload));
+
+agentNotice.addEventListener("click", () => void openAgent(agentNoticeTaskId));
 
 states.forEach((state) => {
   const image = new Image();
@@ -254,3 +421,4 @@ setInterval(() => {
 
 void setScale(scale);
 restorePosition();
+void restoreWecomBotConnection();

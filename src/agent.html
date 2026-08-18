@@ -12,9 +12,10 @@
       <header class="titlebar" data-tauri-drag-region>
         <div class="brand" data-tauri-drag-region>
           <span class="brand-mark">K</span>
-          <div><strong>Kardii Agent</strong><span>计划、执行、检查，再继续</span></div>
+          <div><strong>Kardii Agent</strong><span>任务隔离，并行执行，后台继续</span></div>
         </div>
         <div class="window-actions">
+          <span id="parallelStatus" class="parallel-status" aria-live="polite">Agent 0 / 3</span>
           <button id="automationsButton" type="button">自动化</button>
           <button id="skillsButton" type="button">技能</button>
           <button id="openChatButton" type="button">聊天</button>
@@ -39,7 +40,7 @@
             <div class="create-copy">
               <span class="eyebrow">NEW AGENT TASK</span>
               <h1>告诉 Kardii 你想完成什么</h1>
-              <p>它会先制定计划，再逐步选择工具。涉及你的文件、剪贴板、浏览器或终端时一定会暂停等待确认。</p>
+              <p>最多 3 个任务可以各自保留计划与上下文并行执行。涉及文件、剪贴板、浏览器、终端或外部写入时仍会暂停等待确认。</p>
             </div>
             <form id="createTaskForm" class="create-form">
               <label for="goalInput">任务目标</label>
@@ -86,7 +87,7 @@
 
           <section id="automationsView" class="skills-view hidden">
             <div class="skills-heading">
-              <div><span class="eyebrow">AUTOMATIONS</span><h1>本地自动化</h1><p>到达设定时间后创建 Agent 任务。电脑关机或 Kardii 未运行时不会执行。</p></div>
+              <div><span class="eyebrow">AUTOMATIONS</span><h1>后台自动化</h1><p>Kardii 留在托盘时会按时建立并执行任务；只读步骤可在后台继续，需要授权、回答或执行完成时由桌宠提醒。完全退出或电脑关机时不会执行。</p></div>
               <button id="newAutomationButton" class="primary-button" type="button">＋ 新自动化</button>
             </div>
             <div class="skills-layout">
@@ -135,6 +136,7 @@
                 <span id="taskStatusBadge" class="status-badge">准备中</span>
                 <span id="taskSkillBadge" class="status-badge skill-badge hidden"></span>
                 <span id="taskChatBadge" class="status-badge chat-badge hidden"></span>
+                <span id="taskWorkerBadge" class="status-badge worker-badge hidden"></span>
                 <h1 id="taskTitle">Agent 任务</h1>
                 <p id="taskGoal"></p>
               </div>

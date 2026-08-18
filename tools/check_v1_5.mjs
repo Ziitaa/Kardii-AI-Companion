@@ -28,11 +28,11 @@ const capabilityJs = read("src/kardii-capabilities.js");
 const readme = read("README.md");
 
 for (const version of [packageJson.version, packageLock.version, packageLock.packages[""].version, tauriConfig.version]) {
-  assert(version === "1.8.0", `当前版本号未统一: ${version}`);
+  assert(version === "2.0.0", `当前版本号未统一: ${version}`);
 }
-assert(/version = "1\.8\.0"/.test(cargo), "Cargo.toml 未更新到 v1.8.0");
-assert(chatJs.includes('appVersion: "1.8.0"'), "完整备份版本号未更新到 v1.8.0");
-assert(capabilityJs.includes('const VERSION = "1.8.0"'), "功能清单版本未更新到 v1.8.0");
+assert(/version = "2\.0\.0"/.test(cargo), "Cargo.toml 未更新到 v2.0.0");
+assert(chatJs.includes('appVersion: "2.0.0"'), "完整备份版本号未更新到 v2.0.0");
+assert(capabilityJs.includes('const VERSION = "2.0.0"'), "功能清单版本未更新到 v2.0.0");
 
 for (const command of [
   "start_browser_bridge", "stop_browser_bridge", "browser_bridge_status",
@@ -125,7 +125,7 @@ vm.runInContext(capabilityJs, capabilityContext);
 const capabilityIds = vm.runInContext("window.KardiiCapabilities.features.map((item) => item.id)", capabilityContext);
 assert(capabilityIds.includes("browser") && capabilityIds.includes("mcp"), "共享功能清单缺少浏览器或 MCP");
 const knowledge = vm.runInContext(`window.KardiiCapabilities.knowledgeText({
-  appVersion: "1.8.0", browserRunning: true, browserPaired: true,
+  appVersion: "2.0.0", browserRunning: true, browserPaired: true,
   browserCaptureTitle: "测试网页", mcpConfigured: 1, mcpConnected: 1
 })`, capabilityContext);
 assert(knowledge.includes("浏览器已连接") && knowledge.includes("MCP1 个已连接"), "功能认知没有包含浏览器或 MCP 动态状态");

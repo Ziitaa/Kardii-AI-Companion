@@ -31,10 +31,10 @@ const capabilities = read("src/kardii-capabilities.js");
 const readme = read("README.md");
 
 for (const version of [packageJson.version, packageLock.version, packageLock.packages[""].version, tauri.version, extension.version]) {
-  assert(version === "1.8.0", `v1.8 版本号未统一：${version}`);
+  assert(version === "2.0.0", `当前版本号未统一：${version}`);
 }
-assert(/version = "1\.8\.0"/.test(cargo), "Cargo.toml 未更新为 1.8.0");
-assert(capabilities.includes('const VERSION = "1.8.0"'), "共享功能清单未更新为 1.8.0");
+assert(/version = "2\.0\.0"/.test(cargo), "Cargo.toml 未更新为 2.0.0");
+assert(capabilities.includes('const VERSION = "2.0.0"'), "共享功能清单未更新为 2.0.0");
 assert(packageJson.scripts["test:v1.8"] === "node tools/check_v1_8.mjs", "v1.8 回归脚本未注册");
 assert(/rusqlite\s*=\s*\{[^}]*version = "0\.40\.2"[^}]*"bundled"[^}]*"backup"/.test(cargo), "SQLite bundled/backup 依赖缺失");
 

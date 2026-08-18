@@ -471,6 +471,74 @@
               </article>
             </div>
 
+            <article class="connection-card wecom-connection-card">
+              <div class="connection-card-heading">
+                <div><span class="connection-icon wecom-icon">企</span><span><strong>企业微信连接</strong><small id="wecomConnectionSummary">扫码连接文档；API 模式机器人接收聊天</small></span></div>
+                <span id="wecomConnectionBadge" class="connection-state disconnected">未连接</span>
+              </div>
+              <div class="wecom-connection-grid">
+                <section class="wecom-auth-panel">
+                  <span class="browser-panel-label">企业微信文档 · 扫码授权</span>
+                  <strong id="wecomDocumentAuthLabel">尚未授权</strong>
+                  <p>只能搜索当前账号有权访问的文档，包括大圆或同事创建并分享给你的文档；不会读取他人的私有文档或大圆的私有记忆。</p>
+                  <div class="connection-actions">
+                    <button id="disconnectWecomDocumentsButton" class="delete-action" type="button" disabled>断开</button>
+                    <span class="modal-action-spacer"></span>
+                    <button id="refreshWecomButton" class="outline-button" type="button">刷新</button>
+                    <button id="authorizeWecomButton" class="primary-button" type="button">扫码连接</button>
+                  </div>
+                  <div id="wecomQrPanel" class="wecom-qr-panel hidden">
+                    <img id="wecomQrImage" alt="企业微信扫码授权二维码">
+                    <div><strong>请使用企业微信扫码</strong><span id="wecomQrCountdown">二维码约 5 分钟内有效</span><button id="cancelWecomQrButton" class="ghost-action" type="button">取消扫码</button></div>
+                  </div>
+                  <p id="wecomDocumentStatus" class="connection-status">正式安装包会内置并校验企业微信官方 CLI 组件。</p>
+                </section>
+                <section class="wecom-bot-panel">
+                  <span class="browser-panel-label">在企业微信里和 Kardii 聊天</span>
+                  <form id="wecomBotForm" class="connection-form">
+                    <label class="form-field full"><span>API 模式智能机器人 Bot ID</span><input id="wecomBotIdInput" type="text" maxlength="256" spellcheck="false" placeholder="在企业微信智能机器人配置页获取"></label>
+                    <label class="form-field full"><span>Secret</span><input id="wecomBotSecretInput" type="password" maxlength="1024" autocomplete="new-password" placeholder="只保存到系统安全凭据库"></label>
+                    <p class="connection-help full">企微消息使用当前 Kardii AI；每个 Bot、单聊与群聊分别保留本机会话。不会带入桌面端私人长期记忆，也不执行 Agent 或文档写入；外部写入仍回到桌面逐次确认。</p>
+                    <div class="connection-actions full">
+                      <button id="stopWecomBotButton" class="delete-action" type="button" disabled>停止</button>
+                      <button id="deleteWecomBotSecretButton" class="ghost-action danger" type="button">删除 Secret</button>
+                      <button id="clearWecomChatHistoryButton" class="ghost-action" type="button">清空聊天历史</button>
+                      <span class="modal-action-spacer"></span>
+                      <button id="saveWecomBotButton" class="primary-button" type="submit">保存并连接</button>
+                    </div>
+                    <p id="wecomBotStatus" class="connection-status full">需要在企业微信中创建“API 模式”智能机器人。</p>
+                  </form>
+                </section>
+              </div>
+              <section class="wecom-document-panel">
+                <div class="wecom-document-toolbar">
+                  <input id="wecomDocumentSearchInput" type="search" maxlength="200" placeholder="搜索标题或正文关键词，例如：项目周报">
+                  <button id="searchWecomDocumentsButton" class="outline-button" type="button" disabled>搜索文档</button>
+                </div>
+                <div class="wecom-document-layout">
+                  <div id="wecomDocumentResults" class="wecom-document-results"><p>扫码授权后，可以搜索当前账号有权访问的企微文档。</p></div>
+                  <div class="wecom-document-editor">
+                    <div class="wecom-document-selection">
+                      <strong id="wecomSelectedDocumentTitle">尚未选择文档</strong>
+                      <select id="wecomDocumentPageSelect" class="hidden" aria-label="选择智能文档页面"></select>
+                      <button id="openWecomDocumentButton" class="ghost-action" type="button" disabled>在企微打开</button>
+                      <button id="readWecomDocumentButton" class="outline-button" type="button" disabled>读取最新内容</button>
+                    </div>
+                    <pre id="wecomDocumentPreview" class="wecom-document-preview">读取后在这里显示最新内容；编辑框始终只放准备写入的新内容。</pre>
+                    <input id="wecomNewDocumentTitle" type="text" maxlength="120" placeholder="创建新智能文档时填写标题">
+                    <textarea id="wecomDocumentContentInput" rows="8" maxlength="120000" placeholder="输入要创建、追加或覆盖的 Markdown 内容；写入前会再次显示确认。"></textarea>
+                    <div class="connection-actions">
+                      <button id="overwriteWecomDocumentButton" class="delete-action" type="button" disabled>覆盖所选内容</button>
+                      <span class="modal-action-spacer"></span>
+                      <button id="appendWecomDocumentButton" class="outline-button" type="button" disabled>追加到所选文档</button>
+                      <button id="createWecomDocumentButton" class="primary-button" type="button" disabled>创建智能文档</button>
+                    </div>
+                    <p id="wecomDocumentEditorStatus" class="connection-status">搜索与读取不会修改文档；创建、追加和覆盖每次都要确认。</p>
+                  </div>
+                </div>
+              </section>
+            </article>
+
             <article class="connection-card browser-connection-card">
               <div class="connection-card-heading">
                 <div><span class="connection-icon browser-icon">◎</span><span><strong>Chrome / Edge 当前网页</strong><small id="browserConnectionSummary">连接扩展后，由你主动发送当前页</small></span></div>

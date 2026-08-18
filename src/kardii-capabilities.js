@@ -1,5 +1,5 @@
 (() => {
-  const VERSION = "1.8.0";
+  const VERSION = "2.0.0";
 
   const FEATURES = [
     {
@@ -42,7 +42,21 @@
         "读取文件、打开网页或运行命令前，Agent 会停下来请求你的允许。",
       ],
       example: "帮我把这份资料整理成执行计划，先列步骤，再开始处理。",
-      promptFact: "Agent 支持任务规划、逐步执行、结果检查、任务附件、技能库和本地定时自动化；涉及电脑操作时必须由用户确认权限。",
+      promptFact: "Agent 支持任务规划、逐步执行、结果检查、任务附件、技能库和后台自动化；最多 3 个任务可在隔离上下文中并行，涉及电脑或外部写入操作时必须由用户确认权限。",
+    },
+    {
+      id: "parallel-agents",
+      icon: "A³",
+      group: "聊天与执行",
+      title: "并行 Agent 与后台自动化",
+      summary: "最多 3 个任务分别保存目标、计划和记录；Kardii 留在托盘时可继续只读后台步骤。",
+      steps: [
+        "可以连续建立不同任务；前三个获得独立 Agent 席位，其余任务自动排队。",
+        "隐藏 Agent 窗口不会停止任务；自动化到时会由后台调度器唤醒并执行。",
+        "需要授权、用户回答、完成或失败时，桌宠会显示提醒；点击即可定位到对应任务。",
+      ],
+      example: "请告诉我现在有几个 Agent 正在运行、几个任务排队，以及哪些任务正在等我确认。",
+      promptFact: "Kardii v1.9 最多并行运行 3 个相互隔离的 Agent 任务，更多任务按创建时间排队。任务各自保留目标、计划、历史、技能和来源聊天。Agent 窗口隐藏后只读步骤仍可继续；Rust 调度器每 30 秒唤醒自动化。需要权限或回答时任务暂停并由桌宠提醒。完全退出 Kardii 或电脑关机后不会运行，也不会补做多次错过的周期任务。",
     },
     {
       id: "attachments",
@@ -99,6 +113,20 @@
       ],
       example: "请告诉我 Kardii 的邮箱和云端连接现在是什么状态，以及这些连接可以做什么。",
       promptFact: "外部连接支持 IMAP 邮箱、Google Workspace（Gmail、Calendar、Drive、Sheets）和 Microsoft 365（Outlook、Calendar、OneDrive、Excel、SharePoint）的只读同步；当前不能发送邮件、修改日历或写入云盘。",
+    },
+    {
+      id: "wecom",
+      icon: "企",
+      group: "资料与工作",
+      title: "连接企业微信",
+      summary: "扫码搜索和读取有权访问的企微文档，并在逐次确认后创建、追加或覆盖；也可用 API 模式机器人直接聊天。",
+      steps: [
+        "打开工作台的“外部连接”，在企业微信连接中扫码授权文档账号。",
+        "搜索文档时先选择明确候选；Agent 的搜索和读取可自动，创建、追加和覆盖每次确认。",
+        "要在企业微信中聊天，创建 API 模式智能机器人并把 Bot ID 与 Secret 保存到 Kardii。",
+      ],
+      example: "搜索企业微信里关于项目周报的文档，列出候选让我选择后再读取。",
+      promptFact: "Kardii 的企业微信连接使用官方 wecom-cli v1.1.0：扫码账号只能搜索当前用户有权访问的文档，可读取和修改 doc / smartpage；搜索多候选必须由用户选择，写入前重新读取最新内容，创建/追加/覆盖每次确认，发布态 b1_ 智能文档只读。大圆或同事创建且分享给当前账号的文档可被搜索，但 Kardii 不能读取大圆的私有记忆或无权访问的文档。API 模式智能机器人可把企微文字与已转写语音交给当前 Kardii AI，并按 Bot、单聊与群聊隔离本机会话；机器人保留 Kardii 性格但不带入桌面私人长期记忆或自定义指令，历史可在工作台清空。远程聊天不能执行 Agent 或外部写入，需回到桌面确认。Bot Secret 保存在系统凭据库。",
     },
     {
       id: "enterprise-analysis",
@@ -229,6 +257,9 @@
   ];
 
   const VERSION_HIGHLIGHTS = [
+    "新增企业微信连接：扫码读取有权限的文档，逐次确认创建或修改，并通过 API 模式智能机器人直接聊天。",
+    "新增最多 3 个隔离 Agent 并行执行：每个任务保留自己的计划、上下文、工具记录与来源会话，超出的任务自动排队。",
+    "新增托盘后台自动化执行端：Rust 定时唤醒，只读步骤可在窗口隐藏时继续；授权、回答、完成和失败会由桌宠提醒。",
     "新增 SQLite 本机数据层：旧数据自动迁移，聊天、记忆、工作台、Agent、技能和自动化拥有修订保护与最多 5 个恢复点。",
     "新增企业资料联合分析：跨工作台、邮件、云端、知识库、网站和当前聊天生成带 [S] 来源的简报与待办。",
     "知识库新增公开网站导入：最多 20 个同域页面、2 层链接深度，先预览后保存并支持整组更新或删除。",
@@ -247,11 +278,12 @@
     "联合分析只使用本机已保存或已同步的摘要与正文片段，不会自动读取尚未同步的外部资料；日报提醒仅在 Kardii 运行或下次打开时建立待办，不是服务器后台任务。",
     "网站知识库只抓取用户确认有权读取的公开同域页面，最多 20 页和 2 层；不使用登录态、Cookie 或 JavaScript，不支持付费墙、复杂单页应用、跨域整合或后台持续爬取。",
     "邮箱、Google 与 Microsoft 连接保持只读；发送邮件、修改日历、写入云盘和表格仍不支持。",
-    "同一时间只执行一个 Agent 任务；多 Agent 并行分工尚未加入。",
-    "自动化需要 Kardii 在本机运行；完全退出后的后台服务器调度尚未加入。",
+    "最多并行执行 3 个 Agent 任务；更多任务会排队。并行任务仍共享当前 AI 服务的额度、速率限制和电脑资源。",
+    "后台自动化依赖 Kardii 进程留在托盘；完全退出、电脑关机或休眠时不会执行，重新打开后每条到期自动化最多补建一次，不提供云端服务器执行。",
     "语音是录完后本机识别；实时连续对话、持续监听和唤醒词尚未加入。",
     "SQLite 已作为耐久数据层，WebView 本机存储仍保留为兼容缓存；网页端、iOS 与跨设备同步尚未加入。",
-    "复杂文档版面、批注和逐元素还原仍有限；Windows 与 macOS 正式签名、公证和崩溃日志也尚未完成。",
+    "复杂文档版面、批注和逐元素还原仍有限；企业微信当前只对 doc 与 smartpage 提供正文读写，其他搜索结果需在企微客户端打开。",
+    "企业微信中的 Kardii 只处理文字和已转写语音；为了保留桌面确认，远程聊天不会直接执行 Agent、创建或修改外部文档。",
     "MCP 服务器需要手动配置，没有第三方工具市场；付款、购买、下单、资金转移和敏感凭据填写是永久安全禁区，不列入自动化计划。",
   ];
 
@@ -394,6 +426,9 @@
     const browserStatus = status.browserPaired ? "浏览器已连接" : status.browserRunning ? "浏览器等待配对" : "浏览器未启动";
     const mcpConfigured = Number(status.mcpConfigured || 0);
     const mcpConnected = Number(status.mcpConnected || 0);
+    const wecomStatus = status.wecomDocumentsAuthorized && status.wecomBotConnected
+      ? "企微文档与聊天已连接"
+      : status.wecomDocumentsAuthorized ? "企微文档已连接" : status.wecomBotConnected ? "企微聊天已连接" : "企微未连接";
     return [
       {
         id: "model",
@@ -404,7 +439,7 @@
       {
         id: "agent",
         label: "Agent 衔接",
-        value: status.agentMode ? "下一条强制交给 Agent" : status.autoAgentHandoff ? "智能判断已开启" : "仅手动切换",
+        value: `${status.agentMode ? "下一条强制交给 Agent" : status.autoAgentHandoff ? "智能判断已开启" : "仅手动切换"} · ${Number(status.agentRunning || 0)}/3 运行${Number(status.agentQueued || 0) ? ` · ${Number(status.agentQueued)} 排队` : ""}`,
         tone: status.agentMode || status.autoAgentHandoff ? "success" : "neutral",
       },
       {
@@ -424,8 +459,8 @@
       {
         id: "connections",
         label: "外部连接",
-        value: `${browserStatus} · ${connectionStatus(emailConfigured, emailConnected, "邮箱")} · ${connectionStatus(cloudConfigured, cloudConnected, "云端")} · ${connectionStatus(mcpConfigured, mcpConnected, "MCP")}`,
-        tone: status.browserPaired || (emailConnected || 0) + (cloudConnected || 0) + mcpConnected > 0 ? "success" : "neutral",
+        value: `${browserStatus} · ${wecomStatus} · ${connectionStatus(emailConfigured, emailConnected, "邮箱")} · ${connectionStatus(cloudConfigured, cloudConnected, "云端")} · ${connectionStatus(mcpConfigured, mcpConnected, "MCP")}`,
+        tone: status.browserPaired || status.wecomDocumentsAuthorized || status.wecomBotConnected || (emailConnected || 0) + (cloudConnected || 0) + mcpConnected > 0 ? "success" : "neutral",
       },
     ];
   }
@@ -485,6 +520,16 @@
         actionLabel: cloudConfigured ? "管理" : "去连接",
       },
       {
+        id: "wecom",
+        title: "企业微信连接",
+        detail: status.wecomDocumentsAuthorized && status.wecomBotConnected
+          ? "文档与机器人聊天均已连接"
+          : status.wecomDocumentsAuthorized ? "文档已授权，机器人聊天未连接" : status.wecomBotConnected ? "机器人聊天已连接，文档未授权" : "文档与机器人均未连接",
+        tone: status.wecomDocumentsAuthorized || status.wecomBotConnected ? "success" : "neutral",
+        action: "connections",
+        actionLabel: status.wecomDocumentsAuthorized || status.wecomBotConnected ? "管理" : "去连接",
+      },
+      {
         id: "browser",
         title: "Chrome / Edge 当前网页",
         detail: status.browserPaired
@@ -505,7 +550,7 @@
       {
         id: "agent",
         title: "聊天与 Agent 衔接",
-        detail: status.autoAgentHandoff ? "智能判断已开启" : "当前只会手动切换",
+        detail: `${status.autoAgentHandoff ? "智能判断已开启" : "当前只会手动切换"} · ${Number(status.agentRunning || 0)}/3 运行${Number(status.agentQueued || 0) ? ` · ${Number(status.agentQueued)} 排队` : ""}`,
         tone: status.autoAgentHandoff ? "success" : "neutral",
         action: "agent-settings",
         actionLabel: "设置",
@@ -551,7 +596,7 @@
 
   function isCapabilityQuestion(value) {
     const text = String(value || "").toLowerCase();
-    return /(?:你|kardii).{0,8}(?:会什么|能做什么|有什么功能|支持什么|怎么用|使用说明|帮助)|(?:功能|能力|使用说明|怎么使用|如何使用|已连接|连接状态|登录状态|支持.*文件|支持.*图片|支持.*表格|还剩|没做|未添加|路线图|后续功能)|(?:新手引导|更新介绍|版本介绍|一键自检|常见问题|故障排查|帮助面板)|(?:邮箱|邮件|google|microsoft|云端|云盘|日历|codex|chrome|edge|浏览器|网页|扩展|mcp|sqlite|数据库|恢复点).{0,14}(?:连接|登录|配置|可用|状态|同步|读取|发送|工具|调用|检查|恢复)|(?:图片|表格|文件|网页).{0,12}(?:上传|支持|识别|读取|发送)/i.test(text);
+    return /(?:你|kardii).{0,8}(?:会什么|能做什么|有什么功能|支持什么|怎么用|使用说明|帮助)|(?:功能|能力|使用说明|怎么使用|如何使用|已连接|连接状态|登录状态|支持.*文件|支持.*图片|支持.*表格|还剩|没做|未添加|路线图|后续功能)|(?:新手引导|更新介绍|版本介绍|一键自检|常见问题|故障排查|帮助面板)|(?:邮箱|邮件|google|microsoft|企业微信|企微|大圆|云端|云盘|日历|codex|chrome|edge|浏览器|网页|扩展|mcp|sqlite|数据库|恢复点).{0,14}(?:连接|登录|配置|可用|状态|同步|读取|发送|聊天|文档|工具|调用|检查|恢复)|(?:图片|表格|文件|网页|企微文档).{0,12}(?:上传|支持|识别|读取|发送|创建|修改)/i.test(text);
   }
 
   window.KardiiCapabilities = Object.freeze({

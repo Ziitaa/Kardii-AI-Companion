@@ -11,9 +11,16 @@
       <img id="petImage" src="./assets/pet/idle.webp" alt="Kardii">
     </main>
 
+    <button id="agentNotice" class="agent-notice hidden" type="button" aria-live="polite">
+      <span id="agentNoticeBadge">AGENT</span>
+      <strong id="agentNoticeTitle">Agent 有新进展</strong>
+      <small id="agentNoticeMessage">点击查看任务</small>
+    </button>
+
     <nav id="menu" class="menu hidden" aria-label="Kardii 菜单">
       <button type="button" data-action="workbench">▦ 商务工作台</button>
       <button type="button" data-action="chat">✦ 问问 Kardii</button>
+      <button type="button" data-action="agent">A Agent 任务</button>
       <hr>
       <button type="button" data-state="idle">🐾 待机</button>
       <button type="button" data-state="thinking">🤔 思考</button>
@@ -31,6 +38,7 @@
       <button type="button" data-action="quit">退出 Kardii</button>
     </nav>
 
+    <script src="./kardii-capabilities.js"></script>
     <script src="./kardii-storage.js" data-main="./main.js"></script>
   </body>
 </html>
