@@ -1190,20 +1190,6 @@ fn validated_wecom_media_url(raw: &str) -> Result<(reqwest::Url, String, Vec<Soc
         return Err("企微附件只能从不含账号信息的 HTTPS 地址下载。".into());
     }
     let host = url.host_str().ok_or_else(|| "企微附件地址缺少主机名。".to_string())?.to_ascii_lowercase();
-    let trusted_host = [
-        "work.weixin.qq.com",
-        ".work.weixin.qq.com",
-        ".weixin.qq.com",
-        ".wework.weixin.qq.com",
-        ".qpic.cn",
-        ".gtimg.com",
-        ".qq.com",
-    ]
-    .iter()
-    .any(|suffix| host == suffix.trim_start_matches('.') || host.ends_with(suffix));
-    if !trusted_host {
-        return Err("企微附件地址不属于受信任的腾讯媒体域名。".into());
-    }
     let port = url.port_or_known_default().unwrap_or(443);
     let resolved: Vec<SocketAddr> = (host.as_str(), port)
         .to_socket_addrs()
@@ -2070,5 +2056,24 @@ mod tests {
             .as_deref(),
             Some("项目 报告.pdf")
         );
+    }
+
+    #[test]
+    fn wecom_media_network_filter_rejects_private_addresses() {
+        for private in [
+            "127.0.0.1",
+            "10.0.0.1",
+            "172.16.0.1",
+            "192.168.1.1",
+            "169.254.1.1",
+            "100.64.0.1",
+            "224.0.0.1",
+            "0.0.0.0",
+        ] {
+            assert!(!public_wecom_media_ip(private.parse().unwrap()), "accepted {private}");
+        }
+        for public in ["1.1.1.1", "8.8.8.8", "2606:4700:4700::1111"] {
+            assert!(public_wecom_media_ip(public.parse().unwrap()), "rejected {public}");
+        }
     }
 }
