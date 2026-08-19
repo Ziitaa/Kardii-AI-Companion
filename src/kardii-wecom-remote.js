@@ -65,6 +65,41 @@
       : { type: "invalid", error: `请在 /${name} 后输入 6 位有效验证码。` };
   }
 
+  function parseNaturalRemoteTask(value) {
+    const goal = String(value || "").trim().slice(0, 2_000);
+    if (!goal || goal.startsWith("/")) return null;
+    const compact = goal.replace(/\s+/g, " ");
+    if (/^(?:请问)?\s*(?:怎么|如何|为什么|什么是|教程|教我|说明|解释|有哪些办法|有什么办法)/.test(compact)) {
+      return null;
+    }
+    if (/(?:怎么|如何).{0,24}(?:发给我|发我|发送给我|传给我|查找|寻找|搜索|读取|查看)/.test(compact)) {
+      return null;
+    }
+    const hasLocalScope = /(?:电脑|本机|本地|电脑端|授权(?:的)?(?:目录|文件夹))/.test(compact);
+    const hasFileTarget = /\.(?:pdf|docx|pptx|xlsx|txt|md|json|csv|log|toml|ya?ml|js|ts|html|css|rs|py|png|jpe?g|webp)(?=$|[^a-z0-9])/i.test(compact)
+      || /(?:文件|文档|图片|照片|表格|报表|报告|周报|月报|报价单|合同|资料|幻灯片|演示文稿)/.test(compact);
+    if (!hasLocalScope || !hasFileTarget) return null;
+    const requestsDelivery = /(?:发|发送|传|回传|转发)(?:一下|一份|一个|这份|这个)?(?:给)?我|给我(?:发|发送|传|回传|转发)|发我/.test(compact);
+    if (requestsDelivery) {
+      return { type: "task", goal, naturalLanguage: true, intent: "file_delivery" };
+    }
+    const requestsRead = /(?:查找|寻找|搜索|找到|找出|找一下|查看|看一下|看看|读取|读一下|分析|总结|整理)/.test(compact);
+    const hasRequestCue = /(?:^|[，,。.!！\s])(?:请|帮我|麻烦|替我|给我|我要|我需要|我想让你|让你|把)/.test(compact)
+      || /^(?:查找|寻找|搜索|找到|找出|找一下|查看|看一下|看看|读取|读一下|分析|总结|整理)/.test(compact);
+    return requestsRead && hasRequestCue
+      ? { type: "task", goal, naturalLanguage: true, intent: "file_read" }
+      : null;
+  }
+
+  function naturalTaskAllowed(value = {}) {
+    const fromUserId = String(value.fromUserId || "").trim();
+    const ownerUserId = String(value.ownerUserId || "").trim();
+    return value.enabled === true
+      && String(value.chatType || "single") === "single"
+      && Boolean(fromUserId)
+      && fromUserId === ownerUserId;
+  }
+
   function normalizeSettings(value = {}) {
     return {
       enabled: value.wecomRemoteAgentEnabled === true,
@@ -193,6 +228,8 @@
     cleanCode,
     createCode,
     parseCommand,
+    parseNaturalRemoteTask,
+    naturalTaskAllowed,
     automaticModelOrder,
     normalizeSettings,
     normalizeSource,

@@ -304,6 +304,7 @@ function wecomRemoteHelp() {
     "Kardii 手机远程 Agent 命令：",
     "/绑定 6位码 — 首次绑定本人账号",
     "/任务 要完成的事 — 生成待确认任务",
+    "也可直接说“把我电脑上的报价单.xlsx 发给我”生成待确认任务",
     "/确认 — 二次确认最近一项待开始任务",
     "/模型 — 查看或切换企微专用模型",
     "/授权 — 查看脱敏后的远程只读授权范围",
@@ -476,11 +477,21 @@ async function startWecomRemoteStream(payload, command, task = null, ai = wecomA
 }
 
 async function handleWecomRemoteCommand(payload, text, ai) {
-  const command = window.KardiiWecomRemote.parseCommand(text);
-  if (!command) return false;
+  const explicitCommand = window.KardiiWecomRemote.parseCommand(text);
+  const naturalCommand = explicitCommand ? null : window.KardiiWecomRemote.parseNaturalRemoteTask(text);
+  if (!explicitCommand && !naturalCommand) return false;
+  const command = explicitCommand || naturalCommand;
   const settings = wecomRemoteSettings();
   const fromUserId = String(payload.fromUserId || "").trim();
   const singleChat = String(payload.chatType || "single") === "single";
+  if (naturalCommand && !window.KardiiWecomRemote.naturalTaskAllowed({
+    enabled: settings.enabled,
+    ownerUserId: settings.ownerUserId,
+    fromUserId,
+    chatType: payload.chatType,
+  })) {
+    return false;
+  }
   if (command.type === "invalid") {
     await replyWecomPayload(payload, `${command.error}\n\n${wecomRemoteHelp()}`);
     return true;
@@ -519,6 +530,16 @@ async function handleWecomRemoteCommand(payload, text, ai) {
   }
   if (settings.ownerUserId !== fromUserId) {
     await replyWecomPayload(payload, "这个账号没有绑定到此 Kardii，远程命令已拒绝。");
+    return true;
+  }
+  if (naturalCommand?.intent === "file_delivery"
+    && (!settings.allowAuthorizedFiles || !settings.authorizedFolders.length || !settings.allowFileDelivery)) {
+    await replyWecomPayload(payload, "我识别到你想获取电脑文件，但电脑端尚未同时开启“授权目录只读”和“发送单个指定文件”。这句话没有创建任务，也没有读取文件。");
+    return true;
+  }
+  if (naturalCommand?.intent === "file_read"
+    && (!settings.allowAuthorizedFiles || !settings.authorizedFolders.length)) {
+    await replyWecomPayload(payload, "我识别到你想查找或读取电脑文件，但电脑端尚未选择并开启授权目录。这句话没有创建任务，也没有读取文件。");
     return true;
   }
   const commandAi = ["task", "answer"].includes(command.type)
@@ -639,7 +660,9 @@ async function handleWecomRemoteCommand(payload, text, ai) {
     if (settings.allowFileDelivery && settings.allowAuthorizedFiles && settings.authorizedFolders.length) scopes.push("向绑定账号回传单个指定文件");
     if (settings.allowedMcpTools.length) scopes.push(`${settings.allowedMcpTools.length} 个远程只读 MCP 工具`);
     await replyWecomPayload(payload, [
-      "远程任务尚未开始，请核对：",
+      command.naturalLanguage
+        ? "已将这句话识别为远程任务，但尚未执行，请核对："
+        : "远程任务尚未开始，请核对：",
       command.goal,
       attachmentContext ? "已附带本条企微消息中的文件或图片资料。" : "",
       "",
@@ -657,7 +680,7 @@ async function handleWecomRemoteCommand(payload, text, ai) {
     const key = wecomRemoteDraftKey(payload);
     const draft = drafts[key];
     if (!draft || (command.code && draft.code !== command.code) || draft.fromUserId !== fromUserId || draft.expiresAt <= Date.now()) {
-      await replyWecomPayload(payload, "没有找到对应的待确认任务，验证码可能已过期或已使用。请重新发送 /任务 任务内容。");
+      await replyWecomPayload(payload, "没有找到对应的待确认任务，验证码可能已过期或已使用。请重新发送原来的明确任务内容，或使用 /任务 任务内容。");
       return true;
     }
     delete drafts[key];

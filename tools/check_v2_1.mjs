@@ -103,6 +103,17 @@ vm.runInNewContext(remoteJs, sandbox, { filename: "kardii-wecom-remote.js" });
 const remote = sandbox.window.KardiiWecomRemote;
 assert(remote.parseCommand("普通聊天") === null, "普通聊天被错误识别为远程命令");
 assert(remote.parseCommand("/任务 搜索公开资料").goal === "搜索公开资料", "/任务 解析失败");
+assert(remote.parseNaturalRemoteTask("把我电脑上的报价单.xlsx发给我").intent === "file_delivery", "自然语言文件回传任务识别失败");
+assert(remote.parseNaturalRemoteTask("把我电脑上的Q3-2026.xlsx发给我").intent === "file_delivery", "无空格文件名的自然语言回传识别失败");
+assert(remote.parseNaturalRemoteTask("帮我查找本机里的项目报告.docx").intent === "file_read", "自然语言文件查找任务识别失败");
+assert(remote.parseNaturalRemoteTask("读取授权目录里的周报并总结").intent === "file_read", "自然语言文件读取任务识别失败");
+for (const text of ["普通聊天", "报价单.xlsx 是什么格式", "怎么把电脑上的文件发给我", "请给我写一份报价单.xlsx", "帮我发送一封邮件"]) {
+  assert(remote.parseNaturalRemoteTask(text) === null, `普通消息被错误识别为自然语言远程任务：${text}`);
+}
+assert(remote.naturalTaskAllowed({ enabled: true, ownerUserId: "owner", fromUserId: "owner", chatType: "single" }), "绑定账号私聊无法创建自然语言任务草稿");
+assert(!remote.naturalTaskAllowed({ enabled: true, ownerUserId: "owner", fromUserId: "other", chatType: "single" }), "未绑定账号可能创建自然语言任务草稿");
+assert(!remote.naturalTaskAllowed({ enabled: true, ownerUserId: "owner", fromUserId: "owner", chatType: "group" }), "群聊可能创建自然语言任务草稿");
+assert(!remote.naturalTaskAllowed({ enabled: false, ownerUserId: "owner", fromUserId: "owner", chatType: "single" }), "关闭远程 Agent 后仍可能创建自然语言任务草稿");
 assert(remote.parseCommand("／状态").type === "status", "全角斜杠命令解析失败");
 assert(remote.parseCommand("/授权").type === "authorization", "/授权 解析失败");
 assert(remote.parseCommand("/确认").type === "confirm", "简化的 /确认 解析失败");
@@ -146,6 +157,10 @@ assert(remote.actionViolation(mcpSource, { tool: "mcp_call", arguments: { server
 for (const tool of ["memory_search", "browser_read", "browser_action", "read_file", "read_clipboard", "write_clipboard", "open_url", "run_terminal"]) {
   assert(remote.actionViolation({ ...source, allowKnowledge: true, allowWecomDocuments: true }, { tool }), `高风险远程工具 ${tool} 没有被阻止`);
 }
+
+assert(mainJs.includes("parseNaturalRemoteTask(text)") && mainJs.includes("naturalTaskAllowed({"), "自然语言任务没有在主入口强制限制为绑定私聊");
+assert(mainJs.includes('naturalCommand?.intent === "file_delivery"') && mainJs.includes("!settings.allowFileDelivery"), "自然语言文件回传没有检查电脑端独立授权");
+assert(mainJs.includes("已将这句话识别为远程任务，但尚未执行") && mainJs.includes("5 分钟内发送：/确认"), "自然语言任务可能绕过二次确认");
 
 assert(readme.includes("v2.1 手机企微远程 Agent") && readme.includes("`/确认`") && readme.includes("`/模型 DeepSeek`") && readme.includes("授权目录只读") && readme.includes("只读 MCP"), "README 缺少 v2.1 远程使用说明");
 assert(capabilities.includes("手机企微远程 Agent") && capabilities.includes("逐工具 MCP 只读白名单") && capabilities.includes("不带任务码的一次性 /确认"), "Kardii 功能认知缺少 v2.1 远程能力");
