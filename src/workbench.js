@@ -102,6 +102,7 @@ const seedData = {
     wecomBotId: "",
     wecomBotEnabled: false,
     wecomBotModel: "inherit",
+    wecomBotLastAutoModel: "",
     wecomBotResponseMode: "fast",
     wecomRemoteAgentEnabled: false,
     wecomRemoteOwnerUserId: "",
@@ -579,9 +580,12 @@ function loadData() {
         wecomDocumentsConnected: saved.settings?.wecomDocumentsConnected === true,
         wecomBotId: typeof saved.settings?.wecomBotId === "string" ? saved.settings.wecomBotId.trim().slice(0, 256) : "",
         wecomBotEnabled: saved.settings?.wecomBotEnabled === true,
-        wecomBotModel: ["inherit", "gemini-flash-lite", "deepseek-flash", "codex", "gemini-flash", "ollama-current"].includes(saved.settings?.wecomBotModel)
+        wecomBotModel: ["auto", "inherit", "gemini-flash-lite", "deepseek-flash", "codex", "gemini-flash", "ollama-current"].includes(saved.settings?.wecomBotModel)
           ? saved.settings.wecomBotModel
           : "inherit",
+        wecomBotLastAutoModel: ["gemini-flash-lite", "deepseek-flash", "codex", "gemini-flash", "ollama-current"].includes(saved.settings?.wecomBotLastAutoModel)
+          ? saved.settings.wecomBotLastAutoModel
+          : "",
         wecomBotResponseMode: saved.settings?.wecomBotResponseMode === "complete" ? "complete" : "fast",
         wecomRemoteAgentEnabled: saved.settings?.wecomRemoteAgentEnabled === true,
         wecomRemoteOwnerUserId: typeof saved.settings?.wecomRemoteOwnerUserId === "string"
@@ -5409,6 +5413,9 @@ window.addEventListener("storage", (event) => {
     data = loadData();
     editingEmailAccountId = data.settings.activeEmailAccountId || "";
     editingMcpServerId = data.settings.activeMcpServerId || "";
+    wecomBotIdInput.value = data.settings.wecomBotId || "";
+    wecomBotModelSelect.value = data.settings.wecomBotModel || "inherit";
+    wecomBotResponseModeSelect.value = data.settings.wecomBotResponseMode || "fast";
     loadEmailConnectionForm();
     loadCloudConnectionForms();
     loadMcpConnectionForm();

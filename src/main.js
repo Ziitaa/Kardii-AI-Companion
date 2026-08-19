@@ -44,6 +44,7 @@ const wecomMessageQueues = new Map();
 const wecomRemoteStreams = new Map();
 
 const WECOM_MODEL_OPTIONS = Object.freeze({
+  auto: { label: "自动选择", aliases: ["自动", "智能", "auto", "automatic"] },
   inherit: { label: "跟随桌面模型", aliases: ["跟随", "桌面", "inherit", "desktop"] },
   "gemini-flash-lite": { label: "Gemini 3.1 Flash Lite", aliases: ["gemini lite", "gemini-flash-lite", "lite"] },
   "deepseek-flash": { label: "DeepSeek V4 Flash", aliases: ["deepseek", "deepseek flash", "deepseek-flash"] },
@@ -61,10 +62,10 @@ function storedJson(key, fallback) {
   }
 }
 
-function wecomAiConfig() {
+function desktopWecomAiConfig() {
   const settings = storedJson(AI_SETTINGS_KEY, {});
   const desktopProvider = ["deepseek", "gemini", "ollama", "codex"].includes(settings.provider) ? settings.provider : "deepseek";
-  const desktop = {
+  return {
     provider: desktopProvider,
     model: desktopProvider === "deepseek"
       ? "deepseek-v4-flash"
@@ -73,19 +74,26 @@ function wecomAiConfig() {
         : desktopProvider === "codex" ? "codex-default" : String(settings.ollamaModel || "").slice(0, 120),
     ollamaBaseUrl: String(settings.ollamaBaseUrl || "http://127.0.0.1:11434").slice(0, 200),
   };
-  const business = storedJson(BUSINESS_DATA_KEY, {});
-  const selected = String(business?.settings?.wecomBotModel || "inherit");
+}
+
+function wecomAiConfigForOption(option) {
+  const settings = storedJson(AI_SETTINGS_KEY, {});
+  const desktop = desktopWecomAiConfig();
   const dedicated = {
     "deepseek-flash": { provider: "deepseek", model: "deepseek-v4-flash" },
     "gemini-flash-lite": { provider: "gemini", model: "gemini-3.1-flash-lite" },
     "gemini-flash": { provider: "gemini", model: "gemini-3.5-flash" },
     codex: { provider: "codex", model: "codex-default" },
     "ollama-current": { provider: "ollama", model: String(settings.ollamaModel || "").slice(0, 120) },
-  }[selected];
+  }[option];
   return dedicated ? {
     ...dedicated,
     ollamaBaseUrl: desktop.ollamaBaseUrl,
   } : desktop;
+}
+
+function wecomAiConfig() {
+  return wecomAiConfigForOption(currentWecomModelOption());
 }
 
 function currentWecomModelOption() {
@@ -101,16 +109,51 @@ function matchWecomModelOption(value) {
 }
 
 async function wecomModelOptionAvailable(option) {
-  if (["inherit", "ollama-current"].includes(option)) {
-    const settings = storedJson(AI_SETTINGS_KEY, {});
-    return option !== "ollama-current" || Boolean(String(settings.ollamaModel || "").trim());
+  if (option === "auto") {
+    for (const candidate of window.KardiiWecomRemote.automaticModelOrder()) {
+      if (await wecomModelOptionAvailable(candidate)) return true;
+    }
+    return false;
   }
-  if (option === "codex") {
-    const status = await invoke("get_codex_status");
-    return status?.installed === true && status?.authenticated === true;
+  if (option === "inherit") return true;
+  try {
+    if (option === "ollama-current") {
+      const settings = storedJson(AI_SETTINGS_KEY, {});
+      return Boolean(String(settings.ollamaModel || "").trim());
+    }
+    if (option === "codex") {
+      const status = await invoke("get_codex_status");
+      return status?.installed === true && status?.authenticated === true;
+    }
+    const provider = option.startsWith("gemini") ? "gemini" : "deepseek";
+    return await invoke("has_provider_key", { provider }) === true;
+  } catch {
+    return false;
   }
-  const provider = option.startsWith("gemini") ? "gemini" : "deepseek";
-  return invoke("has_provider_key", { provider });
+}
+
+function wecomAiLabel(ai = {}) {
+  if (ai.provider === "codex") return "Codex";
+  if (ai.provider === "deepseek") return "DeepSeek V4 Flash";
+  if (ai.provider === "gemini") {
+    return ai.model === "gemini-3.5-flash" ? "Gemini 3.5 Flash" : "Gemini 3.1 Flash Lite";
+  }
+  if (ai.provider === "ollama") {
+    return ai.model ? `Ollama · ${String(ai.model).slice(0, 80)}` : "Ollama";
+  }
+  return "桌面模型";
+}
+
+async function resolveWecomAiConfig({ text = "", attachments = [], remoteTask = false } = {}) {
+  if (currentWecomModelOption() !== "auto") return wecomAiConfig();
+  const order = window.KardiiWecomRemote.automaticModelOrder({ text, attachments, remoteTask });
+  for (const option of order) {
+    if (!(await wecomModelOptionAvailable(option))) continue;
+    updateWecomBusinessSettings({ wecomBotLastAutoModel: option });
+    return { ...wecomAiConfigForOption(option), automaticOption: option };
+  }
+  const fallback = desktopWecomAiConfig();
+  return { ...fallback, automaticOption: "inherit", automaticUnavailable: true };
 }
 
 function wecomResponseConfig() {
@@ -221,6 +264,41 @@ function remoteStatusLabel(status) {
   }[status] || "未知状态";
 }
 
+function safeWecomAuthorizationName(value, fallback) {
+  const clean = String(value || "")
+    .replace(/\bhttps?:\/\/\S+/gi, "[地址已隐藏]")
+    .replace(/\b(?:sk|AIza)[-_A-Za-z0-9]{12,}\b/g, "[凭据已隐藏]")
+    .replace(/\beyJ[A-Za-z0-9_-]{12,}(?:\.[A-Za-z0-9_-]+){1,2}\b/g, "[凭据已隐藏]")
+    .replace(/[A-Z]:\\[^\r\n]+/gi, "[路径已隐藏]")
+    .replace(/(^|\s)\/(?:Users|home|var|etc|opt|mnt|Volumes)\/\S+/gi, "$1[路径已隐藏]")
+    .replace(/[\r\n\t]+/g, " ")
+    .trim()
+    .slice(0, 120);
+  return clean || fallback;
+}
+
+function wecomAuthorizedFolderNames(settings) {
+  if (!settings.allowAuthorizedFiles) return [];
+  return settings.authorizedFolders.map((folder, index) => {
+    const name = String(folder.name || "").replace(/\\/g, "/").split("/").filter(Boolean).pop();
+    return safeWecomAuthorizationName(name, `授权目录 ${index + 1}`);
+  });
+}
+
+function wecomAuthorizedMcpNames(settings) {
+  const servers = Array.isArray(wecomBusinessData()?.settings?.mcpServers)
+    ? wecomBusinessData().settings.mcpServers
+    : [];
+  return settings.allowedMcpTools.map((key, index) => {
+    const separator = key.indexOf("::");
+    const serverId = separator >= 0 ? key.slice(0, separator) : "";
+    const toolName = separator >= 0 ? key.slice(separator + 2) : "";
+    const server = servers.find((item) => String(item?.serverId || "") === serverId);
+    const serverName = safeWecomAuthorizationName(server?.name || server?.serverName, "MCP 服务器");
+    return `${serverName} / ${safeWecomAuthorizationName(toolName, `只读工具 ${index + 1}`)}`;
+  });
+}
+
 function wecomRemoteHelp() {
   return [
     "Kardii 手机远程 Agent 命令：",
@@ -228,6 +306,7 @@ function wecomRemoteHelp() {
     "/任务 要完成的事 — 生成待确认任务",
     "/确认 — 二次确认最近一项待开始任务",
     "/模型 — 查看或切换企微专用模型",
+    "/授权 — 查看脱敏后的远程只读授权范围",
     "/状态 — 查看电脑在线和最近任务",
     "/结果 任务码 — 取回任务结果",
     "/回答 任务码 补充内容 — 回答 Agent 的问题",
@@ -339,11 +418,12 @@ async function closeWecomRemoteStream(taskCode, content) {
   } catch { /* the original WeCom response window may already be closed */ }
 }
 
-async function startWecomRemoteStream(payload, command, task = null) {
+async function startWecomRemoteStream(payload, command, task = null, ai = wecomAiConfig()) {
   const remoteRequestId = crypto.randomUUID();
+  const modelLabel = wecomAiLabel(ai);
   const streamId = await replyWecomPayload(payload, task
     ? `已收到补充，Kardii 正在继续远程任务 ${command.code}…`
-    : `任务 ${command.code} 已确认，Kardii 正在这台电脑上制定安全只读计划…`, { finish: false });
+    : `任务 ${command.code} 已确认，Kardii 正在这台电脑上使用 ${modelLabel} 制定安全只读计划…`, { finish: false });
   const stream = {
     messageId: String(payload.messageId || ""),
     requestId: String(payload.requestId || ""),
@@ -375,7 +455,7 @@ async function startWecomRemoteStream(payload, command, task = null) {
         allowAuthorizedFiles: settings.allowAuthorizedFiles,
         authorizedFolders: settings.authorizedFolders,
         allowedMcpTools: settings.allowedMcpTools,
-        ai: wecomAiConfig(),
+        ai,
       });
     }
   } catch (error) {
@@ -430,8 +510,19 @@ async function handleWecomRemoteCommand(payload, text, ai) {
     await replyWecomPayload(payload, "这个账号没有绑定到此 Kardii，远程命令已拒绝。");
     return true;
   }
+  const commandAi = ["task", "answer"].includes(command.type)
+    ? await resolveWecomAiConfig({
+      text,
+      attachments: payload.attachments,
+      remoteTask: true,
+    })
+    : ai || wecomAiConfig();
+  if (commandAi.automaticUnavailable) {
+    await replyWecomPayload(payload, "自动模式没有找到已配置或已登录的可用模型。请先在电脑 Kardii 配置模型，或发送 /模型 切换。");
+    return true;
+  }
   const attachment = ["task", "answer"].includes(command.type)
-    ? await prepareWecomAttachments(payload, text, ai)
+    ? await prepareWecomAttachments(payload, text, commandAi)
     : { context: "" };
   const attachmentContext = attachment.context;
 
@@ -441,7 +532,8 @@ async function handleWecomRemoteCommand(payload, text, ai) {
       await replyWecomPayload(payload, [
         `当前企微专用模型：${WECOM_MODEL_OPTIONS[current].label}`,
         "",
-        "可发送：/模型 跟随、/模型 DeepSeek、/模型 Gemini、/模型 Gemini Lite、/模型 Codex 或 /模型 Ollama",
+        "可发送：/模型 自动、/模型 跟随、/模型 DeepSeek、/模型 Gemini、/模型 Gemini Lite、/模型 Codex 或 /模型 Ollama",
+        "自动模式按固定规则选择：图片、复杂分析和远程任务优先强模型，短问答优先快速模型。",
         "只切换电脑上已经配置好的模型，不会通过企微接收 API Key。",
       ].join("\n"));
       return true;
@@ -456,7 +548,29 @@ async function handleWecomRemoteCommand(payload, text, ai) {
       return true;
     }
     updateWecomBusinessSettings({ wecomBotModel: selected });
-    await replyWecomPayload(payload, `企微专用模型已切换为：${WECOM_MODEL_OPTIONS[selected].label}\n之后的新消息和新任务会使用该模型。`);
+    await replyWecomPayload(payload, selected === "auto"
+      ? "企微专用模型已切换为：自动选择。之后会按消息类型从电脑端已配置的模型中选择，并在回复中说明实际使用的模型。"
+      : `企微专用模型已切换为：${WECOM_MODEL_OPTIONS[selected].label}\n之后的新消息和新任务会使用该模型。`);
+    return true;
+  }
+
+  if (command.type === "authorization") {
+    const folders = wecomAuthorizedFolderNames(settings);
+    const mcpTools = wecomAuthorizedMcpNames(settings);
+    await replyWecomPayload(payload, [
+      "Kardii 远程 Agent 授权（名称已脱敏）",
+      "公开网页搜索：允许，仅隔离搜索，不控制桌面浏览器",
+      `Kardii 知识库：${settings.allowKnowledge ? "允许只读" : "未授权"}`,
+      `企业微信文档：${settings.allowWecomDocuments ? "允许搜索和只读" : "未授权"}`,
+      "",
+      "授权目录：",
+      ...(folders.length ? folders.map((name) => `- ${name}`) : ["- 未授权"]),
+      "",
+      "只读 MCP 工具：",
+      ...(mcpTools.length ? mcpTools.map((name) => `- ${name}`) : ["- 未授权"]),
+      "",
+      "始终禁止：终端、剪贴板、桌面浏览器控制、私人长期记忆、文件或文档写入、删除、付款和购买。",
+    ].join("\n"));
     return true;
   }
 
@@ -468,9 +582,15 @@ async function handleWecomRemoteCommand(payload, text, ai) {
     const taskLines = tasks.length ? tasks.map((task) => (
       `${task.remoteSource.taskCode} · ${remoteStatusLabel(task.status)} · ${String(task.title || task.goal || "远程任务").slice(0, 48)}`
     )) : ["暂无远程任务"];
+    const currentModel = currentWecomModelOption();
+    const lastAutoModel = String(wecomBusinessData()?.settings?.wecomBotLastAutoModel || "");
+    const modelStatus = currentModel === "auto"
+      ? `自动选择${WECOM_MODEL_OPTIONS[lastAutoModel] ? ` · 最近使用 ${WECOM_MODEL_OPTIONS[lastAutoModel].label}` : ""}`
+      : WECOM_MODEL_OPTIONS[currentModel].label;
     await replyWecomPayload(payload, [
       "Kardii 电脑在线，企业微信连接正常。",
-      `安全范围：公开网页${settings.allowKnowledge ? "、Kardii 知识库只读" : ""}${settings.allowWecomDocuments ? "、企微文档只读" : ""}${settings.allowAuthorizedFiles ? "、授权目录只读" : ""}${settings.allowedMcpTools.length ? `、${settings.allowedMcpTools.length} 个只读 MCP 工具` : ""}`,
+      `企微模型：${modelStatus}`,
+      `安全范围：公开网页${settings.allowKnowledge ? "、Kardii 知识库只读" : ""}${settings.allowWecomDocuments ? "、企微文档只读" : ""}${settings.allowAuthorizedFiles && settings.authorizedFolders.length ? "、授权目录只读" : ""}${settings.allowedMcpTools.length ? `、${settings.allowedMcpTools.length} 个只读 MCP 工具` : ""}`,
       "",
       ...taskLines,
     ].join("\n"));
@@ -493,6 +613,11 @@ async function handleWecomRemoteCommand(payload, text, ai) {
       fromUserId,
       conversationKey: String(payload.conversationKey || ""),
       expiresAt: Date.now() + 5 * 60_000,
+      ai: {
+        provider: commandAi.provider,
+        model: commandAi.model,
+        ollamaBaseUrl: commandAi.ollamaBaseUrl,
+      },
     };
     saveWecomRemoteDrafts(drafts);
     const scopes = ["公开网页搜索"];
@@ -506,6 +631,7 @@ async function handleWecomRemoteCommand(payload, text, ai) {
       attachmentContext ? "已附带本条企微消息中的文件或图片资料。" : "",
       "",
       `任务编号：${code}`,
+      `本次模型：${wecomAiLabel(commandAi)}${currentWecomModelOption() === "auto" ? "（自动选择）" : ""}`,
       `允许范围：${scopes.join("、")}`,
       "禁止：终端、剪贴板、浏览器控制、私人记忆和任何写入。",
       "5 分钟内发送：/确认",
@@ -523,7 +649,15 @@ async function handleWecomRemoteCommand(payload, text, ai) {
     }
     delete drafts[key];
     saveWecomRemoteDrafts(drafts);
-    await startWecomRemoteStream(payload, { ...command, code: draft.code, goal: String(draft.goal || "").slice(0, 4_000) });
+    const draftAi = draft.ai?.provider
+      ? window.KardiiWecomRemote.normalizeSource({ ai: draft.ai }).ai
+      : commandAi;
+    await startWecomRemoteStream(
+      payload,
+      { ...command, code: draft.code, goal: String(draft.goal || "").slice(0, 4_000) },
+      null,
+      draftAi,
+    );
     return true;
   }
 
@@ -536,7 +670,7 @@ async function handleWecomRemoteCommand(payload, text, ai) {
     await startWecomRemoteStream(payload, {
       ...command,
       answer: [command.answer, attachmentContext].filter(Boolean).join("\n\n").slice(0, 4_000),
-    }, task);
+    }, task, commandAi);
     return true;
   }
 
@@ -629,8 +763,13 @@ async function handleWecomMessage(payload = {}) {
   const conversationKey = String(payload.conversationKey || "single:unknown").slice(0, 300);
   const text = String(payload.text || "").trim().slice(0, 4_000);
   if (!messageId || !requestId || (!text && !Array.isArray(payload.attachments))) return;
-  const ai = wecomAiConfig();
-  if (text && await handleWecomRemoteCommand(payload, text, ai)) return;
+  if (text && await handleWecomRemoteCommand(payload, text, null)) return;
+  const ai = await resolveWecomAiConfig({ text, attachments: payload.attachments });
+  if (ai.automaticUnavailable) {
+    await replyWecomPayload(payload, "自动模式没有找到已配置或已登录的可用模型。请先在电脑 Kardii 配置模型，或由绑定用户发送 /模型 切换。");
+    return;
+  }
+  const automaticModel = currentWecomModelOption() === "auto" && Boolean(ai.automaticOption);
   const attachment = await prepareWecomAttachments(payload, text, ai);
   const historyEpoch = localStorage.getItem(WECOM_HISTORY_EPOCH_KEY) || "";
   const histories = loadWecomHistories();
@@ -658,13 +797,15 @@ async function handleWecomMessage(payload = {}) {
   };
 
   try {
-    streamId = await invoke("reply_wecom_message", {
+    const initialReply = {
       messageId,
       requestId,
       content: "Kardii 正在思考…",
       streamId: null,
       finish: false,
-    });
+    };
+    if (automaticModel) initialReply.content = `Kardii 正在思考（自动选择：${wecomAiLabel(ai)}）…`;
+    streamId = await invoke("reply_wecom_message", initialReply);
     lastIntermediateAt = Date.now();
     if (ai.provider === "ollama" && !ai.model) throw new Error("本机 Ollama 尚未选择模型");
     const channel = new Channel();
@@ -697,10 +838,13 @@ async function handleWecomMessage(payload = {}) {
     answer = answer.trim();
     if (!answer) throw new Error("Kardii 没有生成可发送到企业微信的回复");
     await streamQueue;
+    const deliveredAnswer = automaticModel
+      ? `${answer}\n\n使用模型：${wecomAiLabel(ai)}（自动选择）`
+      : answer;
     await invoke("reply_wecom_message", {
       messageId,
       requestId,
-      content: answer,
+      content: deliveredAnswer,
       streamId,
       finish: true,
     });

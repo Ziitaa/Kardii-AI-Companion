@@ -28,6 +28,7 @@
     const aliases = {
       "帮助": "help", help: "help",
       "状态": "status", status: "status",
+      "授权": "authorization", authorization: "authorization", permissions: "authorization",
       "绑定": "bind", bind: "bind",
       "任务": "task", agent: "task", task: "task",
       "确认": "confirm", confirm: "confirm",
@@ -38,7 +39,7 @@
     };
     const type = aliases[name];
     if (!type) return { type: "invalid", error: "未知命令，请发送 /帮助 查看可用命令。" };
-    if (["help", "status"].includes(type)) return argument
+    if (["help", "status", "authorization"].includes(type)) return argument
       ? { type: "invalid", error: `/${name} 后面不需要其他内容。` }
       : { type };
     if (type === "model") return { type, model: argument.slice(0, 80) };
@@ -83,6 +84,27 @@
       pairingCode: cleanCode(value.wecomRemotePairingCode),
       pairingExpiresAt: Math.max(0, Number(value.wecomRemotePairingExpiresAt) || 0),
     };
+  }
+
+  function automaticModelOrder(value = {}) {
+    const text = String(value.text || "").trim();
+    const attachments = Array.isArray(value.attachments) ? value.attachments : [];
+    const hasImage = attachments.some((item) => {
+      const mimeType = String(item?.mimeType || "").toLowerCase();
+      const name = String(item?.name || "").toLowerCase();
+      return mimeType.startsWith("image/") || /\.(?:avif|bmp|gif|jpe?g|png|webp)$/.test(name);
+    });
+    const needsStrongerReasoning = value.remoteTask === true
+      || attachments.length > 0
+      || text.length >= 600
+      || /代码|编程|调试|报错|架构|分析|规划|研究|报告|长文档|对比|推理|code|debug|architecture|analy[sz]e|plan|research|report/i.test(text);
+    if (hasImage) {
+      return ["codex", "gemini-flash", "gemini-flash-lite"];
+    }
+    if (needsStrongerReasoning) {
+      return ["codex", "gemini-flash", "deepseek-flash", "gemini-flash-lite", "ollama-current"];
+    }
+    return ["deepseek-flash", "gemini-flash-lite", "gemini-flash", "codex", "ollama-current"];
   }
 
   function normalizeSource(value = {}) {
@@ -166,6 +188,7 @@
     cleanCode,
     createCode,
     parseCommand,
+    automaticModelOrder,
     normalizeSettings,
     normalizeSource,
     actionViolation,

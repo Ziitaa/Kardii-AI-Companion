@@ -65,14 +65,19 @@ assert(!workbenchJs.includes("wecomRemotePairingCode: \"\""), "一次性绑定�
 for (const event of ["kardii-wecom-remote-start", "kardii-wecom-remote-answer", "kardii-wecom-remote-cancel", "kardii-wecom-remote-update"]) {
   assert(mainJs.includes(event) || agentJs.includes(event), `企微远程事件缺少 ${event}`);
 }
-assert(mainJs.includes("await handleWecomRemoteCommand(payload, text, ai)"), "企微远程命令没有在普通聊天前分流");
-assert(mainJs.indexOf('settings.ownerUserId !== fromUserId') < mainJs.indexOf('await prepareWecomAttachments(payload, text, ai)', mainJs.indexOf('async function handleWecomRemoteCommand')), "远程命令附件在绑定账号校验前被处理");
+assert(mainJs.includes("await handleWecomRemoteCommand(payload, text, null)"), "企微远程命令没有在普通聊天前分流");
+assert(mainJs.indexOf('settings.ownerUserId !== fromUserId') < mainJs.indexOf('await prepareWecomAttachments(payload, text, commandAi)', mainJs.indexOf('async function handleWecomRemoteCommand')), "远程命令附件在绑定账号校验前被处理");
+assert(mainJs.indexOf('settings.ownerUserId !== fromUserId') < mainJs.indexOf('await resolveWecomAiConfig({', mainJs.indexOf('async function handleWecomRemoteCommand')), "远程命令在绑定账号校验前读取了模型配置");
 assert(mainJs.includes("settings.ownerUserId !== fromUserId"), "企微远程命令没有绑定账号校验");
 assert(mainJs.includes('String(payload.chatType || "single") === "single"'), "企微远程命令没有限制为私聊");
 assert(mainJs.includes("Date.now() + 5 * 60_000"), "任务二次确认草稿没有 5 分钟有效期");
 assert(mainJs.includes("wecomRemoteStreams") && mainJs.includes("/结果"), "远程结果回传或补取入口缺失");
 assert(mainJs.includes("activeCount >= 3"), "远程任务没有并发数量上限");
-assert(mainJs.includes("wecomModelOptionAvailable") && mainJs.includes("/模型 DeepSeek") && mainJs.includes("/模型 Codex"), "企微模型切换入口缺失");
+assert(mainJs.includes("wecomModelOptionAvailable") && mainJs.includes("/模型 自动") && mainJs.includes("/模型 DeepSeek") && mainJs.includes("/模型 Codex"), "企微模型切换入口缺失");
+assert(mainJs.includes("resolveWecomAiConfig") && mainJs.includes("wecomBotLastAutoModel") && mainJs.includes("使用模型："), "企微自动模型路由或实际模型提示缺失");
+assert(workbenchHtml.includes('<option value="auto">') && workbenchJs.includes('["auto", "inherit"'), "工作台缺少企微自动模型选项");
+assert(workbenchJs.includes('wecomBotModelSelect.value = data.settings.wecomBotModel || "inherit"'), "企微远程模型切换没有同步到工作台");
+assert(mainJs.includes('command.type === "authorization"') && mainJs.includes("wecomAuthorizedFolderNames") && mainJs.includes("wecomAuthorizedMcpNames"), "企微脱敏授权清单缺失");
 assert(mainJs.includes("prepareWecomAttachments") && mainJs.includes("replyWecomFile"), "企微附件处理或文件回复入口缺失");
 assert(mainJs.includes("attachmentImages: attachment.images") && libRs.includes('"type": "image"'), "企微图片没有通过安全图像输入传给 Codex");
 assert(mainJs.includes("wecomAiFailure(error)"), "企微 AI 失败时没有返回可诊断的脱敏原因");
@@ -95,15 +100,21 @@ const remote = sandbox.window.KardiiWecomRemote;
 assert(remote.parseCommand("普通聊天") === null, "普通聊天被错误识别为远程命令");
 assert(remote.parseCommand("/任务 搜索公开资料").goal === "搜索公开资料", "/任务 解析失败");
 assert(remote.parseCommand("／状态").type === "status", "全角斜杠命令解析失败");
+assert(remote.parseCommand("/授权").type === "authorization", "/授权 解析失败");
 assert(remote.parseCommand("/确认").type === "confirm", "简化的 /确认 解析失败");
 assert(remote.parseCommand("/确认 A2B3C4").type === "confirm", "/确认 解析失败");
 assert(remote.parseCommand("/模型 Codex").model === "Codex", "/模型 解析失败");
+assert(remote.parseCommand("/模型 自动").model === "自动", "/模型 自动解析失败");
 assert(remote.parseCommand("/回答 A2B3C4 继续比较第二份资料").answer === "继续比较第二份资料", "/回答 解析失败");
 assert(remote.parseCommand("/结果 A2B3C4").type === "result", "/结果 解析失败");
 assert(remote.parseCommand("/取消").type === "cancel", "取消待确认草稿解析失败");
 assert(remote.parseCommand("/确认 123").type === "invalid", "无效验证码没有被拒绝");
 const generated = remote.createCode({ getRandomValues(bytes) { bytes.set([1, 2, 3, 4, 5, 6]); return bytes; } });
 assert(/^[2-9A-HJ-NP-Z]{6}$/.test(generated), "生成的绑定码格式不安全或难辨认");
+assert(remote.automaticModelOrder({ attachments: [{ mimeType: "image/png" }] })[0] === "codex", "图片消息没有优先选择视觉强模型");
+assert(!remote.automaticModelOrder({ attachments: [{ mimeType: "image/png" }] }).includes("deepseek-flash"), "图片消息可能自动切换到不支持视觉的模型");
+assert(remote.automaticModelOrder({ text: "请分析这份复杂报告" })[0] === "codex", "复杂分析没有优先选择强模型");
+assert(remote.automaticModelOrder({ text: "你好" })[0] === "deepseek-flash", "短问答没有优先选择快速模型");
 
 const source = {
   taskCode: "A2B3C4",
