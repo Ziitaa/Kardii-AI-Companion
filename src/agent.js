@@ -224,14 +224,16 @@ function agentToolContext(task = null) {
           "web_search",
           remoteSource.allowKnowledge ? "knowledge_search" : "",
           remoteSource.allowWecomDocuments ? "wecom_document.search/read" : "",
-          remoteSource.allowAuthorizedFiles && remoteSource.authorizedFolders.length ? "authorized_file.search/read" : "",
+          remoteSource.allowAuthorizedFiles && remoteSource.authorizedFolders.length
+            ? `authorized_file.search/read${remoteSource.allowFileDelivery ? "/send_one" : ""}`
+            : "",
           tools.length ? "allowlisted_mcp_call.read_only" : "",
           "ask_user",
           "finish",
         ].filter(Boolean),
-        blocked: ["memory_search", "browser_read/action", "unregistered_file", "clipboard", "terminal", "external_write", "non_allowlisted_mcp"],
+        blocked: ["memory_search", "browser_read/action", "unregistered_file", "folder_or_bulk_delivery", "clipboard", "terminal", "external_write", "non_allowlisted_mcp"],
       },
-      policy: "这是已绑定企微账号二次确认发起的远程任务。只能使用 remotePolicy.allowed；授权目录只允许搜索和读取，MCP 只允许电脑端逐项加入白名单且后端再次验证为只读的工具。不得读取私人长期记忆，不得操作浏览器、剪贴板或终端，不得创建、修改或删除任何内容。",
+      policy: "这是已绑定企微账号二次确认发起的远程任务。只能使用 remotePolicy.allowed；授权目录只允许搜索和读取。仅当 send_one 已列出时，才可按用户明确目标向当前绑定账号回传一个匹配文件。禁止发送目录、批量文件、压缩包、可执行文件或未授权文件。MCP 只允许电脑端逐项加入白名单且后端再次验证为只读的工具。不得读取私人长期记忆，不得操作浏览器、剪贴板或终端，不得创建、修改或删除任何内容。",
     };
   }
   return {
@@ -667,6 +669,13 @@ function normalizeTask(value) {
     authorizationGrantedAt: String(value?.authorizationGrantedAt || ""),
     question: String(value?.question || "").slice(0, 4_000),
     finalAnswer: String(value?.finalAnswer || "").slice(0, 100_000),
+    remoteDelivery: remoteSource && value?.remoteDelivery && typeof value.remoteDelivery === "object"
+      ? {
+        folderId: String(value.remoteDelivery.folderId || "").slice(0, 100),
+        relativePath: String(value.remoteDelivery.relativePath || "").slice(0, 1_000),
+        name: String(value.remoteDelivery.name || "").slice(0, 120),
+      }
+      : null,
     error: String(value?.error || "").slice(0, 4_000),
     skillId: String(value?.skillId || ""),
     skillName: String(value?.skillName || "").slice(0, 80),
@@ -780,6 +789,7 @@ function notifyBackgroundTask(task, status, message) {
       message: String(message || STATUS_LABELS[task.status] || "任务有新进展").slice(0, 4_000),
       question: String(task.question || "").slice(0, 4_000),
       finalAnswer: String(task.finalAnswer || "").slice(0, 50_000),
+      delivery: status === "completed" && task.remoteDelivery ? task.remoteDelivery : null,
       error: String(task.error || "").slice(0, 4_000),
     }).catch(() => {});
   }
@@ -886,11 +896,14 @@ function contextSummary(task = null) {
     if (task.remoteSource.allowAuthorizedFiles && task.remoteSource.authorizedFolders.length) {
       scopes.push(`桌面授权目录只读（${task.remoteSource.authorizedFolders.map((item) => item.name).join("、")}）`);
     }
+    if (task.remoteSource.allowFileDelivery && task.remoteSource.allowAuthorizedFiles) {
+      scopes.push("向当前绑定账号回传一个明确指定文件");
+    }
     if (task.remoteSource.allowedMcpTools.length) scopes.push(`${task.remoteSource.allowedMcpTools.length} 个逐项授权的只读 MCP 工具`);
     return [
       "这是从已绑定企业微信账号私聊发起，并已在手机端使用 /确认 二次确认的远程任务。",
       `本任务唯一允许范围：${scopes.join("、")}、向用户提问、完成总结。`,
-      "除电脑端预先登记的授权目录外，禁止读取本机文件；禁止私人长期记忆、剪贴板、桌面浏览器和终端；MCP 只能调用电脑端逐项勾选且后端实时验证为只读的工具。禁止创建、修改、删除、发送、上传或发布任何内容。",
+      `除电脑端预先登记的授权目录外，禁止读取本机文件；禁止私人长期记忆、剪贴板、桌面浏览器和终端；MCP 只能调用电脑端逐项勾选且后端实时验证为只读的工具。禁止创建、修改、删除、发布或上传任何内容${task.remoteSource.allowFileDelivery ? "；唯一发送例外是用户在本任务中明确要求的一个授权目录原文件" : "；当前也禁止发送文件"}。`,
       "如果目标必须超出范围，不要请求远程授权；应明确说明只能回到桌面 Kardii 继续。",
     ].join("\n");
   }
@@ -1587,7 +1600,18 @@ async function executeAutomaticTool(action, citationGroup = 1, task = null) {
         result.warning ? `\n提示：${result.warning}` : "",
       ].filter(Boolean).join("\n");
     }
-    throw new Error("授权目录只支持 search 和 read。 ");
+    if (mode === "send") {
+      if (!source.allowFileDelivery) throw new Error("电脑端没有开启向绑定企微账号发送指定文件的权限。");
+      if (task.remoteDelivery) throw new Error("每个远程任务最多发送一个文件，请为其他文件新建任务并再次确认。");
+      const folderId = String(args.folderId || "");
+      const relativePath = String(args.relativePath || "").trim();
+      if (!folderIds.includes(folderId)) throw new Error("目标目录不在本任务的桌面授权范围中。");
+      if (!relativePath) throw new Error("Agent 没有使用搜索结果中的真实相对路径。");
+      const name = relativePath.replace(/\\/g, "/").split("/").filter(Boolean).pop() || "Kardii-file";
+      task.remoteDelivery = { folderId, relativePath: relativePath.slice(0, 1_000), name: name.slice(0, 120) };
+      return `已准备向当前绑定企微账号发送一个文件：${name}。请直接使用 finish 完成任务，不要再选择其他文件。`;
+    }
+    throw new Error("授权目录只支持 search、read 和 send。 ");
   }
   if (action.tool === "mcp_call") {
     const tool = connectedMcpTools().find((item) => item.serverId === String(args.serverId || "")
@@ -2075,6 +2099,7 @@ async function startWecomRemoteTask(payload = {}) {
       allowKnowledge: payload.allowKnowledge === true && settings.allowKnowledge,
       allowWecomDocuments: payload.allowWecomDocuments === true && settings.allowWecomDocuments,
       allowAuthorizedFiles: payload.allowAuthorizedFiles === true && settings.allowAuthorizedFiles,
+      allowFileDelivery: payload.allowFileDelivery === true && settings.allowFileDelivery,
       authorizedFolders: settings.authorizedFolders,
       allowedMcpTools: settings.allowedMcpTools,
       ai: payload.ai,
@@ -2114,6 +2139,7 @@ async function answerWecomRemoteTask(payload = {}) {
   task.remoteSource.allowKnowledge = settings.allowKnowledge;
   task.remoteSource.allowWecomDocuments = settings.allowWecomDocuments;
   task.remoteSource.allowAuthorizedFiles = settings.allowAuthorizedFiles;
+  task.remoteSource.allowFileDelivery = settings.allowFileDelivery;
   task.remoteSource.authorizedFolders = settings.authorizedFolders;
   task.remoteSource.allowedMcpTools = settings.allowedMcpTools;
   const action = task.currentAction || { tool: "ask_user", title: "询问用户", arguments: { question: task.question } };
@@ -2161,11 +2187,13 @@ function enforceWecomRemoteSettings() {
     if (task.remoteSource.allowKnowledge !== settings.allowKnowledge
       || task.remoteSource.allowWecomDocuments !== settings.allowWecomDocuments
       || task.remoteSource.allowAuthorizedFiles !== settings.allowAuthorizedFiles
+      || task.remoteSource.allowFileDelivery !== settings.allowFileDelivery
       || JSON.stringify(task.remoteSource.authorizedFolders) !== JSON.stringify(settings.authorizedFolders)
       || JSON.stringify(task.remoteSource.allowedMcpTools) !== JSON.stringify(settings.allowedMcpTools)) {
       task.remoteSource.allowKnowledge = settings.allowKnowledge;
       task.remoteSource.allowWecomDocuments = settings.allowWecomDocuments;
       task.remoteSource.allowAuthorizedFiles = settings.allowAuthorizedFiles;
+      task.remoteSource.allowFileDelivery = settings.allowFileDelivery;
       task.remoteSource.authorizedFolders = settings.authorizedFolders;
       task.remoteSource.allowedMcpTools = settings.allowedMcpTools;
       addActivity(task, "system", "远程只读范围已更新", "后续步骤将使用最新桌面设置。 ");

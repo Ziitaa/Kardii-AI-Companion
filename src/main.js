@@ -345,6 +345,16 @@ async function replyWecomFile(payload, filename, content) {
   });
 }
 
+async function replyWecomPreparedMedia(payload, media) {
+  return invoke("reply_wecom_media", {
+    messageId: String(payload.messageId || ""),
+    requestId: String(payload.requestId || ""),
+    mediaType: media.mediaType === "image" ? "image" : "file",
+    filename: String(media.filename || "Kardii-file").slice(0, 120),
+    dataBase64: String(media.dataBase64 || ""),
+  });
+}
+
 async function prepareWecomAttachments(payload, question, ai) {
   const attachments = Array.isArray(payload.attachments) ? payload.attachments.slice(0, 6) : [];
   if (!attachments.length) return { context: "", names: [], images: [] };
@@ -453,6 +463,7 @@ async function startWecomRemoteStream(payload, command, task = null, ai = wecomA
         allowKnowledge: settings.allowKnowledge,
         allowWecomDocuments: settings.allowWecomDocuments,
         allowAuthorizedFiles: settings.allowAuthorizedFiles,
+        allowFileDelivery: settings.allowFileDelivery,
         authorizedFolders: settings.authorizedFolders,
         allowedMcpTools: settings.allowedMcpTools,
         ai,
@@ -562,6 +573,7 @@ async function handleWecomRemoteCommand(payload, text, ai) {
       "公开网页搜索：允许，仅隔离搜索，不控制桌面浏览器",
       `Kardii 知识库：${settings.allowKnowledge ? "允许只读" : "未授权"}`,
       `企业微信文档：${settings.allowWecomDocuments ? "允许搜索和只读" : "未授权"}`,
+      `指定文件回传：${settings.allowFileDelivery && settings.allowAuthorizedFiles ? "允许，仅发送授权目录中的单个文件" : "未授权"}`,
       "",
       "授权目录：",
       ...(folders.length ? folders.map((name) => `- ${name}`) : ["- 未授权"]),
@@ -590,7 +602,7 @@ async function handleWecomRemoteCommand(payload, text, ai) {
     await replyWecomPayload(payload, [
       "Kardii 电脑在线，企业微信连接正常。",
       `企微模型：${modelStatus}`,
-      `安全范围：公开网页${settings.allowKnowledge ? "、Kardii 知识库只读" : ""}${settings.allowWecomDocuments ? "、企微文档只读" : ""}${settings.allowAuthorizedFiles && settings.authorizedFolders.length ? "、授权目录只读" : ""}${settings.allowedMcpTools.length ? `、${settings.allowedMcpTools.length} 个只读 MCP 工具` : ""}`,
+      `安全范围：公开网页${settings.allowKnowledge ? "、Kardii 知识库只读" : ""}${settings.allowWecomDocuments ? "、企微文档只读" : ""}${settings.allowAuthorizedFiles && settings.authorizedFolders.length ? "、授权目录只读" : ""}${settings.allowFileDelivery && settings.allowAuthorizedFiles ? "、指定文件可回传" : ""}${settings.allowedMcpTools.length ? `、${settings.allowedMcpTools.length} 个只读 MCP 工具` : ""}`,
       "",
       ...taskLines,
     ].join("\n"));
@@ -624,6 +636,7 @@ async function handleWecomRemoteCommand(payload, text, ai) {
     if (settings.allowKnowledge) scopes.push("Kardii 知识库只读");
     if (settings.allowWecomDocuments) scopes.push("企微文档只读");
     if (settings.allowAuthorizedFiles && settings.authorizedFolders.length) scopes.push("授权目录只读");
+    if (settings.allowFileDelivery && settings.allowAuthorizedFiles && settings.authorizedFolders.length) scopes.push("向绑定账号回传单个指定文件");
     if (settings.allowedMcpTools.length) scopes.push(`${settings.allowedMcpTools.length} 个远程只读 MCP 工具`);
     await replyWecomPayload(payload, [
       "远程任务尚未开始，请核对：",
@@ -741,8 +754,38 @@ async function handleWecomRemoteUpdate(payload = {}) {
     finish = true;
     content += `\n\n需要你的回答：${String(payload.question || payload.message || "请补充信息。")}\n\n请发送：/回答 ${taskCode} 你的补充内容`;
   } else if (status === "completed") {
-    finish = true;
-    content += `\n\n${String(payload.finalAnswer || "任务已经完成。")}\n\n如需再次获取，可发送：/结果 ${taskCode}`;
+    const delivery = payload.delivery && typeof payload.delivery === "object" ? payload.delivery : null;
+    if (delivery) {
+      try {
+        const settings = wecomRemoteSettings();
+        const folderId = String(delivery.folderId || "");
+        if (!settings.enabled || !settings.allowAuthorizedFiles || !settings.allowFileDelivery
+          || !settings.authorizedFolders.some((folder) => folder.id === folderId)) {
+          throw new Error("电脑端文件回传授权已经关闭或目标目录已取消授权");
+        }
+        await replyWecomPayload(stream, `任务 ${taskCode} 已找到文件，正在安全上传到当前绑定账号…`, {
+          streamId: stream.streamId,
+          finish: false,
+        });
+        const media = await invoke("prepare_wecom_remote_outbound_file", {
+          folderId,
+          relativePath: String(delivery.relativePath || ""),
+        });
+        await replyWecomPreparedMedia(stream, media);
+        wecomRemoteStreams.delete(remoteRequestId);
+        return;
+      } catch (error) {
+        finish = true;
+        const detail = String(error || "")
+          .replace(/[A-Z]:\\[^\r\n]+/gi, "[本机路径]")
+          .trim()
+          .slice(0, 500);
+        content += `\n\n任务已经完成，但文件发送失败：${detail || "请确认电脑端授权和文件状态后重试。"}`;
+      }
+    } else {
+      finish = true;
+      content += `\n\n${String(payload.finalAnswer || "任务已经完成。")}\n\n如需再次获取，可发送：/结果 ${taskCode}`;
+    }
   } else if (["failed", "cancelled", "paused", "waiting_authorization", "waiting_permission"].includes(status)) {
     finish = true;
     content += `\n\n${String(payload.error || payload.message || "任务已停止。")}\n\n安全范围外的操作只能回到桌面 Kardii 处理。`;

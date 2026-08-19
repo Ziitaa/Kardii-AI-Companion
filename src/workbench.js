@@ -109,6 +109,7 @@ const seedData = {
     wecomRemoteAllowKnowledge: false,
     wecomRemoteAllowDocuments: false,
     wecomRemoteAllowAuthorizedFiles: false,
+    wecomRemoteAllowFileDelivery: false,
     wecomRemoteAuthorizedFolders: [],
     wecomRemoteAllowedMcpTools: [],
     dailyBriefReminderEnabled: false,
@@ -313,6 +314,7 @@ const wecomRemoteAgentEnabledInput = document.getElementById("wecomRemoteAgentEn
 const wecomRemoteKnowledgeInput = document.getElementById("wecomRemoteKnowledgeInput");
 const wecomRemoteDocumentsInput = document.getElementById("wecomRemoteDocumentsInput");
 const wecomRemoteFilesInput = document.getElementById("wecomRemoteFilesInput");
+const wecomRemoteFileDeliveryInput = document.getElementById("wecomRemoteFileDeliveryInput");
 const wecomRemoteFolderList = document.getElementById("wecomRemoteFolderList");
 const addWecomRemoteFolderButton = document.getElementById("addWecomRemoteFolderButton");
 const wecomRemoteMcpList = document.getElementById("wecomRemoteMcpList");
@@ -594,6 +596,7 @@ function loadData() {
         wecomRemoteAllowKnowledge: saved.settings?.wecomRemoteAllowKnowledge === true,
         wecomRemoteAllowDocuments: saved.settings?.wecomRemoteAllowDocuments === true,
         wecomRemoteAllowAuthorizedFiles: saved.settings?.wecomRemoteAllowAuthorizedFiles === true,
+        wecomRemoteAllowFileDelivery: saved.settings?.wecomRemoteAllowFileDelivery === true,
         wecomRemoteAuthorizedFolders: Array.isArray(saved.settings?.wecomRemoteAuthorizedFolders)
           ? saved.settings.wecomRemoteAuthorizedFolders.filter((item) => item && typeof item === "object").slice(0, 8).map((item) => ({
             id: String(item.id || "").slice(0, 100),
@@ -2327,9 +2330,11 @@ function renderWecomRemoteAgent() {
   wecomRemoteKnowledgeInput.checked = settings.allowKnowledge;
   wecomRemoteDocumentsInput.checked = settings.allowWecomDocuments;
   wecomRemoteFilesInput.checked = settings.allowAuthorizedFiles;
+  wecomRemoteFileDeliveryInput.checked = settings.allowFileDelivery;
   wecomRemoteKnowledgeInput.disabled = !settings.enabled;
   wecomRemoteDocumentsInput.disabled = !settings.enabled;
   wecomRemoteFilesInput.disabled = !settings.enabled || !settings.authorizedFolders.length;
+  wecomRemoteFileDeliveryInput.disabled = !settings.enabled || !settings.allowAuthorizedFiles || !settings.authorizedFolders.length;
   addWecomRemoteFolderButton.disabled = !settings.enabled;
   wecomRemoteFolderList.innerHTML = wecomRemoteFolderRegistry.length
     ? wecomRemoteFolderRegistry.map((folder) => `<div><span><strong>${escapeHtml(folder.name)}</strong><small>${escapeHtml(folder.path || "")}</small></span><button type="button" data-remove-wecom-folder="${escapeHtml(folder.id)}" title="移除目录授权">×</button></div>`).join("")
@@ -2360,6 +2365,7 @@ function renderWecomRemoteAgent() {
     if (settings.allowKnowledge) scopes.push("Kardii 知识库只读");
     if (settings.allowWecomDocuments) scopes.push("企微文档只读");
     if (settings.allowAuthorizedFiles && settings.authorizedFolders.length) scopes.push(`${settings.authorizedFolders.length} 个授权目录只读`);
+    if (settings.allowFileDelivery && settings.allowAuthorizedFiles && settings.authorizedFolders.length) scopes.push("指定文件可回传绑定账号");
     if (settings.allowedMcpTools.length) scopes.push(`${settings.allowedMcpTools.length} 个 MCP 工具只读`);
     setWecomStatus(wecomRemoteAgentStatus, `远程 Agent 已就绪 · 允许：${scopes.join("、")}`, "success");
   } else if (pairingActive) {
@@ -5282,6 +5288,11 @@ wecomRemoteDocumentsInput.addEventListener("change", () => {
 });
 wecomRemoteFilesInput.addEventListener("change", () => {
   updateWecomRemoteSetting("wecomRemoteAllowAuthorizedFiles", wecomRemoteFilesInput.checked);
+  if (!wecomRemoteFilesInput.checked) updateWecomRemoteSetting("wecomRemoteAllowFileDelivery", false);
+  renderWecomRemoteAgent();
+});
+wecomRemoteFileDeliveryInput.addEventListener("change", () => {
+  updateWecomRemoteSetting("wecomRemoteAllowFileDelivery", wecomRemoteFileDeliveryInput.checked);
 });
 addWecomRemoteFolderButton.addEventListener("click", addWecomRemoteFolder);
 wecomRemoteFolderList.addEventListener("click", (event) => {

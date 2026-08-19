@@ -43,7 +43,7 @@ assert(packageJson.scripts["test:v2.1"] === "node tools/check_v2_1.mjs", "v2.1 �
 
 for (const id of [
   "wecomRemoteAgentEnabledInput", "wecomRemoteKnowledgeInput", "wecomRemoteDocumentsInput",
-  "wecomRemoteFilesInput", "wecomRemoteFolderList", "addWecomRemoteFolderButton", "wecomRemoteMcpList",
+  "wecomRemoteFilesInput", "wecomRemoteFileDeliveryInput", "wecomRemoteFolderList", "addWecomRemoteFolderButton", "wecomRemoteMcpList",
   "wecomRemoteOwnerLabel", "wecomRemotePairingCode", "generateWecomRemotePairingButton",
   "copyWecomRemotePairingButton", "unbindWecomRemoteOwnerButton", "wecomRemoteAgentStatus",
 ]) {
@@ -79,10 +79,13 @@ assert(workbenchHtml.includes('<option value="auto">') && workbenchJs.includes('
 assert(workbenchJs.includes('wecomBotModelSelect.value = data.settings.wecomBotModel || "inherit"'), "企微远程模型切换没有同步到工作台");
 assert(mainJs.includes('command.type === "authorization"') && mainJs.includes("wecomAuthorizedFolderNames") && mainJs.includes("wecomAuthorizedMcpNames"), "企微脱敏授权清单缺失");
 assert(mainJs.includes("prepareWecomAttachments") && mainJs.includes("replyWecomFile"), "企微附件处理或文件回复入口缺失");
+assert(mainJs.includes("replyWecomPreparedMedia") && mainJs.includes("prepare_wecom_remote_outbound_file"), "企微远程原始文件回传入口缺失");
 assert(mainJs.includes("attachmentImages: attachment.images") && libRs.includes('"type": "image"'), "企微图片没有通过安全图像输入传给 Codex");
 assert(mainJs.includes("wecomAiFailure(error)"), "企微 AI 失败时没有返回可诊断的脱敏原因");
 
 assert(agentJs.includes("disableSkills: true"), "企微远程任务可能自动套用桌面自定义技能");
+assert(agentJs.includes("authorized_file.search/read${remoteSource.allowFileDelivery ? \"/send_one\" : \"\"}"), "企微远程文件发送没有显式白名单范围");
+assert(agentJs.includes("每个远程任务最多发送一个文件") && agentJs.includes("task.remoteDelivery"), "企微远程文件发送没有单文件限制");
 assert(agentJs.includes("window.KardiiWecomRemote.actionViolation(task.remoteSource, action)"), "Agent 执行前没有强制远程白名单");
 assert(agentJs.includes("远程动作被安全策略阻止"), "远程动作拦截没有记录原因");
 assert(agentJs.includes("enforceWecomRemoteSettings()"), "关闭或变更桌面远程设置后没有立即收紧任务");
@@ -92,6 +95,7 @@ assert(agentJs.includes("task.remoteSource.authorizedFolders = settings.authoriz
 assert(agentJs.includes("task.remoteSource.allowedMcpTools = settings.allowedMcpTools"), "运行中的远程任务没有应用最新 MCP 白名单");
 assert(agentJs.includes('arguments: argumentsValue, allowWrite: false'), "远程 MCP 调用没有在后端强制只读");
 assert(libRs.includes("validated_wecom_remote_relative_path") && libRs.includes("canonical.starts_with(&root)"), "授权目录读取缺少路径穿越或目录逃逸防护");
+assert(libRs.includes("prepare_wecom_remote_outbound_file") && libRs.includes("supported_wecom_remote_file(&canonical)"), "企微远程原始文件发送缺少后端目录和格式校验");
 assert(wecomRs.includes("decrypt_wecom_attachment") && wecomRs.includes("reply_wecom_media"), "企微附件解密或媒体回复后端缺失");
 
 const sandbox = { window: {}, Uint8Array };
@@ -133,6 +137,9 @@ const fileSource = { ...source, allowAuthorizedFiles: true, authorizedFolders: [
 assert(remote.actionViolation(fileSource, { tool: "authorized_file", arguments: { action: "search" } }) === "", "授权目录搜索被错误阻止");
 assert(remote.actionViolation(fileSource, { tool: "authorized_file", arguments: { action: "read", folderId: "folder-1" } }) === "", "授权目录读取被错误阻止");
 assert(remote.actionViolation(fileSource, { tool: "authorized_file", arguments: { action: "read", folderId: "folder-2" } }).includes("不在"), "未授权目录读取没有被阻止");
+assert(remote.actionViolation(fileSource, { tool: "authorized_file", arguments: { action: "send", folderId: "folder-1" } }).includes("没有开启"), "未单独授权的文件发送没有被阻止");
+assert(remote.actionViolation({ ...fileSource, allowFileDelivery: true }, { tool: "authorized_file", arguments: { action: "send", folderId: "folder-1" } }) === "", "已授权的单文件回传被错误阻止");
+assert(remote.actionViolation({ ...fileSource, allowFileDelivery: true }, { tool: "authorized_file", arguments: { action: "send", folderId: "folder-2" } }).includes("不在"), "未授权目录文件发送没有被阻止");
 const mcpSource = { ...source, allowedMcpTools: ["server-1::lookup"] };
 assert(remote.actionViolation(mcpSource, { tool: "mcp_call", arguments: { serverId: "server-1", toolName: "lookup" } }) === "", "白名单只读 MCP 被错误阻止");
 assert(remote.actionViolation(mcpSource, { tool: "mcp_call", arguments: { serverId: "server-1", toolName: "write" } }).includes("白名单"), "非白名单 MCP 没有被阻止");

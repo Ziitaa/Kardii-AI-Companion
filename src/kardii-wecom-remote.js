@@ -72,6 +72,7 @@
       allowKnowledge: value.wecomRemoteAllowKnowledge === true,
       allowWecomDocuments: value.wecomRemoteAllowDocuments === true,
       allowAuthorizedFiles: value.wecomRemoteAllowAuthorizedFiles === true,
+      allowFileDelivery: value.wecomRemoteAllowFileDelivery === true && value.wecomRemoteAllowAuthorizedFiles === true,
       allowedMcpTools: Array.isArray(value.wecomRemoteAllowedMcpTools)
         ? [...new Set(value.wecomRemoteAllowedMcpTools.map((item) => String(item || "").trim()).filter(Boolean))].slice(0, 80)
         : [],
@@ -117,6 +118,7 @@
       allowKnowledge: value.allowKnowledge === true,
       allowWecomDocuments: value.allowWecomDocuments === true,
       allowAuthorizedFiles: value.allowAuthorizedFiles === true,
+      allowFileDelivery: value.allowFileDelivery === true && value.allowAuthorizedFiles === true,
       allowedMcpTools: Array.isArray(value.allowedMcpTools)
         ? [...new Set(value.allowedMcpTools.map((item) => String(item || "").trim()).filter(Boolean))].slice(0, 80)
         : [],
@@ -152,8 +154,11 @@
         return "这个远程任务没有获得读取桌面授权目录的权限。";
       }
       const mode = String(action.arguments?.action || "").toLowerCase();
-      if (!["search", "read"].includes(mode)) return "企微远程授权目录只允许搜索和读取。";
-      if (mode === "read") {
+      if (!["search", "read", "send"].includes(mode)) return "企微远程授权目录只允许搜索、读取和发送单个明确文件。";
+      if (mode === "send" && !source.allowFileDelivery) {
+        return "电脑端没有开启向绑定企微账号发送指定文件的权限。";
+      }
+      if (["read", "send"].includes(mode)) {
         const folderId = String(action.arguments?.folderId || "");
         if (!source.authorizedFolders.some((folder) => folder.id === folderId)) {
           return "目标目录不在这个企微远程任务的授权范围中。";

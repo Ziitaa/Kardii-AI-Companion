@@ -514,6 +514,7 @@
                         <label><input id="wecomRemoteKnowledgeInput" type="checkbox"> 允许只读检索 Kardii 知识库</label>
                         <label><input id="wecomRemoteDocumentsInput" type="checkbox"> 允许只读搜索和读取企微文档</label>
                         <label><input id="wecomRemoteFilesInput" type="checkbox"> 允许读取电脑端预先授权的目录</label>
+                        <label><input id="wecomRemoteFileDeliveryInput" type="checkbox"> 允许向绑定账号发送单个指定文件</label>
                       </div>
                       <div class="wecom-remote-access-block">
                         <div class="wecom-remote-access-heading"><strong>授权目录 · 只读</strong><button id="addWecomRemoteFolderButton" class="ghost-action" type="button">选择目录</button></div>
@@ -530,7 +531,7 @@
                         <button id="generateWecomRemotePairingButton" class="outline-button" type="button">生成绑定码</button>
                       </div>
                       <p id="wecomRemoteAgentStatus" class="connection-status">开启后先在这里生成 6 位码，再到机器人私聊发送“/绑定 绑定码”。</p>
-                      <p class="connection-help">绑定后可发送 /任务、/确认、/模型、/授权、/状态、/结果、/回答 和 /取消。终端、剪贴板、浏览器控制、私人长期记忆及任何写入始终禁止；目录和 MCP 只在电脑端逐项授权后只读开放。</p>
+                      <p class="connection-help">绑定后可发送 /任务、/确认、/模型、/授权、/状态、/结果、/回答 和 /取消。文件发送需单独开启，只能从授权目录向绑定账号回传单个指定文件；终端、剪贴板、浏览器控制、私人长期记忆及任何写入始终禁止。</p>
                     </section>
                     <div class="connection-actions full">
                       <button id="stopWecomBotButton" class="delete-action" type="button" disabled>停止</button>
