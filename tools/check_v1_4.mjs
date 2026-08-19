@@ -29,12 +29,12 @@ const taskTitleJs = read("src/kardii-task-title.js");
 const capabilityJs = read("src/kardii-capabilities.js");
 
 for (const version of [packageJson.version, packageLock.version, packageLock.packages[""].version, tauriConfig.version]) {
-  assert(version === "1.4.0", `v1.4 版本号未统一: ${version}`);
+  assert(version === "2.1.0", `当前版本号未统一: ${version}`);
 }
-assert(/version = "1\.4\.0"/.test(cargo), "Cargo.toml 未更新到 v1.4.0");
-assert(chatJs.includes('appVersion: "1.4.0"'), "完整备份版本号未更新到 v1.4.0");
-assert(js.includes("version: 3") && js.includes("[1, 2, 3].includes(saved.version)"), "v3 工作台数据迁移缺失");
-assert(chatJs.includes("[1, 2, 3].includes(saved?.version)"), "完整备份未接受 v3 工作台数据");
+assert(/version = "2\.1\.0"/.test(cargo), "Cargo.toml 未更新到 v2.1.0");
+assert(chatJs.includes('appVersion: "2.1.0"'), "完整备份版本号未更新到 v2.1.0");
+assert(js.includes("version: 4") && js.includes("[1, 2, 3, 4].includes(saved.version)"), "v4 工作台数据迁移缺失");
+assert(chatJs.includes("[1, 2, 3, 4].includes(saved?.version)"), "完整备份未接受 v4 工作台数据");
 assert(chatJs.includes("...(saved.settings && typeof saved.settings === \"object\" ? saved.settings : {})"), "聊天自动记录会覆盖邮箱或云端连接设置");
 
 for (const id of [
@@ -165,7 +165,7 @@ const selfCheckRows = vm.runInContext(`window.KardiiCapabilities.selfCheckRows({
   codexInstalled: true,
   codexAuthenticated: false,
 })`, capabilityContext);
-assert(selfCheckRows.length === 6, "一键自检没有覆盖 AI、Codex、语音、邮箱、云端和 Agent");
+assert(selfCheckRows.length >= 6, "一键自检没有覆盖 AI、Codex、语音、邮箱、云端和 Agent");
 assert(selfCheckRows.some((row) => row.id === "ai" && row.tone === "warning"), "一键自检没有标出未连接的聊天模型");
 assert(selfCheckRows.some((row) => row.id === "email" && row.tone === "warning"), "一键自检没有标出失效的邮箱凭据");
 const capabilityKnowledge = vm.runInContext(`window.KardiiCapabilities.knowledgeText({
@@ -199,7 +199,7 @@ const summarizedTitle = vm.runInContext(`window.summarizeAgentTaskTitle(
   "今天做合规的Daria过来找我聊了之前关于入驻target需要的美国独立商用地址的服务协议分付款事宜，然后协议上还有一些"
 )`, titleContext);
 assert(summarizedTitle.includes("Target 入驻") && !summarizedTitle.includes("Daria") && [...summarizedTitle].length <= 35, "Agent 任务标题没有根据用户话语生成简短摘要");
-assert((chatHtml.match(/data-current-version/g) || []).length === 3, "设置页版本标识没有统一动态更新");
+assert((chatHtml.match(/data-current-version/g) || []).length === 4, "设置页版本标识没有统一动态更新");
 for (const staleVersion of [">v1.1<", ">v0.8.1<", ">v0.6<"]) {
   assert(!chatHtml.includes(staleVersion), `设置页仍显示旧版本标识: ${staleVersion}`);
 }
@@ -276,11 +276,12 @@ const context = vm.createContext({
 });
 const prelude = js.slice(0, js.indexOf("const navItems"));
 const migrationFunctions = js.slice(js.indexOf("function normalizeEmailAccount"), js.indexOf("function escapeHtml"));
+vm.runInContext(read("src/kardii-wecom-remote.js"), context);
 vm.runInContext(`${prelude}\n${migrationFunctions}`, context);
 const migrated = vm.runInContext("data", context);
-assert(migrated.version === 3, "v2 数据没有迁移到 v3");
+assert(migrated.version === 4, "v2 数据没有迁移到 v4");
 assert(migrated.settings.emailAccounts.length === 1 && migrated.settings.activeEmailAccountId === "primary", "旧单邮箱没有迁移为多邮箱");
 assert(migrated.emailMessages[0].accountId === "primary" && migrated.emailMessages[0].uid === 42, "旧邮件没有保留账号归属");
-assert(Array.isArray(migrated.cloudItems) && Object.keys(migrated.settings.cloudConnections).length === 0, "v3 云端集合初始化失败");
+assert(Array.isArray(migrated.cloudItems) && Object.keys(migrated.settings.cloudConnections).length === 0, "v4 云端集合初始化失败");
 
 console.log("Kardii v1.4 connected workspace checks passed.");

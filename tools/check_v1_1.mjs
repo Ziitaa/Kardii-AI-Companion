@@ -1,12 +1,13 @@
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const assert = (condition, message) => {
   if (!condition) throw new Error(message);
 };
 
-execFileSync(process.execPath, [new URL("./check_v1.mjs", import.meta.url).pathname], { stdio: "inherit" });
+execFileSync(process.execPath, [fileURLToPath(new URL("./check_v1.mjs", import.meta.url))], { stdio: "inherit" });
 
 const rust = read("src-tauri/src/lib.rs");
 const cargo = read("src-tauri/Cargo.toml");
@@ -57,7 +58,7 @@ assert(agentJs.includes('const AUTOMATIONS_KEY = "kardii-automations-v1"'), "Aut
 assert(agentJs.includes('skillSnapshot'), "Tasks do not preserve skill snapshots");
 assert(agentJs.includes('setInterval(checkAutomations, 30_000)'), "Local automation scheduler is missing");
 assert(agentJs.includes('if (automation.autoStart) void planTask(task.id)'), "Automations cannot start Agent tasks");
-assert(agentJs.includes('if (advanceSchedule) void surfaceAgentWindow()'), "Due automations do not surface their saved task");
+assert(agentJs.includes('notifyBackgroundTask(task, "created"') && !agentJs.includes("surfaceAgentWindow"), "Due automations do not notify without stealing window focus");
 assert(agentJs.includes('PERMISSION_TOOLS.has(action.tool)'), "Automation path lost per-step permission gating");
 assert(chatJs.includes("agentSkills") && chatJs.includes("automations"), "Full backup does not include skills and automations");
 assert(chatHtml.includes("API Key 与 Codex 登录永远不会导出"), "Backup UI does not disclose credential exclusion");

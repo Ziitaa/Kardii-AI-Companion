@@ -30,6 +30,10 @@
             <span class="nav-icon">◇</span><span>项目库</span>
             <span id="projectNavCount" class="nav-count">0</span>
           </button>
+          <button class="nav-item" type="button" data-view="analysis">
+            <span class="nav-icon">✦</span><span>联合分析</span>
+            <span id="analysisNavCount" class="nav-count">0</span>
+          </button>
           <button class="nav-item" type="button" data-view="intelligence">
             <span class="nav-icon">◎</span><span>商业情报</span>
             <span id="intelligenceNavCount" class="nav-count">0</span>
@@ -202,6 +206,80 @@
             <div id="projectGrid" class="project-grid"></div>
           </section>
 
+          <section id="enterpriseAnalysisView" class="view" data-view-panel="analysis">
+            <div class="analysis-intro">
+              <div>
+                <span class="section-kicker">ENTERPRISE BRIEFING</span>
+                <h2>把分散资料整理成一份可核对的工作简报。</h2>
+                <p>按项目、关系和时间范围汇总工作台、邮件、云端概览、知识库、网站与当前聊天；事实保留 [S1] 来源编号，推断会单独标明。</p>
+              </div>
+              <button id="generateEnterpriseAnalysisButton" class="primary-button" type="button">✦ 生成联合分析</button>
+            </div>
+
+            <div class="analysis-control-grid">
+              <article class="analysis-control-card">
+                <span class="section-kicker">SCOPE</span>
+                <h3>分析范围</h3>
+                <label><span>项目</span><select id="analysisProjectSelect"><option value="">全部项目</option></select></label>
+                <label><span>关系对象</span><select id="analysisRelationSelect"><option value="">全部关系</option></select></label>
+                <label><span>时间范围</span><select id="analysisRangeSelect"><option value="7">最近 7 天</option><option value="30" selected>最近 30 天</option><option value="90">最近 90 天</option><option value="all">全部时间</option></select></label>
+                <label class="analysis-objective-field"><span>这次最想确认什么</span><textarea id="analysisObjective" rows="3" maxlength="1000" placeholder="例如：本周有哪些已确认承诺、阻塞风险和必须推进的下一步"></textarea></label>
+              </article>
+
+              <article class="analysis-control-card">
+                <span class="section-kicker">SOURCES</span>
+                <h3>资料来源</h3>
+                <div class="analysis-source-options">
+                  <label><input type="checkbox" data-analysis-source="workspace" checked><span><strong>项目与关系</strong><small>待办、活动、记录、成果</small></span></label>
+                  <label><input type="checkbox" data-analysis-source="email" checked><span><strong>邮件</strong><small>主题、发件人、正文摘要、附件名</small></span></label>
+                  <label><input type="checkbox" data-analysis-source="cloud" checked><span><strong>日历与云端</strong><small>Google / Microsoft 只读概览</small></span></label>
+                  <label><input type="checkbox" data-analysis-source="knowledge" checked><span><strong>知识库与网站</strong><small>已保存文件和多网页快照</small></span></label>
+                  <label><input type="checkbox" data-analysis-source="chat" checked><span><strong>当前聊天</strong><small>只加入当前会话，不混入其他话题</small></span></label>
+                </div>
+              </article>
+
+              <article class="analysis-control-card analysis-reminder-card">
+                <span class="section-kicker">DAILY BRIEF</span>
+                <h3>每日简报提醒</h3>
+                <p id="analysisSourceSummary">正在统计可用资料…</p>
+                <label class="analysis-reminder-toggle"><input id="dailyBriefReminderToggle" type="checkbox"><span><strong>每天提醒生成新简报</strong><small>仅在 Kardii 运行或下次打开时建立本机待办</small></span></label>
+                <label><span>提醒时间</span><input id="dailyBriefReminderTime" type="time" value="09:00"></label>
+                <small id="dailyBriefReminderStatus" class="analysis-reminder-status">不会在后台读取或发送任何企业资料。</small>
+              </article>
+            </div>
+
+            <p id="enterpriseAnalysisStatus" class="analysis-status">先选择范围和来源。Kardii 只会把本次选中的摘要片段交给当前 AI。</p>
+
+            <section id="enterpriseAnalysisDraft" class="analysis-draft hidden">
+              <div class="analysis-draft-heading">
+                <div><span class="section-kicker">REVIEW BEFORE SAVING</span><h3>可编辑分析草稿</h3></div>
+                <span id="enterpriseAnalysisEvidenceCount" class="analysis-evidence-count">0 个来源</span>
+              </div>
+              <div class="form-fields analysis-draft-fields">
+                <div class="form-field full"><label for="analysisDraftTitle">标题</label><input id="analysisDraftTitle" type="text" maxlength="160"></div>
+                <div class="form-field full"><label for="analysisDraftSummary">综合摘要</label><textarea id="analysisDraftSummary" rows="4"></textarea></div>
+                <div class="form-field"><label for="analysisDraftProgress">进展与已完成</label><textarea id="analysisDraftProgress" rows="6"></textarea></div>
+                <div class="form-field"><label for="analysisDraftCommitments">承诺、负责人和日期</label><textarea id="analysisDraftCommitments" rows="6"></textarea></div>
+                <div class="form-field"><label for="analysisDraftRisks">风险、阻塞与待确认</label><textarea id="analysisDraftRisks" rows="6"></textarea></div>
+                <div class="form-field"><label for="analysisDraftActions">下一步行动</label><textarea id="analysisDraftActions" rows="6"></textarea></div>
+                <div class="form-field full"><label for="analysisDraftDailyBrief">今日简报</label><textarea id="analysisDraftDailyBrief" rows="6"></textarea></div>
+                <div class="form-field full"><label for="analysisDraftEvidence">来源与判断说明</label><textarea id="analysisDraftEvidence" rows="5"></textarea></div>
+              </div>
+              <div id="enterpriseAnalysisSourceList" class="analysis-source-list"></div>
+              <div class="analysis-draft-actions">
+                <button id="copyDailyBriefButton" class="outline-button" type="button">复制今日简报</button>
+                <span class="modal-action-spacer"></span>
+                <button id="saveEnterpriseAnalysisButton" class="outline-button" type="button">保存分析</button>
+                <button id="saveEnterpriseTasksButton" class="primary-button" type="button">保存并生成待办</button>
+              </div>
+            </section>
+
+            <section class="analysis-history">
+              <div class="analysis-history-heading"><div><span class="section-kicker">HISTORY</span><h3>已保存简报</h3></div><span id="enterpriseAnalysisSummary">0 份分析</span></div>
+              <div id="enterpriseAnalysisGrid" class="analysis-history-grid"></div>
+            </section>
+          </section>
+
           <section id="intelligenceView" class="view" data-view-panel="intelligence">
             <div class="intelligence-intro">
               <div>
@@ -235,7 +313,10 @@
                 <h2>让文件、聊天记录与项目资料真正参与工作。</h2>
                 <p>支持 PDF、Word、PPT、Excel、图片与常见文本；先预览和编辑 AI 结论，再确认保存。</p>
               </div>
-              <button id="importKnowledgeButton" class="primary-button" type="button">＋ 导入文件</button>
+              <div class="knowledge-import-actions">
+                <button id="importWebsiteButton" class="outline-button" type="button">◎ 导入网站</button>
+                <button id="importKnowledgeButton" class="primary-button" type="button">＋ 导入文件</button>
+              </div>
             </div>
             <div class="toolbar knowledge-toolbar">
               <label class="search-box">
@@ -249,6 +330,7 @@
                 <option value="pptx">PPT</option>
                 <option value="xlsx">Excel</option>
                 <option value="image">图片</option>
+                <option value="web">网页</option>
                 <option value="text">文本 / 代码</option>
                 <option value="archived">已归档</option>
               </select>
@@ -256,6 +338,13 @@
             </div>
             <div class="knowledge-layout">
               <div class="knowledge-main">
+                <section id="websiteCollectionSection" class="website-collection-library">
+                  <div class="report-library-heading">
+                    <div><span class="section-kicker">WEBSITE COLLECTIONS</span><h3>多网页知识库</h3></div>
+                    <span id="websiteCollectionSummary">0 个网站集合</span>
+                  </div>
+                  <div id="websiteCollectionGrid" class="website-collection-grid"></div>
+                </section>
                 <section class="report-library">
                   <div class="report-library-heading">
                     <div><span class="section-kicker">EDITABLE RESULTS</span><h3>分析成果</h3></div>
@@ -284,10 +373,10 @@
             <div class="connections-intro">
               <div>
                 <span class="section-kicker">EXTERNAL CONNECTIONS</span>
-                <h2>把邮箱、日历与云盘变成 Kardii 的只读资料入口。</h2>
-                <p>IMAP 支持多个邮箱；Google 与 Microsoft 使用系统浏览器 OAuth。当前版本不会发送、删除、移动或标记邮件，也不会改写日历和云端文件。</p>
+                <h2>把浏览器、邮箱、日历与云盘变成 Kardii 的资料入口。</h2>
+                <p>浏览器只在你点击扩展后读取当前页。当前版本不会发送、删除、移动或标记邮件，也不会改写日历和云端文件；网页中的文字只会作为不可信资料，不会变成自动操作指令。</p>
               </div>
-              <span class="read-only-badge">只读连接</span>
+              <span class="read-only-badge">默认只读 · 写入确认</span>
             </div>
 
             <div class="connections-layout">
@@ -382,6 +471,199 @@
               </article>
             </div>
 
+            <article class="connection-card wecom-connection-card">
+              <div class="connection-card-heading">
+                <div><span class="connection-icon wecom-icon">企</span><span><strong>企业微信连接</strong><small id="wecomConnectionSummary">扫码连接文档；API 模式机器人接收聊天</small></span></div>
+                <span id="wecomConnectionBadge" class="connection-state disconnected">未连接</span>
+              </div>
+              <div class="wecom-connection-grid">
+                <section class="wecom-auth-panel">
+                  <span class="browser-panel-label">企业微信文档 · 扫码授权</span>
+                  <strong id="wecomDocumentAuthLabel">尚未授权</strong>
+                  <p>只能搜索当前账号有权访问的文档，包括大圆或同事创建并分享给你的文档；不会读取他人的私有文档或大圆的私有记忆。</p>
+                  <div class="connection-actions">
+                    <button id="disconnectWecomDocumentsButton" class="delete-action" type="button" disabled>断开</button>
+                    <span class="modal-action-spacer"></span>
+                    <button id="refreshWecomButton" class="outline-button" type="button">刷新</button>
+                    <button id="authorizeWecomButton" class="primary-button" type="button">扫码连接</button>
+                  </div>
+                  <div id="wecomQrPanel" class="wecom-qr-panel hidden">
+                    <img id="wecomQrImage" alt="企业微信扫码授权二维码">
+                    <div><strong>请使用企业微信扫码</strong><span id="wecomQrCountdown">二维码约 5 分钟内有效</span><button id="cancelWecomQrButton" class="ghost-action" type="button">取消扫码</button></div>
+                  </div>
+                  <p id="wecomDocumentStatus" class="connection-status">正式安装包会内置并校验企业微信官方 CLI 组件。</p>
+                </section>
+                <section class="wecom-bot-panel">
+                  <span class="browser-panel-label">在企业微信里和 Kardii 聊天</span>
+                  <form id="wecomBotForm" class="connection-form">
+                    <label class="form-field full"><span>API 模式智能机器人 Bot ID</span><input id="wecomBotIdInput" type="text" maxlength="256" spellcheck="false" placeholder="在企业微信智能机器人配置页获取"></label>
+                    <label class="form-field full"><span>Secret</span><input id="wecomBotSecretInput" type="password" maxlength="1024" autocomplete="new-password" placeholder="只保存到系统安全凭据库"></label>
+                    <label class="form-field"><span>企微专用模型</span><select id="wecomBotModelSelect"><option value="auto">自动选择（按任务类型）</option><option value="inherit">跟随桌面聊天模型</option><option value="gemini-flash-lite">Gemini 3.1 Flash Lite</option><option value="deepseek-flash">DeepSeek V4 Flash</option><option value="codex">Codex · ChatGPT 方案</option><option value="gemini-flash">Gemini 3.5 Flash</option><option value="ollama-current">当前 Ollama 模型</option></select></label>
+                    <label class="form-field"><span>回复模式</span><select id="wecomBotResponseModeSelect"><option value="fast">快速 · 更短上下文与回答</option><option value="complete">完整 · 更多上下文与细节</option></select></label>
+                    <p class="connection-help full">收到消息会立即显示“Kardii 正在思考…”，随后在同一条企微消息中流式更新。普通聊天始终不会带入桌面私人长期记忆，也不会自动执行 Agent；只有下面单独开启、绑定本人并用命令二次确认的远程任务才会进入安全只读 Agent。</p>
+                    <section class="wecom-remote-panel full" aria-labelledby="wecomRemoteAgentTitle">
+                      <div class="wecom-remote-heading">
+                        <div><strong id="wecomRemoteAgentTitle">手机远程 Agent</strong><span>默认关闭 · 仅绑定账号私聊 · 每个任务二次确认</span></div>
+                        <label class="wecom-remote-toggle"><input id="wecomRemoteAgentEnabledInput" type="checkbox"><span>启用</span></label>
+                      </div>
+                      <div class="wecom-remote-owner-row">
+                        <span id="wecomRemoteOwnerLabel">尚未绑定企微账号</span>
+                        <code id="wecomRemotePairingCode">未生成绑定码</code>
+                      </div>
+                      <div class="wecom-remote-scopes">
+                        <label><input id="wecomRemoteKnowledgeInput" type="checkbox"> 允许只读检索 Kardii 知识库</label>
+                        <label><input id="wecomRemoteDocumentsInput" type="checkbox"> 允许只读搜索和读取企微文档</label>
+                        <label><input id="wecomRemoteFilesInput" type="checkbox"> 允许读取电脑端预先授权的目录</label>
+                        <label><input id="wecomRemoteFileDeliveryInput" type="checkbox"> 允许向绑定账号发送单个指定文件</label>
+                      </div>
+                      <div class="wecom-remote-access-block">
+                        <div class="wecom-remote-access-heading"><strong>授权目录 · 只读</strong><button id="addWecomRemoteFolderButton" class="ghost-action" type="button">选择目录</button></div>
+                        <div id="wecomRemoteFolderList" class="wecom-remote-access-list"><span>尚未选择目录</span></div>
+                      </div>
+                      <div class="wecom-remote-access-block">
+                        <div class="wecom-remote-access-heading"><strong>MCP 白名单 · 只读</strong><span>仅显示已验证只读工具</span></div>
+                        <div id="wecomRemoteMcpList" class="wecom-remote-access-list"><span>尚无可加入白名单的工具</span></div>
+                      </div>
+                      <div class="connection-actions">
+                        <button id="unbindWecomRemoteOwnerButton" class="delete-action" type="button" disabled>解除绑定</button>
+                        <span class="modal-action-spacer"></span>
+                        <button id="copyWecomRemotePairingButton" class="ghost-action" type="button" disabled>复制绑定码</button>
+                        <button id="generateWecomRemotePairingButton" class="outline-button" type="button">生成绑定码</button>
+                      </div>
+                      <p id="wecomRemoteAgentStatus" class="connection-status">开启后先在这里生成 6 位码，再到机器人私聊发送“/绑定 绑定码”。</p>
+                      <p class="connection-help">绑定后可发送 /任务、/确认、/模型、/授权、/状态、/结果、/回答 和 /取消。文件发送需单独开启，只能从授权目录向绑定账号回传单个指定文件；终端、剪贴板、浏览器控制、私人长期记忆及任何写入始终禁止。</p>
+                    </section>
+                    <div class="connection-actions full">
+                      <button id="stopWecomBotButton" class="delete-action" type="button" disabled>停止</button>
+                      <button id="deleteWecomBotSecretButton" class="ghost-action danger" type="button">删除 Secret</button>
+                      <button id="clearWecomChatHistoryButton" class="ghost-action" type="button">清空聊天历史</button>
+                      <span class="modal-action-spacer"></span>
+                      <button id="saveWecomBotButton" class="primary-button" type="submit">保存并连接</button>
+                    </div>
+                    <p id="wecomBotStatus" class="connection-status full">需要在企业微信中创建“API 模式”智能机器人。</p>
+                  </form>
+                </section>
+              </div>
+              <section class="wecom-document-panel">
+                <div class="wecom-document-toolbar">
+                  <input id="wecomDocumentSearchInput" type="search" maxlength="200" placeholder="搜索标题或正文关键词，例如：项目周报">
+                  <button id="searchWecomDocumentsButton" class="outline-button" type="button" disabled>搜索文档</button>
+                </div>
+                <div class="wecom-document-layout">
+                  <div id="wecomDocumentResults" class="wecom-document-results"><p>扫码授权后，可以搜索当前账号有权访问的企微文档。</p></div>
+                  <div class="wecom-document-editor">
+                    <div class="wecom-document-selection">
+                      <strong id="wecomSelectedDocumentTitle">尚未选择文档</strong>
+                      <select id="wecomDocumentPageSelect" class="hidden" aria-label="选择智能文档页面"></select>
+                      <button id="openWecomDocumentButton" class="ghost-action" type="button" disabled>在企微打开</button>
+                      <button id="readWecomDocumentButton" class="outline-button" type="button" disabled>读取最新内容</button>
+                    </div>
+                    <pre id="wecomDocumentPreview" class="wecom-document-preview">读取后在这里显示最新内容；编辑框始终只放准备写入的新内容。</pre>
+                    <input id="wecomNewDocumentTitle" type="text" maxlength="120" placeholder="创建新智能文档时填写标题">
+                    <textarea id="wecomDocumentContentInput" rows="8" maxlength="120000" placeholder="输入要创建、追加或覆盖的 Markdown 内容；写入前会再次显示确认。"></textarea>
+                    <div class="connection-actions">
+                      <button id="overwriteWecomDocumentButton" class="delete-action" type="button" disabled>覆盖所选内容</button>
+                      <span class="modal-action-spacer"></span>
+                      <button id="appendWecomDocumentButton" class="outline-button" type="button" disabled>追加到所选文档</button>
+                      <button id="createWecomDocumentButton" class="primary-button" type="button" disabled>创建智能文档</button>
+                    </div>
+                    <p id="wecomDocumentEditorStatus" class="connection-status">搜索与读取不会修改文档；创建、追加和覆盖每次都要确认。</p>
+                  </div>
+                </div>
+              </section>
+            </article>
+
+            <article class="connection-card browser-connection-card">
+              <div class="connection-card-heading">
+                <div><span class="connection-icon browser-icon">◎</span><span><strong>Chrome / Edge 当前网页</strong><small id="browserConnectionSummary">连接扩展后，由你主动发送当前页</small></span></div>
+                <span id="browserConnectionBadge" class="connection-state disconnected">未启动</span>
+              </div>
+              <div class="browser-connection-layout">
+                <section class="browser-pairing-panel">
+                  <span class="browser-panel-label">本机安全配对</span>
+                  <div class="browser-pairing-code-row">
+                    <code id="browserPairingCode">------</code>
+                    <button id="copyBrowserPairingButton" class="outline-button" type="button">复制配对码</button>
+                  </div>
+                  <ol class="browser-install-steps">
+                    <li>启动连接并点击“打开扩展文件夹”。</li>
+                    <li>在 Chrome / Edge 扩展页开启开发者模式，加载这个文件夹。</li>
+                    <li>点击扩展图标，输入上面的 6 位配对码，再发送当前网页。</li>
+                  </ol>
+                  <div class="connection-actions browser-primary-actions">
+                    <button id="stopBrowserBridgeButton" class="delete-action" type="button">停止</button>
+                    <span class="modal-action-spacer"></span>
+                    <button id="openBrowserExtensionButton" class="outline-button" type="button">打开扩展文件夹</button>
+                    <button id="startBrowserBridgeButton" class="primary-button" type="button">启动连接</button>
+                  </div>
+                  <div class="connection-maintenance-actions">
+                    <button id="regenerateBrowserPairingButton" class="ghost-action" type="button">撤销旧扩展并生成新配对码</button>
+                    <button id="refreshBrowserButton" class="ghost-action" type="button">刷新状态</button>
+                  </div>
+                </section>
+                <section class="browser-page-panel">
+                  <div id="browserPagePreview" class="browser-page-preview empty">
+                    <span class="browser-panel-label">最近收到的网页</span>
+                    <strong id="browserPageTitle">等待你从扩展发送网页</strong>
+                    <a id="browserPageUrl" tabindex="-1"></a>
+                    <p id="browserPageMeta">不会持续监控，也不会读取 Cookie、密码、表单内容或其他标签页。</p>
+                  </div>
+                  <div class="browser-page-actions">
+                    <button id="clearBrowserPageButton" class="delete-action" type="button" disabled>清除</button>
+                    <span class="modal-action-spacer"></span>
+                    <button id="saveBrowserPageButton" class="outline-button" type="button" disabled>保存到知识库</button>
+                    <button id="sendBrowserPageToAgentButton" class="outline-button" type="button" disabled>交给 Agent</button>
+                    <button id="sendBrowserPageToChatButton" class="primary-button" type="button" disabled>发给聊天</button>
+                  </div>
+                </section>
+              </div>
+              <p id="browserConnectionStatus" class="connection-status">连接只监听本机 127.0.0.1，并使用一次配对产生的随机凭据。</p>
+            </article>
+
+            <article class="connection-card mcp-connection-card">
+              <div class="connection-card-heading">
+                <div><span class="connection-icon mcp-icon">⌘</span><span><strong>MCP 工具服务器 · HTTP</strong><small id="mcpConnectionSummary">添加支持 Streamable HTTP 的 MCP 服务器</small></span></div>
+                <span id="mcpConnectionBadge" class="connection-state disconnected">未连接</span>
+              </div>
+              <div class="mcp-connection-layout">
+                <section class="mcp-config-panel">
+                  <div class="connection-account-toolbar">
+                    <select id="mcpServerSelect" aria-label="选择 MCP 服务器"></select>
+                    <button id="newMcpServerButton" class="outline-button" type="button">＋ 添加服务器</button>
+                  </div>
+                  <form id="mcpConnectionForm" class="connection-form">
+                    <label class="form-field full"><span>连接名称</span><input id="mcpNameInput" type="text" maxlength="80" placeholder="例如：本机资料工具"></label>
+                    <label class="form-field full"><span>Streamable HTTP 地址</span><input id="mcpUrlInput" type="url" maxlength="2000" spellcheck="false" placeholder="http://127.0.0.1:3000/mcp 或 https://…"></label>
+                    <label class="form-field full"><span>Bearer Token（没有可留空）</span><input id="mcpTokenInput" type="password" maxlength="8192" autocomplete="new-password" placeholder="只保存到系统安全凭据库"></label>
+                    <p class="connection-help full">远程服务器必须使用 HTTPS；HTTP 只允许本机回环地址。Kardii 不会把 Token 写进设置、日志或备份。</p>
+                    <div class="connection-actions full">
+                      <button id="removeMcpServerButton" class="delete-action" type="button">移除</button>
+                      <span class="modal-action-spacer"></span>
+                      <button id="testMcpButton" class="outline-button" type="button">测试并读取工具</button>
+                      <button id="saveMcpButton" class="primary-button" type="submit">保存连接</button>
+                    </div>
+                    <div class="connection-maintenance-actions full">
+                      <button id="clearMcpTokenButton" class="ghost-action danger" type="button">删除系统凭据中的 Token</button>
+                      <span>连接设置与凭据分开保存</span>
+                    </div>
+                    <p id="mcpConnectionStatus" class="connection-status full">工具不会自动交给 Agent；当前先在这里逐次检查参数并确认调用。</p>
+                  </form>
+                </section>
+                <section class="mcp-tool-panel">
+                  <div class="mcp-tool-heading">
+                    <div><span class="browser-panel-label">服务器工具</span><strong id="mcpToolCount">尚未读取工具清单</strong></div>
+                    <button id="clearMcpLogsButton" class="ghost-action" type="button">清空日志</button>
+                  </div>
+                  <select id="mcpToolSelect" aria-label="选择 MCP 工具" disabled><option value="">请先测试连接</option></select>
+                  <p id="mcpToolDescription" class="mcp-tool-description">未知工具一律按可能写入处理；每次调用都需要你确认。</p>
+                  <label class="mcp-arguments-field"><span>工具参数 · JSON 对象</span><textarea id="mcpArgumentsInput" rows="4" maxlength="100000" spellcheck="false">{}</textarea></label>
+                  <button id="callMcpToolButton" class="primary-button" type="button" disabled>检查参数并调用</button>
+                  <pre id="mcpToolOutput" class="mcp-tool-output">工具结果会显示在这里。</pre>
+                  <div id="mcpExecutionLog" class="mcp-execution-log"></div>
+                </section>
+              </div>
+            </article>
+
             <div class="cloud-connections-grid">
               <article class="connection-card cloud-connection-card" data-cloud-provider="google">
                 <div class="connection-card-heading">
@@ -437,7 +719,7 @@
             <div class="future-connections-grid">
               <article><span>数据权限</span><strong>默认只读</strong><p>连接仅列出最近项目，不会批量上传企业文件。</p></article>
               <article><span>内部整理</span><strong>人工确认</strong><p>选择资料后再归档到关系、项目和知识库。</p></article>
-              <article><span>对外发送</span><strong>保持关闭</strong><p>当前版本没有发送邮件、修改日历或写入云盘的能力。</p></article>
+              <article><span>MCP 工具连接</span><strong>逐次确认</strong><p>可连接 Streamable HTTP 服务器，读取工具清单并保留本机调用日志。</p></article>
             </div>
           </section>
         </div>
@@ -513,7 +795,10 @@
         </div>
         <div class="bundle-analysis-actions">
           <p id="bundleStatus">文件尚未保存。可以先让 AI 综合分析，也可以直接确认保存原件。</p>
-          <button id="analyzeBundleButton" class="outline-button" type="button">AI 综合分析</button>
+          <div class="bundle-analysis-buttons">
+            <button id="ocrBundleButton" class="outline-button" type="button">识别扫描件 / 图片</button>
+            <button id="analyzeBundleButton" class="outline-button" type="button">AI 综合分析</button>
+          </div>
         </div>
         <div id="bundleDraftFields" class="form-fields bundle-draft-fields hidden">
           <div class="form-field full"><label for="bundleDraftTitle">成果标题</label><input id="bundleDraftTitle" type="text" maxlength="160"></div>
@@ -531,7 +816,44 @@
         </div>
       </section>
     </div>
+
+    <div id="siteCrawlBackdrop" class="modal-backdrop hidden">
+      <section class="modal site-crawl-modal" role="dialog" aria-modal="true" aria-labelledby="siteCrawlTitle">
+        <div class="modal-heading">
+          <div><span class="section-kicker">PUBLIC WEBSITE IMPORT</span><h2 id="siteCrawlTitle">导入公开网站</h2></div>
+          <button id="siteCrawlCloseButton" class="window-button" type="button" aria-label="关闭">×</button>
+        </div>
+        <div class="site-crawl-notice">
+          <strong>只抓取公开、同域、无需登录的页面</strong>
+          <span>不使用浏览器 Cookie，不填写表单，不执行网页脚本；内网、localhost、私有 IP 与跨域链接会被拒绝，并遵守站点 robots.txt 的基础规则。</span>
+        </div>
+        <div class="form-fields site-crawl-settings">
+          <div class="form-field full"><label for="siteCrawlUrl">起始网址</label><input id="siteCrawlUrl" type="url" maxlength="2000" spellcheck="false" placeholder="https://example.com/docs/"></div>
+          <div class="form-field full"><label for="siteCrawlCollectionTitle">集合名称</label><input id="siteCrawlCollectionTitle" type="text" maxlength="200" placeholder="留空时使用起始页标题"></div>
+          <div class="form-field"><label for="siteCrawlMaxPages">最多页面</label><select id="siteCrawlMaxPages"><option value="5">5 页</option><option value="10" selected>10 页</option><option value="20">20 页</option></select></div>
+          <div class="form-field"><label for="siteCrawlMaxDepth">链接深度</label><select id="siteCrawlMaxDepth"><option value="0">仅起始页</option><option value="1" selected>起始页 + 1 层</option><option value="2">最多 2 层</option></select></div>
+          <div class="form-field"><label for="siteCrawlRelationSelect">关联关系</label><select id="siteCrawlRelationSelect"><option value="">不关联关系</option></select></div>
+          <div class="form-field"><label for="siteCrawlProjectSelect">关联项目</label><select id="siteCrawlProjectSelect"><option value="">不关联项目</option></select></div>
+          <div class="form-field full"><label for="siteCrawlTags">标签</label><input id="siteCrawlTags" type="text" maxlength="200" placeholder="例如：官网、产品资料、市场研究"></div>
+          <label class="site-crawl-consent full"><input id="siteCrawlConsent" type="checkbox"><span><strong>我确认有权读取并保存这些公开页面</strong><small>请遵守网站条款、版权和适用法律；不要抓取个人账号、付费墙或敏感资料。</small></span></label>
+        </div>
+        <div class="site-crawl-actions">
+          <p id="siteCrawlStatus">先填写网址并确认范围。抓取完成后会显示页面清单，只有再次确认才保存到知识库。</p>
+          <button id="runSiteCrawlButton" class="outline-button" type="button">预览抓取结果</button>
+        </div>
+        <div id="siteCrawlResult" class="site-crawl-result hidden">
+          <div class="site-crawl-result-heading"><strong id="siteCrawlResultSummary">0 个页面</strong><span>请检查标题、网址、字数和告警</span></div>
+          <div id="siteCrawlPageList" class="site-crawl-page-list"></div>
+        </div>
+        <div class="modal-actions">
+          <button id="siteCrawlCancelButton" class="ghost-action" type="button">取消</button>
+          <span class="modal-action-spacer"></span>
+          <button id="saveSiteCrawlButton" class="primary-button" type="button" disabled>确认保存到知识库</button>
+        </div>
+      </section>
+    </div>
+    <script src="./kardii-wecom-remote.js"></script>
     <script src="./kardii-dialog.js"></script>
-    <script src="./workbench.js"></script>
+    <script src="./kardii-storage.js" data-main="./workbench.js"></script>
   </body>
 </html>

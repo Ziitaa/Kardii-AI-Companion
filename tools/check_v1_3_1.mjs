@@ -16,9 +16,9 @@ const html = read("src/workbench.html");
 const js = read("src/workbench.js");
 const chatJs = read("src/chat.js");
 
-assert(packageJson.version === "1.4.0" && tauriConfig.version === "1.4.0", "当前版本号未统一");
-assert(/version = "1\.4\.0"/.test(cargo), "Cargo.toml 未更新到 v1.4.0");
-assert(chatJs.includes('appVersion: "1.4.0"'), "备份版本号未更新到 v1.4.0");
+assert(packageJson.version === "2.1.0" && tauriConfig.version === "2.1.0", "当前版本号未统一");
+assert(/version = "2\.1\.0"/.test(cargo), "Cargo.toml 未更新到 v2.1.0");
+assert(chatJs.includes('appVersion: "2.1.0"'), "备份版本号未更新到 v2.1.0");
 
 assert(html.includes('<option value="163">163 邮箱</option>'), "163 邮箱快捷选项缺失");
 assert(html.includes('<option value="gmail">Gmail</option>'), "Gmail 快捷选项缺失");

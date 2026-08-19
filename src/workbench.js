@@ -1,11 +1,20 @@
 const { getCurrentWindow, getAllWindows } = window.__TAURI__.window;
 const { invoke } = window.__TAURI__.core;
+const listen = window.__TAURI__.event?.listen || (async () => () => {});
 
 const appWindow = getCurrentWindow();
 const BUSINESS_DATA_KEY = "kardii-business-data-v1";
 const WORKBENCH_TARGET_KEY = "kardii-workbench-open-target-v1";
 const AI_SETTINGS_KEY = "kardii-ai-settings-v1";
 const CHAT_HISTORY_KEY = "kardii-chat-history-v1";
+const CHAT_SESSIONS_KEY = "kardii-chat-sessions-v1";
+const BROWSER_CONTEXT_KEY = "kardii-browser-context-v1";
+const BROWSER_AGENT_REQUEST_KEY = "kardii-browser-agent-request-v1";
+const MCP_LOGS_KEY = "kardii-mcp-logs-v1";
+const WECOM_HISTORY_KEY = "kardii-wecom-chat-history-v1";
+const WECOM_HISTORY_EPOCH_KEY = "kardii-wecom-chat-history-epoch-v1";
+const WECOM_REMOTE_PAIRING_KEY = "kardii-wecom-remote-pairing-v1";
+const WECOM_REMOTE_PENDING_KEY = "kardii-wecom-remote-pending-v1";
 const STAGES = {
   lead: "潜在线索",
   contacted: "已联系",
@@ -73,18 +82,39 @@ const viewMeta = {
   dashboard: ["KARDII WORKBENCH", "今日工作台"],
   customers: ["RELATIONSHIP MANAGEMENT", "关系库"],
   projects: ["PROJECT MANAGEMENT", "项目库"],
+  analysis: ["ENTERPRISE BRIEFING", "联合分析"],
   intelligence: ["BUSINESS INTELLIGENCE", "商业情报"],
   knowledge: ["KNOWLEDGE & MEMORY", "知识库"],
   connections: ["EXTERNAL CONNECTIONS", "外部连接"],
 };
 
 const seedData = {
-  version: 3,
+  version: 4,
   settings: {
     autoCaptureEnabled: false,
     emailAccounts: [],
     activeEmailAccountId: "",
     cloudConnections: {},
+    browserBridgeEnabled: false,
+    mcpServers: [],
+    activeMcpServerId: "",
+    wecomDocumentsConnected: false,
+    wecomBotId: "",
+    wecomBotEnabled: false,
+    wecomBotModel: "inherit",
+    wecomBotLastAutoModel: "",
+    wecomBotResponseMode: "fast",
+    wecomRemoteAgentEnabled: false,
+    wecomRemoteOwnerUserId: "",
+    wecomRemoteAllowKnowledge: false,
+    wecomRemoteAllowDocuments: false,
+    wecomRemoteAllowAuthorizedFiles: false,
+    wecomRemoteAllowFileDelivery: false,
+    wecomRemoteAuthorizedFolders: [],
+    wecomRemoteAllowedMcpTools: [],
+    dailyBriefReminderEnabled: false,
+    dailyBriefReminderTime: "09:00",
+    dailyBriefLastReminderDate: "",
   },
   customers: [],
   contacts: [],
@@ -96,6 +126,8 @@ const seedData = {
   intelligence: [],
   knowledge: [],
   reports: [],
+  enterpriseAnalyses: [],
+  websiteCollections: [],
   emailMessages: [],
   cloudItems: [],
 };
@@ -110,12 +142,32 @@ let activeKnowledgeAnalysisId = "";
 let latestKnowledgeSources = [];
 let pendingBundleFiles = [];
 let pendingBundleAnalysis = null;
+let pendingEnterpriseAnalysis = null;
+let editingEnterpriseAnalysisId = "";
+let pendingWebsiteCrawl = null;
+let editingWebsiteCollectionId = "";
 let pendingEmailUid = "";
 let pendingEmailAccountId = "";
 let emailCredentialPresent = null;
 const emailCredentialStatuses = new Map();
 const cloudCredentialStatuses = new Map();
 let editingEmailAccountId = "";
+let browserBridgeStatus = null;
+let latestBrowserCapture = null;
+let browserPollTimer = 0;
+let editingMcpServerId = "";
+let activeMcpTools = [];
+let mcpLogs = loadMcpLogs();
+const mcpCredentialStatuses = new Map();
+let wecomAuthorizationStatus = null;
+let wecomBotRuntimeStatus = null;
+let wecomRemoteFolderRegistry = [];
+let wecomBotSecretPresent = null;
+let wecomDocumentResultsData = [];
+let selectedWecomDocumentId = "";
+let activeWecomDocumentContent = null;
+let wecomQrPollTimer = 0;
+let wecomQrExpiresAt = 0;
 
 const navItems = [...document.querySelectorAll(".nav-item")];
 const viewPanels = [...document.querySelectorAll("[data-view-panel]")];
@@ -123,6 +175,7 @@ const viewEyebrow = document.getElementById("viewEyebrow");
 const viewTitle = document.getElementById("viewTitle");
 const customerNavCount = document.getElementById("customerNavCount");
 const projectNavCount = document.getElementById("projectNavCount");
+const analysisNavCount = document.getElementById("analysisNavCount");
 const intelligenceNavCount = document.getElementById("intelligenceNavCount");
 const knowledgeNavCount = document.getElementById("knowledgeNavCount");
 const connectionNavStatus = document.getElementById("connectionNavStatus");
@@ -136,6 +189,8 @@ const intelligenceStatusFilter = document.getElementById("intelligenceStatusFilt
 const knowledgeGrid = document.getElementById("knowledgeGrid");
 const reportGrid = document.getElementById("reportGrid");
 const reportSummary = document.getElementById("reportSummary");
+const websiteCollectionGrid = document.getElementById("websiteCollectionGrid");
+const websiteCollectionSummary = document.getElementById("websiteCollectionSummary");
 const knowledgeSearch = document.getElementById("knowledgeSearch");
 const knowledgeTypeFilter = document.getElementById("knowledgeTypeFilter");
 const knowledgeQuestion = document.getElementById("knowledgeQuestion");
@@ -180,6 +235,7 @@ const bundleProjectSelect = document.getElementById("bundleProjectSelect");
 const bundleStatus = document.getElementById("bundleStatus");
 const bundleDraftFields = document.getElementById("bundleDraftFields");
 const analyzeBundleButton = document.getElementById("analyzeBundleButton");
+const ocrBundleButton = document.getElementById("ocrBundleButton");
 const saveBundleButton = document.getElementById("saveBundleButton");
 const bundleIncludeChat = document.getElementById("bundleIncludeChat");
 const bundleChatSummary = document.getElementById("bundleChatSummary");
@@ -233,6 +289,117 @@ const cloudProviderFilter = document.getElementById("cloudProviderFilter");
 const cloudServiceFilter = document.getElementById("cloudServiceFilter");
 const cloudOverviewSummary = document.getElementById("cloudOverviewSummary");
 const cloudOverviewList = document.getElementById("cloudOverviewList");
+const wecomConnectionSummary = document.getElementById("wecomConnectionSummary");
+const wecomConnectionBadge = document.getElementById("wecomConnectionBadge");
+const wecomDocumentAuthLabel = document.getElementById("wecomDocumentAuthLabel");
+const wecomDocumentStatus = document.getElementById("wecomDocumentStatus");
+const authorizeWecomButton = document.getElementById("authorizeWecomButton");
+const disconnectWecomDocumentsButton = document.getElementById("disconnectWecomDocumentsButton");
+const refreshWecomButton = document.getElementById("refreshWecomButton");
+const wecomQrPanel = document.getElementById("wecomQrPanel");
+const wecomQrImage = document.getElementById("wecomQrImage");
+const wecomQrCountdown = document.getElementById("wecomQrCountdown");
+const cancelWecomQrButton = document.getElementById("cancelWecomQrButton");
+const wecomBotForm = document.getElementById("wecomBotForm");
+const wecomBotIdInput = document.getElementById("wecomBotIdInput");
+const wecomBotSecretInput = document.getElementById("wecomBotSecretInput");
+const wecomBotModelSelect = document.getElementById("wecomBotModelSelect");
+const wecomBotResponseModeSelect = document.getElementById("wecomBotResponseModeSelect");
+const saveWecomBotButton = document.getElementById("saveWecomBotButton");
+const stopWecomBotButton = document.getElementById("stopWecomBotButton");
+const deleteWecomBotSecretButton = document.getElementById("deleteWecomBotSecretButton");
+const clearWecomChatHistoryButton = document.getElementById("clearWecomChatHistoryButton");
+const wecomBotStatus = document.getElementById("wecomBotStatus");
+const wecomRemoteAgentEnabledInput = document.getElementById("wecomRemoteAgentEnabledInput");
+const wecomRemoteKnowledgeInput = document.getElementById("wecomRemoteKnowledgeInput");
+const wecomRemoteDocumentsInput = document.getElementById("wecomRemoteDocumentsInput");
+const wecomRemoteFilesInput = document.getElementById("wecomRemoteFilesInput");
+const wecomRemoteFileDeliveryInput = document.getElementById("wecomRemoteFileDeliveryInput");
+const wecomRemoteFolderList = document.getElementById("wecomRemoteFolderList");
+const addWecomRemoteFolderButton = document.getElementById("addWecomRemoteFolderButton");
+const wecomRemoteMcpList = document.getElementById("wecomRemoteMcpList");
+const wecomRemoteOwnerLabel = document.getElementById("wecomRemoteOwnerLabel");
+const wecomRemotePairingCode = document.getElementById("wecomRemotePairingCode");
+const generateWecomRemotePairingButton = document.getElementById("generateWecomRemotePairingButton");
+const copyWecomRemotePairingButton = document.getElementById("copyWecomRemotePairingButton");
+const unbindWecomRemoteOwnerButton = document.getElementById("unbindWecomRemoteOwnerButton");
+const wecomRemoteAgentStatus = document.getElementById("wecomRemoteAgentStatus");
+const wecomDocumentSearchInput = document.getElementById("wecomDocumentSearchInput");
+const searchWecomDocumentsButton = document.getElementById("searchWecomDocumentsButton");
+const wecomDocumentResults = document.getElementById("wecomDocumentResults");
+const wecomSelectedDocumentTitle = document.getElementById("wecomSelectedDocumentTitle");
+const wecomDocumentPageSelect = document.getElementById("wecomDocumentPageSelect");
+const wecomDocumentPreview = document.getElementById("wecomDocumentPreview");
+const openWecomDocumentButton = document.getElementById("openWecomDocumentButton");
+const readWecomDocumentButton = document.getElementById("readWecomDocumentButton");
+const wecomNewDocumentTitle = document.getElementById("wecomNewDocumentTitle");
+const wecomDocumentContentInput = document.getElementById("wecomDocumentContentInput");
+const createWecomDocumentButton = document.getElementById("createWecomDocumentButton");
+const appendWecomDocumentButton = document.getElementById("appendWecomDocumentButton");
+const overwriteWecomDocumentButton = document.getElementById("overwriteWecomDocumentButton");
+const wecomDocumentEditorStatus = document.getElementById("wecomDocumentEditorStatus");
+const browserConnectionSummary = document.getElementById("browserConnectionSummary");
+const browserConnectionBadge = document.getElementById("browserConnectionBadge");
+const browserConnectionStatus = document.getElementById("browserConnectionStatus");
+const browserPairingCode = document.getElementById("browserPairingCode");
+const copyBrowserPairingButton = document.getElementById("copyBrowserPairingButton");
+const startBrowserBridgeButton = document.getElementById("startBrowserBridgeButton");
+const stopBrowserBridgeButton = document.getElementById("stopBrowserBridgeButton");
+const openBrowserExtensionButton = document.getElementById("openBrowserExtensionButton");
+const regenerateBrowserPairingButton = document.getElementById("regenerateBrowserPairingButton");
+const refreshBrowserButton = document.getElementById("refreshBrowserButton");
+const browserPagePreview = document.getElementById("browserPagePreview");
+const browserPageTitle = document.getElementById("browserPageTitle");
+const browserPageUrl = document.getElementById("browserPageUrl");
+const browserPageMeta = document.getElementById("browserPageMeta");
+const sendBrowserPageToChatButton = document.getElementById("sendBrowserPageToChatButton");
+const sendBrowserPageToAgentButton = document.getElementById("sendBrowserPageToAgentButton");
+const saveBrowserPageButton = document.getElementById("saveBrowserPageButton");
+const clearBrowserPageButton = document.getElementById("clearBrowserPageButton");
+const mcpConnectionSummary = document.getElementById("mcpConnectionSummary");
+const mcpConnectionBadge = document.getElementById("mcpConnectionBadge");
+const mcpConnectionStatus = document.getElementById("mcpConnectionStatus");
+const mcpConnectionForm = document.getElementById("mcpConnectionForm");
+const mcpServerSelect = document.getElementById("mcpServerSelect");
+const newMcpServerButton = document.getElementById("newMcpServerButton");
+const removeMcpServerButton = document.getElementById("removeMcpServerButton");
+const clearMcpTokenButton = document.getElementById("clearMcpTokenButton");
+const mcpNameInput = document.getElementById("mcpNameInput");
+const mcpUrlInput = document.getElementById("mcpUrlInput");
+const mcpTokenInput = document.getElementById("mcpTokenInput");
+const saveMcpButton = document.getElementById("saveMcpButton");
+const testMcpButton = document.getElementById("testMcpButton");
+const mcpToolCount = document.getElementById("mcpToolCount");
+const mcpToolSelect = document.getElementById("mcpToolSelect");
+const mcpToolDescription = document.getElementById("mcpToolDescription");
+const mcpArgumentsInput = document.getElementById("mcpArgumentsInput");
+const callMcpToolButton = document.getElementById("callMcpToolButton");
+const mcpToolOutput = document.getElementById("mcpToolOutput");
+const mcpExecutionLog = document.getElementById("mcpExecutionLog");
+const clearMcpLogsButton = document.getElementById("clearMcpLogsButton");
+const analysisProjectSelect = document.getElementById("analysisProjectSelect");
+const analysisRelationSelect = document.getElementById("analysisRelationSelect");
+const analysisRangeSelect = document.getElementById("analysisRangeSelect");
+const analysisObjective = document.getElementById("analysisObjective");
+const enterpriseAnalysisStatus = document.getElementById("enterpriseAnalysisStatus");
+const enterpriseAnalysisDraft = document.getElementById("enterpriseAnalysisDraft");
+const enterpriseAnalysisGrid = document.getElementById("enterpriseAnalysisGrid");
+const dailyBriefReminderToggle = document.getElementById("dailyBriefReminderToggle");
+const dailyBriefReminderTime = document.getElementById("dailyBriefReminderTime");
+const siteCrawlBackdrop = document.getElementById("siteCrawlBackdrop");
+const siteCrawlUrl = document.getElementById("siteCrawlUrl");
+const siteCrawlCollectionTitle = document.getElementById("siteCrawlCollectionTitle");
+const siteCrawlMaxPages = document.getElementById("siteCrawlMaxPages");
+const siteCrawlMaxDepth = document.getElementById("siteCrawlMaxDepth");
+const siteCrawlRelationSelect = document.getElementById("siteCrawlRelationSelect");
+const siteCrawlProjectSelect = document.getElementById("siteCrawlProjectSelect");
+const siteCrawlTags = document.getElementById("siteCrawlTags");
+const siteCrawlConsent = document.getElementById("siteCrawlConsent");
+const siteCrawlStatus = document.getElementById("siteCrawlStatus");
+const siteCrawlResult = document.getElementById("siteCrawlResult");
+const siteCrawlPageList = document.getElementById("siteCrawlPageList");
+const runSiteCrawlButton = document.getElementById("runSiteCrawlButton");
+const saveSiteCrawlButton = document.getElementById("saveSiteCrawlButton");
 
 function dateInputValue(date) {
   const value = new Date(date);
@@ -283,10 +450,53 @@ function normalizeCloudConnection(value, provider) {
   };
 }
 
+function normalizeMcpServer(value, fallbackId = "mcp-primary") {
+  if (!value || typeof value !== "object") return null;
+  const serverId = String(value.serverId || fallbackId).trim();
+  if (!/^[a-zA-Z0-9_-]{1,48}$/.test(serverId)) return null;
+  const tools = Array.isArray(value.tools) ? value.tools.slice(0, 200).filter((tool) => tool && typeof tool === "object" && tool.name).map((tool) => ({
+    name: String(tool.name).slice(0, 200),
+    description: String(tool.description || "").slice(0, 2_000),
+    inputSchema: tool.inputSchema && typeof tool.inputSchema === "object" ? tool.inputSchema : { type: "object" },
+    readOnlyHint: tool.readOnlyHint === true,
+    destructiveHint: tool.destructiveHint === true,
+  })) : [];
+  return {
+    serverId,
+    name: String(value.name || "MCP 工具服务器").slice(0, 80),
+    url: String(value.url || "").slice(0, 2_000),
+    protocolVersion: String(value.protocolVersion || "").slice(0, 80),
+    serverName: String(value.serverName || "").slice(0, 200),
+    serverVersion: String(value.serverVersion || "").slice(0, 100),
+    tools,
+    lastTestAt: String(value.lastTestAt || ""),
+    lastError: String(value.lastError || "").slice(0, 1_000),
+  };
+}
+
+function loadMcpLogs() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(MCP_LOGS_KEY) || "[]");
+    if (!Array.isArray(saved)) return [];
+    return saved.slice(0, 100).map((log) => ({
+      id: String(log.id || crypto.randomUUID()),
+      serverId: String(log.serverId || ""),
+      serverName: String(log.serverName || "").slice(0, 80),
+      toolName: String(log.toolName || "").slice(0, 200),
+      success: log.success === true,
+      durationMs: Math.max(0, Number(log.durationMs) || 0),
+      error: String(log.error || "").slice(0, 500),
+      createdAt: String(log.createdAt || new Date().toISOString()),
+    }));
+  } catch {
+    return [];
+  }
+}
+
 function loadData() {
   try {
     const saved = JSON.parse(localStorage.getItem(BUSINESS_DATA_KEY) || "null");
-    if (!saved || ![1, 2, 3].includes(saved.version)) {
+    if (!saved || ![1, 2, 3, 4].includes(saved.version)) {
       const initialData = structuredClone(seedData);
       localStorage.setItem(BUSINESS_DATA_KEY, JSON.stringify(initialData));
       return initialData;
@@ -351,13 +561,56 @@ function loadData() {
       const connection = normalizeCloudConnection(saved.settings?.cloudConnections?.[provider], provider);
       if (connection) cloudConnections[provider] = connection;
     }
+    const mcpServers = (Array.isArray(saved.settings?.mcpServers) ? saved.settings.mcpServers : [])
+      .map((server, index) => normalizeMcpServer(server, `mcp-${index + 1}`))
+      .filter(Boolean)
+      .filter((server, index, servers) => servers.findIndex((item) => item.serverId === server.serverId) === index)
+      .slice(0, 20);
+    const activeMcpServerId = mcpServers.some((server) => server.serverId === saved.settings?.activeMcpServerId)
+      ? saved.settings.activeMcpServerId
+      : mcpServers[0]?.serverId || "";
     const normalized = {
-      version: 3,
+      version: 4,
       settings: {
         autoCaptureEnabled: saved.settings?.autoCaptureEnabled === true,
         emailAccounts,
         activeEmailAccountId,
         cloudConnections,
+        browserBridgeEnabled: saved.settings?.browserBridgeEnabled === true,
+        mcpServers,
+        activeMcpServerId,
+        wecomDocumentsConnected: saved.settings?.wecomDocumentsConnected === true,
+        wecomBotId: typeof saved.settings?.wecomBotId === "string" ? saved.settings.wecomBotId.trim().slice(0, 256) : "",
+        wecomBotEnabled: saved.settings?.wecomBotEnabled === true,
+        wecomBotModel: ["auto", "inherit", "gemini-flash-lite", "deepseek-flash", "codex", "gemini-flash", "ollama-current"].includes(saved.settings?.wecomBotModel)
+          ? saved.settings.wecomBotModel
+          : "inherit",
+        wecomBotLastAutoModel: ["gemini-flash-lite", "deepseek-flash", "codex", "gemini-flash", "ollama-current"].includes(saved.settings?.wecomBotLastAutoModel)
+          ? saved.settings.wecomBotLastAutoModel
+          : "",
+        wecomBotResponseMode: saved.settings?.wecomBotResponseMode === "complete" ? "complete" : "fast",
+        wecomRemoteAgentEnabled: saved.settings?.wecomRemoteAgentEnabled === true,
+        wecomRemoteOwnerUserId: typeof saved.settings?.wecomRemoteOwnerUserId === "string"
+          ? saved.settings.wecomRemoteOwnerUserId.trim().slice(0, 256)
+          : "",
+        wecomRemoteAllowKnowledge: saved.settings?.wecomRemoteAllowKnowledge === true,
+        wecomRemoteAllowDocuments: saved.settings?.wecomRemoteAllowDocuments === true,
+        wecomRemoteAllowAuthorizedFiles: saved.settings?.wecomRemoteAllowAuthorizedFiles === true,
+        wecomRemoteAllowFileDelivery: saved.settings?.wecomRemoteAllowFileDelivery === true,
+        wecomRemoteAuthorizedFolders: Array.isArray(saved.settings?.wecomRemoteAuthorizedFolders)
+          ? saved.settings.wecomRemoteAuthorizedFolders.filter((item) => item && typeof item === "object").slice(0, 8).map((item) => ({
+            id: String(item.id || "").slice(0, 100),
+            name: String(item.name || "").slice(0, 120),
+          })).filter((item) => item.id && item.name)
+          : [],
+        wecomRemoteAllowedMcpTools: Array.isArray(saved.settings?.wecomRemoteAllowedMcpTools)
+          ? [...new Set(saved.settings.wecomRemoteAllowedMcpTools.map((item) => String(item || "").trim()).filter(Boolean))].slice(0, 80)
+          : [],
+        dailyBriefReminderEnabled: saved.settings?.dailyBriefReminderEnabled === true,
+        dailyBriefReminderTime: /^([01]\d|2[0-3]):[0-5]\d$/.test(saved.settings?.dailyBriefReminderTime)
+          ? saved.settings.dailyBriefReminderTime
+          : "09:00",
+        dailyBriefLastReminderDate: String(saved.settings?.dailyBriefLastReminderDate || "").slice(0, 10),
       },
       customers,
       contacts,
@@ -415,6 +668,11 @@ function loadData() {
         linkedCustomerId: "",
         linkedProjectId: "",
         reportId: "",
+        websiteCollectionId: "",
+        browserUrl: "",
+        siteRoot: "",
+        crawlDepth: 0,
+        capturedAt: "",
         ...item,
       })) : [],
       reports: Array.isArray(saved.reports) ? saved.reports.map((item) => ({
@@ -430,6 +688,48 @@ function loadData() {
         linkedProjectId: String(item.linkedProjectId || ""),
         knowledgeIds: Array.isArray(item.knowledgeIds) ? item.knowledgeIds.map(String) : [],
         includedChat: item.includedChat === true,
+        createdAt: String(item.createdAt || new Date().toISOString()),
+        updatedAt: String(item.updatedAt || item.createdAt || new Date().toISOString()),
+      })) : [],
+      enterpriseAnalyses: Array.isArray(saved.enterpriseAnalyses) ? saved.enterpriseAnalyses.map((item) => ({
+        id: String(item.id || crypto.randomUUID()),
+        title: String(item.title || "联合分析").slice(0, 160),
+        summary: String(item.summary || ""),
+        progress: String(item.progress || ""),
+        commitments: String(item.commitments || ""),
+        risks: String(item.risks || ""),
+        nextActions: String(item.nextActions || ""),
+        dailyBrief: String(item.dailyBrief || ""),
+        evidence: String(item.evidence || ""),
+        linkedProjectId: String(item.linkedProjectId || ""),
+        linkedCustomerId: String(item.linkedCustomerId || ""),
+        rangeDays: String(item.rangeDays || "30"),
+        objective: String(item.objective || "").slice(0, 1000),
+        sourceRefs: Array.isArray(item.sourceRefs) ? item.sourceRefs.slice(0, 60).map((source) => ({
+          id: String(source.id || "").slice(0, 20),
+          title: String(source.title || "").slice(0, 300),
+          sourceType: String(source.sourceType || "workspace").slice(0, 40),
+          occurredAt: String(source.occurredAt || "").slice(0, 80),
+          url: String(source.url || "").slice(0, 2000),
+        })) : [],
+        generatedTaskIds: Array.isArray(item.generatedTaskIds) ? item.generatedTaskIds.map(String).slice(0, 20) : [],
+        createdAt: String(item.createdAt || new Date().toISOString()),
+        updatedAt: String(item.updatedAt || item.createdAt || new Date().toISOString()),
+      })) : [],
+      websiteCollections: Array.isArray(saved.websiteCollections) ? saved.websiteCollections.map((item) => ({
+        id: String(item.id || crypto.randomUUID()),
+        title: String(item.title || "网站知识库").slice(0, 200),
+        startUrl: String(item.startUrl || "").slice(0, 2000),
+        siteRoot: String(item.siteRoot || "").slice(0, 2000),
+        maxPages: Math.min(20, Math.max(1, Number(item.maxPages) || 10)),
+        maxDepth: Math.min(2, Math.max(0, Number(item.maxDepth) || 1)),
+        linkedCustomerId: String(item.linkedCustomerId || ""),
+        linkedProjectId: String(item.linkedProjectId || ""),
+        tags: String(item.tags || "").slice(0, 200),
+        knowledgeIds: Array.isArray(item.knowledgeIds) ? item.knowledgeIds.map(String).slice(0, 20) : [],
+        pageCount: Math.min(20, Math.max(0, Number(item.pageCount) || 0)),
+        errors: Array.isArray(item.errors) ? item.errors.map(String).slice(0, 20) : [],
+        robotsApplied: item.robotsApplied === true,
         createdAt: String(item.createdAt || new Date().toISOString()),
         updatedAt: String(item.updatedAt || item.createdAt || new Date().toISOString()),
       })) : [],
@@ -459,7 +759,7 @@ function loadData() {
       })).slice(0, 500) : [],
     };
     syncRelations(normalized);
-    if (saved.version !== 3) localStorage.setItem(BUSINESS_DATA_KEY, JSON.stringify(normalized));
+    if (saved.version !== 4) localStorage.setItem(BUSINESS_DATA_KEY, JSON.stringify(normalized));
     return normalized;
   } catch {
     const initialData = structuredClone(seedData);
@@ -508,6 +808,22 @@ function syncRelations(target = data) {
     linkedProjectId: projectIds.has(report.linkedProjectId) ? report.linkedProjectId : "",
     knowledgeIds: (report.knowledgeIds || []).filter((id) => target.knowledge.some((item) => item.id === id)),
   }));
+  target.enterpriseAnalyses = (target.enterpriseAnalyses || []).map((analysis) => ({
+    ...analysis,
+    linkedCustomerId: customerIds.has(analysis.linkedCustomerId) ? analysis.linkedCustomerId : "",
+    linkedProjectId: projectIds.has(analysis.linkedProjectId) ? analysis.linkedProjectId : "",
+    generatedTaskIds: (analysis.generatedTaskIds || []).filter((id) => target.tasks.some((task) => task.id === id)),
+  }));
+  target.websiteCollections = (target.websiteCollections || []).map((collection) => {
+    const knowledgeIds = (collection.knowledgeIds || []).filter((id) => target.knowledge.some((item) => item.id === id));
+    return {
+      ...collection,
+      linkedCustomerId: customerIds.has(collection.linkedCustomerId) ? collection.linkedCustomerId : "",
+      linkedProjectId: projectIds.has(collection.linkedProjectId) ? collection.linkedProjectId : "",
+      knowledgeIds,
+      pageCount: knowledgeIds.length,
+    };
+  });
 }
 
 function saveData() {
@@ -573,6 +889,7 @@ function renderDashboard() {
   const weeklyNotes = [
     ...data.notes.filter((note) => new Date(note.createdAt) >= startOfWeek()),
     ...(data.reports || []).filter((report) => new Date(report.createdAt) >= startOfWeek()),
+    ...(data.enterpriseAnalyses || []).filter((analysis) => new Date(analysis.createdAt) >= startOfWeek()),
   ];
 
   document.getElementById("todayLabel").textContent = new Intl.DateTimeFormat("zh-CN", {
@@ -613,10 +930,11 @@ function renderDashboard() {
   const recentItems = [
     ...data.notes.map((note) => ({ ...note, itemType: "note" })),
     ...(data.reports || []).map((report) => ({ ...report, content: report.summary, itemType: "report" })),
+    ...(data.enterpriseAnalyses || []).map((analysis) => ({ ...analysis, content: analysis.dailyBrief || analysis.summary, itemType: "analysis" })),
   ].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   recentNotes.innerHTML = recentItems
     .map((note) => compactMarkup(
-      note.title || (note.itemType === "report" ? "分析成果" : "快速记录"),
+      note.title || (note.itemType === "report" ? "分析成果" : note.itemType === "analysis" ? "联合分析" : "快速记录"),
       note.content,
       new Date(note.createdAt).toLocaleDateString("zh-CN"),
       note.itemType === "note" ? { action: "delete-note", id: note.id, label: "删除记录" } : null,
@@ -811,6 +1129,7 @@ function formatFileSize(size) {
 
 function knowledgeTypeGroup(fileType) {
   if (["png", "jpg", "jpeg", "webp"].includes(fileType)) return "image";
+  if (fileType === "web") return "web";
   return KNOWLEDGE_TEXT_TYPES.has(fileType) ? "text" : fileType;
 }
 
@@ -847,6 +1166,40 @@ function renderReports() {
   }).join("") || emptyMarkup(query ? "没有符合搜索条件的分析成果。" : "多文件分析确认保存后，可编辑成果会集中显示在这里。");
 }
 
+function renderWebsiteCollections() {
+  const visible = !knowledgeTypeFilter.value || knowledgeTypeFilter.value === "web";
+  document.getElementById("websiteCollectionSection").classList.toggle("hidden", !visible);
+  if (!visible) return;
+  const query = knowledgeSearch.value.trim().toLowerCase();
+  const collections = (data.websiteCollections || [])
+    .filter((collection) => {
+      const relationship = data.customers.find((item) => item.id === collection.linkedCustomerId);
+      const project = data.projects.find((item) => item.id === collection.linkedProjectId);
+      return !query || [collection.title, collection.startUrl, collection.siteRoot, collection.tags, relationship?.company, project?.name]
+        .join(" ").toLowerCase().includes(query);
+    })
+    .sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)));
+  websiteCollectionSummary.textContent = `${collections.length} / ${(data.websiteCollections || []).length} 个网站集合`;
+  websiteCollectionGrid.innerHTML = collections.map((collection) => {
+    const relationship = data.customers.find((item) => item.id === collection.linkedCustomerId);
+    const project = data.projects.find((item) => item.id === collection.linkedProjectId);
+    const linked = [relationship?.company, project?.name].filter(Boolean).join(" · ") || "未关联业务对象";
+    const errorLabel = collection.errors?.length ? ` · ${collection.errors.length} 项未抓取` : "";
+    return `
+      <article class="website-collection-card">
+        <div class="website-collection-head"><span class="file-type-badge">SITE</span><span>${escapeHtml(collection.pageCount)} 页${escapeHtml(errorLabel)}</span></div>
+        <h4>${escapeHtml(collection.title || collection.siteRoot || "网站知识库")}</h4>
+        <a href="#" data-action="open-website-collection" data-collection-id="${escapeHtml(collection.id)}">${escapeHtml(collection.siteRoot || collection.startUrl)}</a>
+        <p>${escapeHtml(linked)}${collection.tags ? ` · ${escapeHtml(collection.tags)}` : ""} · ${collection.robotsApplied ? "已应用 robots.txt" : "robots.txt 未返回规则"}</p>
+        <div class="website-collection-actions">
+          <button type="button" data-action="refresh-website-collection" data-collection-id="${escapeHtml(collection.id)}">重新抓取</button>
+          <button class="danger-link" type="button" data-action="delete-website-collection" data-collection-id="${escapeHtml(collection.id)}">删除集合</button>
+        </div>
+      </article>
+    `;
+  }).join("") || emptyMarkup(query ? "没有符合搜索条件的网站集合。" : "导入公开网站后，同域页面会作为一个可更新的知识集合显示在这里。");
+}
+
 function renderKnowledge() {
   const query = knowledgeSearch.value.trim().toLowerCase();
   const type = knowledgeTypeFilter.value;
@@ -854,7 +1207,7 @@ function renderKnowledge() {
     const statusMatches = type === "archived" ? item.status === "archived" : item.status !== "archived";
     const typeMatches = !type || type === "archived" || knowledgeTypeGroup(item.fileType) === type;
     const haystack = [
-      item.title, item.fileName, item.tags, item.summary, item.keyPoints, item.risks, item.actions,
+      item.title, item.fileName, item.tags, item.summary, item.keyPoints, item.risks, item.actions, item.browserUrl,
       String(item.content || "").slice(0, 20_000), ...knowledgeRelationLabels(item),
     ].join(" ").toLowerCase();
     return statusMatches && typeMatches && (!query || haystack.includes(query));
@@ -870,7 +1223,7 @@ function renderKnowledge() {
       <article class="knowledge-card" data-action="edit-knowledge" data-entity-id="${item.id}">
         <div class="knowledge-card-head">
           <span class="file-type-badge">${escapeHtml(item.fileType || "file")}</span>
-          <span class="intelligence-status ${item.status === "archived" ? "archived" : "reviewed"}">${item.status === "archived" ? "已归档" : "可检索"}</span>
+          <span class="intelligence-status ${item.status === "archived" ? "archived" : "reviewed"}">${item.status === "archived" ? "已归档" : item.websiteCollectionId ? "网站集合" : "可检索"}</span>
         </div>
         <h3>${escapeHtml(item.title || item.fileName || "未命名资料")}</h3>
         <p>${escapeHtml(item.summary || "已完成本机文字提取。打开资料后可让 AI 生成摘要、重点、风险和下一步。")}</p>
@@ -879,11 +1232,338 @@ function renderKnowledge() {
         </div>
         <div class="knowledge-card-meta">
           <span>${formatFileSize(item.fileSize)} · ${(Number(item.charCount) || 0).toLocaleString("zh-CN")} 字</span>
-          <span>${escapeHtml(analyzedAt)}</span>
+          <span>${item.browserUrl ? `公开网页 · ${escapeHtml(new Date(item.capturedAt || item.updatedAt).toLocaleDateString("zh-CN"))}` : escapeHtml(analyzedAt)}</span>
         </div>
       </article>
     `;
   }).join("") || emptyMarkup(query || type ? "没有符合条件的知识库资料。" : "知识库还是空的。点击“导入文件”添加第一份资料。");
+}
+
+function selectedAnalysisSources() {
+  return new Set([...document.querySelectorAll("[data-analysis-source]:checked")].map((input) => input.dataset.analysisSource));
+}
+
+function analysisOccurredWithin(value, rangeDays = analysisRangeSelect.value) {
+  if (rangeDays === "all" || !value) return true;
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) return true;
+  return timestamp >= Date.now() - Number(rangeDays) * 86_400_000;
+}
+
+function buildEnterpriseAnalysisDocuments() {
+  const selectedSources = selectedAnalysisSources();
+  const project = data.projects.find((item) => item.id === analysisProjectSelect.value);
+  const relationship = data.customers.find((item) => item.id === analysisRelationSelect.value);
+  const scopeTerms = [project?.name, relationship?.company].filter(Boolean).map((term) => term.toLowerCase());
+  const documents = [];
+  const addDocument = (sourceType, title, content, occurredAt = "", url = "") => {
+    const clean = String(content || "").trim();
+    if (!clean || documents.length >= 50) return;
+    documents.push({
+      id: `S${documents.length + 1}`,
+      sourceType,
+      title: String(title || "未命名来源").slice(0, 300),
+      content: sourceType === "chat" ? clean.slice(-8_000) : clean.slice(0, 8_000),
+      occurredAt: String(occurredAt || "").slice(0, 80),
+      url: String(url || "").slice(0, 2_000),
+    });
+  };
+  const inScopeText = (...values) => {
+    if (!scopeTerms.length) return true;
+    const haystack = values.join(" ").toLowerCase();
+    return scopeTerms.some((term) => haystack.includes(term));
+  };
+
+  if (selectedSources.has("workspace")) {
+    (project ? [project] : data.projects).slice(0, 5).forEach((item) => addDocument(
+      "project",
+      `项目：${item.name || "未命名"}`,
+      `状态：${PROJECT_STATUSES[item.status] || item.status || "未设置"}\n目标：${item.goal || "未设置"}\n进度：${Number(item.progress) || 0}%\n负责人：${item.owner || "未设置"}\n下一步：${item.nextAction || "未设置"}\n关联关系：${(item.linkedCustomerIds || []).map((id) => data.customers.find((entry) => entry.id === id)?.company).filter(Boolean).join("、") || "无"}`,
+      item.updatedAt || item.createdAt,
+    ));
+    (relationship ? [relationship] : data.customers).slice(0, 5).forEach((item) => {
+      const contacts = data.contacts.filter((contact) => contact.relationshipId === item.id);
+      addDocument(
+        "relationship",
+        `关系：${item.company || "未命名"}`,
+        `类型：${RELATIONSHIP_TYPES[item.relationshipType] || item.relationshipType || "未设置"}\n阶段：${STAGES[item.stage] || item.stage || "未设置"}\n联系人：${contacts.map((contact) => [contact.name, contact.title, contact.email].filter(Boolean).join(" / ")).join("；") || "无"}\n下一步：${item.nextAction || "未设置"}\n跟进日期：${item.followupDate || "未设置"}\n备注：${item.notes || "无"}`,
+        item.updatedAt || item.createdAt,
+        item.website || "",
+      );
+    });
+    data.tasks.filter((task) => analysisOccurredWithin(task.createdAt || task.dueDate) && inScopeText(task.title, task.relation))
+      .slice(0, 6).forEach((task) => addDocument("task", `待办：${task.title}`, `状态：${task.completed ? "已完成" : "未完成"}\n关联：${task.relation || "无"}\n截止：${task.dueDate || "未设置"}`, task.updatedAt || task.createdAt || task.dueDate));
+    data.activities.filter((activity) => {
+      if (!analysisOccurredWithin(activity.occurredAt || activity.createdAt)) return false;
+      if (!relationship && !project) return true;
+      const matchesRelationship = relationship && activity.relationType === "customer" && activity.relationId === relationship.id;
+      const matchesProject = project && activity.relationType === "project" && activity.relationId === project.id;
+      return Boolean(matchesRelationship || matchesProject);
+    }).slice(0, 6).forEach((activity) => addDocument("activity", `活动：${ACTIVITY_TYPES[activity.activityType] || activity.activityType || "记录"}`, activity.content, activity.occurredAt || activity.createdAt));
+    data.notes.filter((note) => analysisOccurredWithin(note.updatedAt || note.createdAt) && inScopeText(note.title, note.content))
+      .sort((left, right) => String(right.updatedAt || right.createdAt).localeCompare(String(left.updatedAt || left.createdAt)))
+      .slice(0, 3).forEach((note) => addDocument("note", `记录：${note.title || "快速记录"}`, note.content, note.updatedAt || note.createdAt));
+    data.reports.filter((report) => analysisOccurredWithin(report.updatedAt || report.createdAt)
+      && (!project || report.linkedProjectId === project.id)
+      && (!relationship || report.linkedCustomerId === relationship.id))
+      .slice(0, 3).forEach((report) => addDocument("report", `成果：${report.title}`, [report.summary, report.keyPoints, report.commitments, report.openQuestions, report.risks, report.actions].filter(Boolean).join("\n\n"), report.updatedAt || report.createdAt));
+  }
+
+  if (selectedSources.has("email")) {
+    data.emailMessages.filter((message) => analysisOccurredWithin(message.receivedAt || message.syncedAt)
+      && inScopeText(message.subject, message.sender, message.preview, ...(message.attachmentNames || [])))
+      .sort((left, right) => String(right.receivedAt).localeCompare(String(left.receivedAt)))
+      .slice(0, 8).forEach((message) => addDocument(
+        "email",
+        `邮件：${message.subject || "无主题"}`,
+        `发件人：${message.sender || "未知"}\n正文摘要：${message.preview || "无"}\n附件：${(message.attachmentNames || []).join("、") || "无"}\n本机状态：${message.archivedAt ? "已整理" : "未整理"}`,
+        message.receivedAt || message.syncedAt,
+      ));
+  }
+
+  if (selectedSources.has("cloud")) {
+    data.cloudItems.filter((item) => analysisOccurredWithin(item.modifiedAt) && inScopeText(item.title, item.subtitle))
+      .sort((left, right) => String(right.modifiedAt).localeCompare(String(left.modifiedAt)))
+      .slice(0, 6).forEach((item) => addDocument(
+        "cloud",
+        `云端${item.service || "项目"}：${item.title}`,
+        `平台：${item.provider}\n类型：${item.service}\n摘要：${item.subtitle || "无"}`,
+        item.modifiedAt,
+        item.webUrl,
+      ));
+  }
+
+  if (selectedSources.has("knowledge")) {
+    data.knowledge.filter((item) => item.status !== "archived"
+      && analysisOccurredWithin(item.updatedAt || item.capturedAt || item.createdAt)
+      && ((!project && !relationship)
+        || item.linkedProjectId === project?.id
+        || item.linkedCustomerId === relationship?.id
+        || inScopeText(item.title, item.content)))
+      .sort((left, right) => String(right.updatedAt || right.createdAt).localeCompare(String(left.updatedAt || left.createdAt)))
+      .slice(0, 7).forEach((item) => addDocument(
+        item.fileType === "web" ? "website" : "knowledge",
+        `${item.fileType === "web" ? "网页" : "资料"}：${item.title || item.fileName}`,
+        [item.summary, item.keyPoints, String(item.content || "").slice(0, 6_000)].filter(Boolean).join("\n\n"),
+        item.capturedAt || item.updatedAt || item.createdAt,
+        item.browserUrl || "",
+      ));
+  }
+
+  if (selectedSources.has("chat")) {
+    const conversation = currentConversationDocument();
+    if (conversation) addDocument("chat", conversation.title, conversation.content, new Date().toISOString());
+  }
+  return documents;
+}
+
+function refreshAnalysisSelectors() {
+  const projectValue = analysisProjectSelect.value;
+  const relationValue = analysisRelationSelect.value;
+  analysisProjectSelect.replaceChildren(new Option("全部项目", ""));
+  data.projects.forEach((item) => analysisProjectSelect.add(new Option(item.name, item.id)));
+  analysisProjectSelect.value = data.projects.some((item) => item.id === projectValue) ? projectValue : "";
+  analysisRelationSelect.replaceChildren(new Option("全部关系", ""));
+  data.customers.forEach((item) => analysisRelationSelect.add(new Option(`${RELATIONSHIP_TYPES[item.relationshipType] || "关系"} · ${item.company}`, item.id)));
+  analysisRelationSelect.value = data.customers.some((item) => item.id === relationValue) ? relationValue : "";
+}
+
+function renderAnalysisSourceSummary() {
+  const documents = buildEnterpriseAnalysisDocuments();
+  const counts = documents.reduce((result, document) => {
+    result[document.sourceType] = (result[document.sourceType] || 0) + 1;
+    return result;
+  }, {});
+  const labels = { project: "项目", relationship: "关系", task: "待办", activity: "活动", note: "记录", report: "成果", email: "邮件", cloud: "云端", knowledge: "文件", website: "网页", chat: "聊天" };
+  document.getElementById("analysisSourceSummary").textContent = documents.length
+    ? `本次将使用 ${documents.length} 个最近来源：${Object.entries(counts).map(([type, count]) => `${labels[type] || type} ${count}`).join(" · ")}`
+    : "当前范围内没有可用资料。可以扩大时间范围或先同步/导入资料。";
+}
+
+function analysisDraftValue(id) {
+  return String(document.getElementById(id)?.value || "").trim();
+}
+
+function fillEnterpriseAnalysisDraft(item, sourceCount = item.sourceRefs?.length || 0) {
+  document.getElementById("analysisDraftTitle").value = item.title || "联合分析";
+  document.getElementById("analysisDraftSummary").value = item.summary || "";
+  document.getElementById("analysisDraftProgress").value = item.progress || "";
+  document.getElementById("analysisDraftCommitments").value = item.commitments || "";
+  document.getElementById("analysisDraftRisks").value = item.risks || "";
+  document.getElementById("analysisDraftActions").value = item.nextActions || "";
+  document.getElementById("analysisDraftDailyBrief").value = item.dailyBrief || "";
+  document.getElementById("analysisDraftEvidence").value = item.evidence || "";
+  document.getElementById("enterpriseAnalysisEvidenceCount").textContent = `${sourceCount} 个来源`;
+  const sources = Array.isArray(item.sourceRefs) ? item.sourceRefs : [];
+  document.getElementById("enterpriseAnalysisSourceList").innerHTML = sources.map((source) => {
+    const label = `[${source.id}] ${source.title}${source.occurredAt ? ` · ${source.occurredAt}` : ""}`;
+    return source.url
+      ? `<button type="button" data-action="open-analysis-source-url" data-source-url="${escapeHtml(source.url)}">${escapeHtml(label)}</button>`
+      : `<span>${escapeHtml(label)}</span>`;
+  }).join("");
+  enterpriseAnalysisDraft.classList.remove("hidden");
+}
+
+function renderEnterpriseAnalyses() {
+  const analyses = [...(data.enterpriseAnalyses || [])].sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)));
+  analysisNavCount.textContent = String(analyses.length);
+  document.getElementById("enterpriseAnalysisSummary").textContent = `${analyses.length} 份分析`;
+  enterpriseAnalysisGrid.innerHTML = analyses.map((item) => {
+    const project = data.projects.find((entry) => entry.id === item.linkedProjectId);
+    const relationship = data.customers.find((entry) => entry.id === item.linkedCustomerId);
+    return `
+      <article class="analysis-history-card">
+        <button type="button" data-action="load-enterprise-analysis" data-analysis-id="${escapeHtml(item.id)}">
+          <span>${escapeHtml(new Date(item.updatedAt || item.createdAt).toLocaleString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }))}</span>
+          <strong>${escapeHtml(item.title || "联合分析")}</strong>
+          <p>${escapeHtml(item.summary || item.dailyBrief || "点击查看已保存内容。")}</p>
+          <small>${escapeHtml([project?.name, relationship?.company].filter(Boolean).join(" · ") || "全部范围")} · ${(item.sourceRefs || []).length} 个来源</small>
+        </button>
+        <button class="analysis-delete-button" type="button" data-action="delete-enterprise-analysis" data-analysis-id="${escapeHtml(item.id)}" aria-label="删除分析">×</button>
+      </article>
+    `;
+  }).join("") || emptyMarkup("还没有保存联合分析。生成后先检查来源和结论，再保存为工作简报。");
+}
+
+async function generateEnterpriseAnalysis() {
+  const documents = buildEnterpriseAnalysisDocuments();
+  if (!documents.length) {
+    enterpriseAnalysisStatus.textContent = "当前范围内没有可分析资料。请扩大时间范围、勾选来源，或先同步和导入资料。";
+    enterpriseAnalysisStatus.className = "analysis-status error";
+    return;
+  }
+  const ai = currentResearchAiConfig();
+  if (!ai.model) {
+    enterpriseAnalysisStatus.textContent = "当前 Ollama 还没有选择模型，请先到聊天设置中选择模型。";
+    enterpriseAnalysisStatus.className = "analysis-status error";
+    return;
+  }
+  const button = document.getElementById("generateEnterpriseAnalysisButton");
+  button.disabled = true;
+  button.textContent = "正在汇总与核对…";
+  enterpriseAnalysisStatus.textContent = `正在分析 ${documents.length} 个来源。模型只能依据这些摘要，并必须使用 [S1] 形式标注事实来源。`;
+  enterpriseAnalysisStatus.className = "analysis-status";
+  try {
+    const result = await invoke("analyze_enterprise_bundle", {
+      request: {
+        documents,
+        objective: analysisObjective.value.trim(),
+        projectName: data.projects.find((item) => item.id === analysisProjectSelect.value)?.name || "",
+        relationshipName: data.customers.find((item) => item.id === analysisRelationSelect.value)?.company || "",
+        rangeLabel: analysisRangeSelect.value === "all" ? "全部时间" : `最近 ${analysisRangeSelect.value} 天`,
+        provider: ai.provider,
+        model: ai.model,
+        ollamaBaseUrl: ai.ollamaBaseUrl,
+      },
+    });
+    editingEnterpriseAnalysisId = "";
+    pendingEnterpriseAnalysis = {
+      ...result,
+      sourceRefs: documents.map(({ id, title, sourceType, occurredAt, url }) => ({ id, title, sourceType, occurredAt, url })),
+      linkedProjectId: analysisProjectSelect.value,
+      linkedCustomerId: analysisRelationSelect.value,
+      rangeDays: analysisRangeSelect.value,
+      objective: analysisObjective.value.trim(),
+    };
+    fillEnterpriseAnalysisDraft(pendingEnterpriseAnalysis, documents.length);
+    enterpriseAnalysisStatus.textContent = "草稿已生成。请核对 [S] 来源编号、日期和推断，再保存或生成本机待办。";
+  } catch (error) {
+    enterpriseAnalysisStatus.textContent = String(error);
+    enterpriseAnalysisStatus.className = "analysis-status error";
+  } finally {
+    button.disabled = false;
+    button.textContent = "✦ 生成联合分析";
+  }
+}
+
+function saveEnterpriseAnalysis(createTasks = false) {
+  if (!pendingEnterpriseAnalysis && !editingEnterpriseAnalysisId) return;
+  const previousAnalyses = structuredClone(data.enterpriseAnalyses || []);
+  const previousTasks = structuredClone(data.tasks || []);
+  const now = new Date().toISOString();
+  const existing = data.enterpriseAnalyses.find((item) => item.id === editingEnterpriseAnalysisId);
+  const source = pendingEnterpriseAnalysis || existing;
+  const item = {
+    ...(existing || {}),
+    id: existing?.id || crypto.randomUUID(),
+    title: analysisDraftValue("analysisDraftTitle") || "联合分析",
+    summary: analysisDraftValue("analysisDraftSummary"),
+    progress: analysisDraftValue("analysisDraftProgress"),
+    commitments: analysisDraftValue("analysisDraftCommitments"),
+    risks: analysisDraftValue("analysisDraftRisks"),
+    nextActions: analysisDraftValue("analysisDraftActions"),
+    dailyBrief: analysisDraftValue("analysisDraftDailyBrief"),
+    evidence: analysisDraftValue("analysisDraftEvidence"),
+    linkedProjectId: source.linkedProjectId || "",
+    linkedCustomerId: source.linkedCustomerId || "",
+    rangeDays: source.rangeDays || "30",
+    objective: source.objective || "",
+    sourceRefs: source.sourceRefs || [],
+    generatedTaskIds: existing?.generatedTaskIds || [],
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
+  };
+  let taskCount = 0;
+  if (createTasks) {
+    const relation = data.customers.find((entry) => entry.id === item.linkedCustomerId)?.company
+      || data.projects.find((entry) => entry.id === item.linkedProjectId)?.name
+      || "联合分析";
+    const lines = item.nextActions.split(/\r?\n/)
+      .map((line) => line.replace(/^\s*(?:[-*•]|\d+[.)、])\s*/, "").trim())
+      .filter((line) => line.length >= 3)
+      .slice(0, 10);
+    lines.forEach((title) => {
+      if (item.generatedTaskIds.some((id) => data.tasks.some((task) => task.id === id && task.title === title))) return;
+      const task = { id: crypto.randomUUID(), title: title.slice(0, 160), relation, dueDate: dateInputValue(new Date()), completed: false, source: "enterprise-analysis", sourceAnalysisId: item.id, createdAt: now };
+      data.tasks.unshift(task);
+      item.generatedTaskIds.push(task.id);
+      taskCount += 1;
+    });
+  }
+  if (existing) Object.assign(existing, item);
+  else data.enterpriseAnalyses.unshift(item);
+  if (!saveData()) {
+    data.enterpriseAnalyses = previousAnalyses;
+    data.tasks = previousTasks;
+    renderAll();
+    return;
+  }
+  editingEnterpriseAnalysisId = item.id;
+  pendingEnterpriseAnalysis = item;
+  fillEnterpriseAnalysisDraft(item);
+  enterpriseAnalysisStatus.textContent = taskCount ? `分析已保存，并建立 ${taskCount} 条今日待办。` : "分析已保存到本机工作台。";
+  enterpriseAnalysisStatus.className = "analysis-status success";
+  showToast(taskCount ? `已保存并生成 ${taskCount} 条待办` : "联合分析已保存");
+}
+
+function loadEnterpriseAnalysis(id) {
+  const item = data.enterpriseAnalyses.find((entry) => entry.id === id);
+  if (!item) return;
+  editingEnterpriseAnalysisId = item.id;
+  pendingEnterpriseAnalysis = item;
+  analysisProjectSelect.value = item.linkedProjectId || "";
+  analysisRelationSelect.value = item.linkedCustomerId || "";
+  analysisRangeSelect.value = ["7", "30", "90", "all"].includes(item.rangeDays) ? item.rangeDays : "30";
+  analysisObjective.value = item.objective || "";
+  renderAnalysisSourceSummary();
+  fillEnterpriseAnalysisDraft(item);
+  enterpriseAnalysisStatus.textContent = "正在查看已保存分析。修改后可再次保存；来源快照编号保持不变。";
+  enterpriseAnalysisDraft.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+async function deleteEnterpriseAnalysis(id) {
+  const item = data.enterpriseAnalyses.find((entry) => entry.id === id);
+  if (!item) return;
+  const confirmed = await window.kardiiConfirm({ title: "删除这份联合分析？", message: "只删除分析正文和来源索引；原邮件、云端项目、文件、网页与已经生成的待办不会删除。", confirmLabel: "删除分析", tone: "danger" });
+  if (!confirmed) return;
+  data.enterpriseAnalyses = data.enterpriseAnalyses.filter((entry) => entry.id !== id);
+  if (editingEnterpriseAnalysisId === id) {
+    editingEnterpriseAnalysisId = "";
+    pendingEnterpriseAnalysis = null;
+    enterpriseAnalysisDraft.classList.add("hidden");
+  }
+  saveData();
+  showToast("联合分析已删除");
 }
 
 function emailAccounts() {
@@ -1005,13 +1685,1058 @@ function renderCloudConnections() {
   `).join("") || emptyMarkup("还没有云端概览。连接账号后点击“同步概览”。", "所有连接默认只读");
 }
 
+function setBrowserConnectionStatus(message, kind = "") {
+  browserConnectionStatus.textContent = message;
+  browserConnectionStatus.className = `connection-status${kind ? ` ${kind}` : ""}`;
+}
+
+function browserCaptureText(capture = latestBrowserCapture) {
+  if (!capture) return "";
+  return String(capture.selectedText || capture.content || "").trim();
+}
+
+function renderBrowserConnection() {
+  const status = browserBridgeStatus;
+  const running = status?.running === true;
+  const paired = running && status?.paired === true;
+  const pairingLocked = Number(status?.pairingLockedUntil || 0) * 1_000 > Date.now();
+  browserConnectionBadge.textContent = !status ? "检查中" : paired ? "已配对" : pairingLocked ? "暂时锁定" : running ? "等待配对" : "未启动";
+  browserConnectionBadge.className = `connection-state ${!status ? "testing" : paired ? "connected" : running ? "testing" : "disconnected"}`;
+  browserConnectionSummary.textContent = paired
+    ? `扩展已配对${status.lastSeenAt ? ` · 最近连接 ${new Date(status.lastSeenAt * 1_000).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}` : ""}`
+    : pairingLocked ? "错误尝试过多，请一分钟后使用新的配对码" : running ? "本机连接已启动，等待扩展配对" : "连接扩展后，由你主动发送当前页";
+  browserPairingCode.textContent = paired ? "••••••" : running ? String(status.pairingCode || "------") : "------";
+  copyBrowserPairingButton.disabled = !running || paired || pairingLocked;
+  startBrowserBridgeButton.disabled = running;
+  stopBrowserBridgeButton.disabled = !running;
+  regenerateBrowserPairingButton.disabled = !running;
+
+  const capture = latestBrowserCapture;
+  const hasCapture = Boolean(capture?.id && browserCaptureText(capture));
+  browserPagePreview.classList.toggle("empty", !hasCapture);
+  browserPageTitle.textContent = hasCapture ? capture.title || "未命名网页" : "等待你从扩展发送网页";
+  browserPageUrl.textContent = hasCapture ? capture.url || "" : "";
+  browserPageUrl.href = hasCapture ? capture.url || "" : "";
+  if (hasCapture) {
+    const selected = String(capture.selectedText || "").trim();
+    const count = browserCaptureText(capture).length.toLocaleString("zh-CN");
+    const received = capture.receivedAt
+      ? new Date(capture.receivedAt * 1_000).toLocaleString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+      : "刚刚";
+    browserPageMeta.textContent = `${selected ? "已优先采用选中文字" : "已提取页面正文"} · ${count} 字 · ${received}${capture.description ? `\n${capture.description}` : ""}`;
+  } else {
+    browserPageMeta.textContent = "不会持续监控，也不会读取 Cookie、密码、表单内容或其他标签页。";
+  }
+  [sendBrowserPageToChatButton, sendBrowserPageToAgentButton, saveBrowserPageButton, clearBrowserPageButton]
+    .forEach((button) => { button.disabled = !hasCapture; });
+}
+
+async function refreshBrowserConnection({ start = false, quiet = false } = {}) {
+  refreshBrowserButton.disabled = true;
+  try {
+    browserBridgeStatus = start
+      ? await invoke("start_browser_bridge")
+      : await invoke("browser_bridge_status");
+    if (browserBridgeStatus.latestCaptureId) {
+      if (latestBrowserCapture?.id !== browserBridgeStatus.latestCaptureId) {
+        latestBrowserCapture = await invoke("get_browser_capture");
+        if (!quiet && latestBrowserCapture) setBrowserConnectionStatus(`已收到网页“${latestBrowserCapture.title || "未命名网页"}”。`, "success");
+      }
+    } else {
+      latestBrowserCapture = null;
+    }
+    if (!quiet && !latestBrowserCapture) {
+      setBrowserConnectionStatus(
+        browserBridgeStatus.running
+          ? "连接已启动。安装扩展、输入配对码，然后在浏览器中主动发送当前页。"
+          : "连接只监听本机 127.0.0.1，并使用一次配对产生的随机凭据。",
+        browserBridgeStatus.running ? "success" : "",
+      );
+    }
+  } catch (error) {
+    browserBridgeStatus = { running: false, paired: false };
+    setBrowserConnectionStatus(String(error), "error");
+  } finally {
+    refreshBrowserButton.disabled = false;
+    renderConnections();
+  }
+}
+
+async function startBrowserConnection() {
+  startBrowserBridgeButton.disabled = true;
+  setBrowserConnectionStatus("正在启动本机浏览器连接…");
+  await refreshBrowserConnection({ start: true });
+  if (browserBridgeStatus?.running) {
+    data.settings.browserBridgeEnabled = true;
+    saveData();
+  }
+}
+
+async function stopBrowserConnection() {
+  stopBrowserBridgeButton.disabled = true;
+  try {
+    browserBridgeStatus = await invoke("stop_browser_bridge");
+    data.settings.browserBridgeEnabled = false;
+    saveData();
+    setBrowserConnectionStatus("浏览器连接已停止。扩展无法再向 Kardii 发送网页。", "success");
+  } catch (error) {
+    setBrowserConnectionStatus(String(error), "error");
+  } finally {
+    renderConnections();
+  }
+}
+
+async function copyBrowserPairingCode() {
+  const code = String(browserBridgeStatus?.pairingCode || "");
+  if (!/^\d{6}$/.test(code)) return;
+  try {
+    await invoke("write_clipboard_text", { text: code });
+    setBrowserConnectionStatus("配对码已复制。打开浏览器扩展后粘贴即可。", "success");
+  } catch (error) {
+    setBrowserConnectionStatus(String(error), "error");
+  }
+}
+
+async function openBrowserExtensionFolder() {
+  openBrowserExtensionButton.disabled = true;
+  try {
+    await invoke("open_browser_extension_folder");
+    setBrowserConnectionStatus("扩展文件夹已打开。请在 Chrome / Edge 的扩展页选择“加载已解压的扩展程序”。", "success");
+  } catch (error) {
+    setBrowserConnectionStatus(String(error), "error");
+  } finally {
+    openBrowserExtensionButton.disabled = false;
+  }
+}
+
+async function regenerateBrowserPairingCode() {
+  const confirmed = await window.kardiiConfirm({
+    title: "撤销已配对的浏览器扩展？",
+    message: "旧扩展会立即失效。你需要使用新的 6 位配对码重新连接。",
+    confirmLabel: "撤销并重新生成",
+    tone: "danger",
+  });
+  if (!confirmed) return;
+  try {
+    browserBridgeStatus = await invoke("regenerate_browser_pairing");
+    setBrowserConnectionStatus("旧连接已撤销。请用新的配对码重新连接扩展。", "success");
+  } catch (error) {
+    setBrowserConnectionStatus(String(error), "error");
+  }
+  renderConnections();
+}
+
+async function sendBrowserPageToChat() {
+  if (!latestBrowserCapture) return;
+  try {
+    localStorage.setItem(BROWSER_CONTEXT_KEY, JSON.stringify(latestBrowserCapture));
+    await openChat();
+    setBrowserConnectionStatus("网页已准备到聊天框。输入问题后，它才会随本轮问题交给当前 AI。", "success");
+  } catch (error) {
+    setBrowserConnectionStatus(`无法把网页交给聊天：${String(error)}`, "error");
+  }
+}
+
+async function openAgent() {
+  const agentWindow = (await getAllWindows()).find((item) => item.label === "agent");
+  if (!agentWindow) throw new Error("没有找到 Kardii Agent 窗口。");
+  await agentWindow.show();
+  await agentWindow.unminimize();
+  await agentWindow.setFocus();
+}
+
+async function sendBrowserPageToAgent() {
+  if (!latestBrowserCapture) return;
+  try {
+    localStorage.setItem(BROWSER_AGENT_REQUEST_KEY, JSON.stringify({
+      captureId: latestBrowserCapture.id,
+      title: latestBrowserCapture.title,
+      url: latestBrowserCapture.url,
+      createdAt: new Date().toISOString(),
+    }));
+    await openAgent();
+    setBrowserConnectionStatus("已创建网页处理请求，Agent 会先读取这次主动发送的页面，再制定计划。", "success");
+  } catch (error) {
+    setBrowserConnectionStatus(`无法交给 Agent：${String(error)}`, "error");
+  }
+}
+
+function saveBrowserPageToKnowledge() {
+  const capture = latestBrowserCapture;
+  const content = browserCaptureText(capture);
+  if (!capture || !content) return;
+  const now = new Date().toISOString();
+  const existing = data.knowledge.find((item) => item.browserCaptureId === capture.id);
+  const draft = {
+    title: capture.title || "未命名网页",
+    fileName: capture.title || capture.url,
+    filePath: "",
+    sourcePath: capture.url,
+    storedInKardii: true,
+    fileType: "web",
+    fileSize: new Blob([content]).size,
+    content,
+    charCount: content.length,
+    pageCount: 1,
+    warning: "网页内容是发送时的本机快照，后续可能与原网页不同。",
+    status: "active",
+    tags: "网页",
+    summary: capture.description || "由 Kardii Browser Connector 主动保存的网页资料。",
+    keyPoints: "",
+    risks: "",
+    actions: "",
+    analyzedAt: "",
+    linkedCustomerId: "",
+    linkedProjectId: "",
+    reportId: "",
+    browserUrl: capture.url,
+    browserCaptureId: capture.id,
+    capturedAt: capture.capturedAt || now,
+    updatedAt: now,
+  };
+  if (existing) Object.assign(existing, draft);
+  else data.knowledge.unshift({ id: crypto.randomUUID(), ...draft, createdAt: now });
+  if (!saveData()) return;
+  navigate("knowledge");
+  showToast(existing ? "网页知识已更新" : "网页已保存到知识库");
+}
+
+async function clearBrowserPage() {
+  try {
+    browserBridgeStatus = await invoke("clear_browser_capture");
+    latestBrowserCapture = null;
+    renderConnections();
+    setBrowserConnectionStatus("Kardii 中的最近网页快照已清除；浏览器原页面没有变化。", "success");
+  } catch (error) {
+    setBrowserConnectionStatus(String(error), "error");
+  }
+}
+
+function mcpServers() {
+  return Array.isArray(data.settings?.mcpServers) ? data.settings.mcpServers : [];
+}
+
+function activeMcpServer() {
+  const serverId = editingMcpServerId || data.settings?.activeMcpServerId || "";
+  return mcpServers().find((server) => server.serverId === serverId) || null;
+}
+
+function setMcpConnectionStatus(message, kind = "") {
+  mcpConnectionStatus.textContent = message;
+  mcpConnectionStatus.className = `connection-status full${kind ? ` ${kind}` : ""}`;
+}
+
+function saveMcpLogs() {
+  mcpLogs = mcpLogs.slice(0, 100);
+  localStorage.setItem(MCP_LOGS_KEY, JSON.stringify(mcpLogs));
+  renderMcpLogs();
+}
+
+function addMcpLog({ server, toolName, success, durationMs = 0, error = "" }) {
+  mcpLogs.unshift({
+    id: crypto.randomUUID(),
+    serverId: server?.serverId || "",
+    serverName: server?.name || "MCP",
+    toolName: String(toolName || "未知工具"),
+    success: success === true,
+    durationMs: Math.max(0, Number(durationMs) || 0),
+    error: String(error || "").slice(0, 500),
+    createdAt: new Date().toISOString(),
+  });
+  saveMcpLogs();
+}
+
+function renderMcpLogs() {
+  const server = activeMcpServer();
+  const logs = mcpLogs.filter((log) => !server || log.serverId === server.serverId).slice(0, 12);
+  mcpExecutionLog.innerHTML = logs.map((log) => `
+    <div class="mcp-log-item ${log.success ? "" : "error"}" title="${escapeHtml(log.error || "")}">
+      <span>${log.success ? "成功" : "失败"}</span>
+      <strong>${escapeHtml(log.toolName)}</strong>
+      <time>${escapeHtml(new Date(log.createdAt).toLocaleString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }))}${log.durationMs ? ` · ${log.durationMs}ms` : ""}</time>
+    </div>
+  `).join("") || '<div class="mcp-log-item"><span>—</span><strong>还没有工具调用记录</strong><time>仅保存在本机</time></div>';
+}
+
+function mcpToolRisk(tool) {
+  if (!tool) return "unknown";
+  const text = `${tool.name || ""} ${tool.description || ""}`;
+  if (/(?:^|[^a-z0-9])(?:purchase|payment|pay|charge|payout|refund|checkout|(?:place|submit)[_ -]?order|buy|transfer[_ -]?(?:funds?|money)|wire[_ -]?transfer|withdraw)(?:$|[^a-z0-9])|支付|购买|付款|退款|转账|汇款|下单|提交订单/i.test(text)) return "blocked";
+  if (tool.destructiveHint || /(?:^|[^a-z0-9])(?:delete|remove|erase|destroy|drop|truncate|revoke)(?:$|[^a-z0-9])|删除|撤销|销毁|清空/i.test(text)) return "destructive";
+  if (tool.readOnlyHint) return "read";
+  return "write";
+}
+
+function renderMcpToolDetails() {
+  const tool = activeMcpTools.find((item) => item.name === mcpToolSelect.value) || null;
+  const risk = mcpToolRisk(tool);
+  callMcpToolButton.disabled = !tool || !activeMcpServer() || risk === "blocked";
+  if (!tool) {
+    mcpToolDescription.textContent = "未知工具一律按可能写入处理；每次调用都需要你确认。";
+    return;
+  }
+  const label = risk === "read"
+    ? "服务器标记为只读"
+    : risk === "blocked"
+      ? "付款、购买或资金转移类工具已在 Kardii 中禁用"
+      : risk === "destructive" ? "可能删除或产生不可逆影响" : "未证明只读，按可能写入处理";
+  mcpToolDescription.textContent = `${label} · ${tool.description || "服务器没有提供工具说明"}`;
+}
+
+function renderMcpConnection() {
+  const servers = mcpServers();
+  const server = activeMcpServer();
+  const isNew = editingMcpServerId && !servers.some((item) => item.serverId === editingMcpServerId);
+  mcpServerSelect.innerHTML = [
+    ...servers.map((item) => `<option value="${escapeHtml(item.serverId)}">${escapeHtml(item.name || item.serverName || "MCP 服务器")}</option>`),
+    ...(isNew ? [`<option value="${escapeHtml(editingMcpServerId)}">新 MCP 服务器（尚未保存）</option>`] : []),
+  ].join("") || '<option value="">尚未添加 MCP 服务器</option>';
+  mcpServerSelect.value = editingMcpServerId || data.settings.activeMcpServerId || "";
+  const healthy = Boolean(server?.lastTestAt && !server.lastError);
+  mcpConnectionBadge.textContent = healthy ? "已验证" : server?.lastError ? "需检查" : server ? "未测试" : "未连接";
+  mcpConnectionBadge.className = `connection-state ${healthy ? "connected" : server?.lastError ? "testing" : "disconnected"}`;
+  mcpConnectionSummary.textContent = healthy
+    ? `${server.serverName || server.name} ${server.serverVersion || ""} · ${server.tools.length} 个工具`
+    : server ? server.url || "等待填写地址" : "添加支持 Streamable HTTP 的 MCP 服务器";
+  removeMcpServerButton.disabled = !server;
+  clearMcpTokenButton.disabled = !server || mcpCredentialStatuses.get(server.serverId) !== true;
+
+  activeMcpTools = Array.isArray(server?.tools) ? server.tools : [];
+  const selectedTool = mcpToolSelect.value;
+  mcpToolSelect.innerHTML = activeMcpTools.length
+    ? activeMcpTools.map((tool) => `<option value="${escapeHtml(tool.name)}">${escapeHtml(tool.name)} · ${mcpToolRisk(tool) === "read" ? "只读" : mcpToolRisk(tool) === "blocked" ? "已禁用" : mcpToolRisk(tool) === "destructive" ? "高风险" : "需确认"}</option>`).join("")
+    : '<option value="">请先测试连接</option>';
+  if (activeMcpTools.some((tool) => tool.name === selectedTool)) mcpToolSelect.value = selectedTool;
+  mcpToolSelect.disabled = activeMcpTools.length === 0;
+  mcpToolCount.textContent = activeMcpTools.length ? `${activeMcpTools.length} 个工具 · 调用前逐次确认` : "尚未读取工具清单";
+  renderMcpToolDetails();
+  renderMcpLogs();
+}
+
+function loadMcpConnectionForm() {
+  if (!editingMcpServerId) editingMcpServerId = data.settings.activeMcpServerId || "";
+  const server = activeMcpServer();
+  mcpNameInput.value = server?.name || "";
+  mcpUrlInput.value = server?.url || "";
+  mcpTokenInput.value = "";
+  const hasToken = server ? mcpCredentialStatuses.get(server.serverId) : false;
+  mcpTokenInput.placeholder = hasToken ? "已保存在系统安全凭据库；留空保持不变" : "没有 Token 可留空";
+  renderMcpConnection();
+}
+
+async function refreshMcpCredentialStatuses() {
+  await Promise.all(mcpServers().map(async (server) => {
+    const present = await invoke("has_mcp_token", { serverId: server.serverId }).catch(() => false);
+    mcpCredentialStatuses.set(server.serverId, present === true);
+  }));
+  loadMcpConnectionForm();
+}
+
+function validatedMcpUrl(value) {
+  let parsed;
+  try {
+    parsed = new URL(String(value || "").trim());
+  } catch {
+    throw new Error("MCP 地址格式无效。");
+  }
+  if (parsed.username || parsed.password || parsed.hash) throw new Error("MCP 地址不能包含账号、密码或片段。");
+  const hostname = parsed.hostname.toLowerCase();
+  const loopback = ["localhost", "127.0.0.1", "[::1]", "::1"].includes(hostname);
+  if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && loopback)) {
+    throw new Error("远程 MCP 必须使用 HTTPS；HTTP 只允许 127.0.0.1、localhost 或 ::1。");
+  }
+  return parsed.href.slice(0, 2_000);
+}
+
+async function saveMcpServer({ test = false } = {}) {
+  const name = mcpNameInput.value.trim() || "MCP 工具服务器";
+  if (!mcpUrlInput.value.trim()) throw new Error("请填写 MCP Streamable HTTP 地址。");
+  const url = validatedMcpUrl(mcpUrlInput.value);
+  const serverId = editingMcpServerId || `mcp-${crypto.randomUUID()}`;
+  let server = mcpServers().find((item) => item.serverId === serverId);
+  const changedUrl = Boolean(server && server.url !== url);
+  const token = mcpTokenInput.value.trim();
+  if (changedUrl) {
+    await invoke("delete_mcp_token", { serverId });
+    mcpCredentialStatuses.set(serverId, false);
+  }
+  if (!server) {
+    server = normalizeMcpServer({ serverId, name, url }, serverId);
+    data.settings.mcpServers.unshift(server);
+  } else {
+    server.name = name.slice(0, 80);
+    server.url = url.slice(0, 2_000);
+  }
+  if (changedUrl) {
+    server.tools = [];
+    server.lastTestAt = "";
+    server.lastError = "";
+  }
+  if (token) {
+    await invoke("save_mcp_token", { serverId, token });
+    mcpCredentialStatuses.set(serverId, true);
+  }
+  editingMcpServerId = serverId;
+  data.settings.activeMcpServerId = serverId;
+  saveData();
+  mcpTokenInput.value = "";
+  loadMcpConnectionForm();
+  if (!test) setMcpConnectionStatus("MCP 连接设置已保存；Token 不会进入 Kardii 数据或备份。", "success");
+  return server;
+}
+
+async function testMcpConnection() {
+  testMcpButton.disabled = true;
+  saveMcpButton.disabled = true;
+  setMcpConnectionStatus("正在执行 MCP initialize 与 tools/list…");
+  let server = null;
+  try {
+    server = await saveMcpServer({ test: true });
+    const result = await invoke("test_mcp_connection", {
+      request: { serverId: server.serverId, url: server.url },
+    });
+    server.protocolVersion = result.protocolVersion || "";
+    server.serverName = result.serverName || server.name;
+    server.serverVersion = result.serverVersion || "";
+    server.tools = Array.isArray(result.tools) ? result.tools : [];
+    server.lastTestAt = new Date((result.testedAt || Math.floor(Date.now() / 1_000)) * 1_000).toISOString();
+    server.lastError = "";
+    saveData();
+    loadMcpConnectionForm();
+    mcpToolOutput.textContent = `连接成功：${server.serverName} ${server.serverVersion}\n协议：${server.protocolVersion}\n工具：${server.tools.length} 个`;
+    setMcpConnectionStatus(`连接成功，已读取 ${server.tools.length} 个工具。每次调用仍需你确认。`, "success");
+  } catch (error) {
+    if (server) {
+      server.lastError = String(error).slice(0, 1_000);
+      saveData();
+    }
+    setMcpConnectionStatus(String(error), "error");
+    mcpToolOutput.textContent = String(error);
+  } finally {
+    testMcpButton.disabled = false;
+    saveMcpButton.disabled = false;
+    renderConnections();
+  }
+}
+
+async function removeMcpServer() {
+  const server = activeMcpServer();
+  if (!server) return;
+  const confirmed = await window.kardiiConfirm({
+    title: `移除 MCP 连接“${server.name}”？`,
+    message: "系统安全凭据库中的 Token 也会删除；已经生成的本机调用日志会保留到你手动清空。",
+    confirmLabel: "移除连接",
+    tone: "danger",
+  });
+  if (!confirmed) return;
+  try {
+    await invoke("delete_mcp_token", { serverId: server.serverId });
+  } catch (error) {
+    setMcpConnectionStatus(`系统凭据未能删除，连接暂不移除：${String(error)}`, "error");
+    return;
+  }
+  data.settings.mcpServers = mcpServers().filter((item) => item.serverId !== server.serverId);
+  mcpCredentialStatuses.delete(server.serverId);
+  editingMcpServerId = data.settings.mcpServers[0]?.serverId || "";
+  data.settings.activeMcpServerId = editingMcpServerId;
+  saveData();
+  loadMcpConnectionForm();
+  setMcpConnectionStatus("MCP 连接与凭据已移除。", "success");
+}
+
+async function clearMcpToken() {
+  const server = activeMcpServer();
+  if (!server || mcpCredentialStatuses.get(server.serverId) !== true) return;
+  const confirmed = await window.kardiiConfirm({
+    title: `删除“${server.name}”的 MCP Token？`,
+    message: "Token 会从 Windows 凭据管理器或 macOS 钥匙串删除。服务器地址与本机调用日志会保留。",
+    confirmLabel: "删除 Token",
+    tone: "danger",
+  });
+  if (!confirmed) return;
+  try {
+    await invoke("delete_mcp_token", { serverId: server.serverId });
+    mcpCredentialStatuses.set(server.serverId, false);
+    server.lastTestAt = "";
+    server.lastError = "凭据已删除，请重新测试连接。";
+    saveData();
+    loadMcpConnectionForm();
+    setMcpConnectionStatus("MCP Token 已从系统安全凭据库删除。", "success");
+  } catch (error) {
+    setMcpConnectionStatus(String(error), "error");
+  }
+}
+
+async function callSelectedMcpTool() {
+  const server = activeMcpServer();
+  const tool = activeMcpTools.find((item) => item.name === mcpToolSelect.value);
+  if (!server || !tool) return;
+  let argumentsValue;
+  try {
+    argumentsValue = JSON.parse(mcpArgumentsInput.value.trim() || "{}");
+    if (!argumentsValue || Array.isArray(argumentsValue) || typeof argumentsValue !== "object") throw new Error("参数必须是 JSON 对象。");
+  } catch (error) {
+    setMcpConnectionStatus(`参数格式错误：${String(error)}`, "error");
+    return;
+  }
+  const risk = mcpToolRisk(tool);
+  if (risk === "blocked") {
+    setMcpConnectionStatus("Kardii 不调用付款、购买或资金转移类 MCP 工具。", "error");
+    return;
+  }
+  const argsPreview = JSON.stringify(argumentsValue, null, 2).slice(0, 1_400);
+  const confirmed = await window.kardiiConfirm({
+    title: `${risk === "read" ? "调用只读 MCP 工具" : risk === "destructive" ? "调用高风险 MCP 工具" : "调用可能写入的 MCP 工具"}“${tool.name}”？`,
+    message: `服务器：${server.name}\n地址：${server.url}\n\n参数：\n${argsPreview}${JSON.stringify(argumentsValue).length > 1_400 ? "\n…（预览已截断）" : ""}\n\nKardii 无法保证第三方服务器如何实现这个工具。`,
+    confirmLabel: risk === "destructive" ? "我已检查，仍要调用" : "确认调用",
+    tone: risk === "read" ? "default" : "danger",
+  });
+  if (!confirmed) return;
+  callMcpToolButton.disabled = true;
+  mcpToolOutput.textContent = "正在调用工具…";
+  const started = Date.now();
+  try {
+    const result = await invoke("call_mcp_tool", {
+      request: {
+        serverId: server.serverId,
+        url: server.url,
+        toolName: tool.name,
+        arguments: argumentsValue,
+        allowWrite: risk !== "read",
+      },
+    });
+    const output = String(result.content || JSON.stringify(result.structuredContent || {}, null, 2));
+    mcpToolOutput.textContent = output || "工具调用完成，但没有返回可显示的内容。";
+    addMcpLog({ server, toolName: tool.name, success: result.isError !== true, durationMs: result.durationMs || Date.now() - started, error: result.isError ? output : "" });
+    setMcpConnectionStatus(result.isError ? "MCP 工具返回了错误结果；详情已显示并记入日志。" : "MCP 工具调用完成；结果只显示在本机。", result.isError ? "error" : "success");
+  } catch (error) {
+    mcpToolOutput.textContent = String(error);
+    addMcpLog({ server, toolName: tool.name, success: false, durationMs: Date.now() - started, error: String(error) });
+    setMcpConnectionStatus(String(error), "error");
+  } finally {
+    renderMcpToolDetails();
+  }
+}
+
+function setWecomStatus(element, message, tone = "") {
+  element.textContent = message;
+  element.className = `connection-status${tone ? ` ${tone}` : ""}`;
+}
+
+function selectedWecomDocument() {
+  return wecomDocumentResultsData.find((document) => document.docId === selectedWecomDocumentId) || null;
+}
+
+function clearWecomQrPanel() {
+  window.clearInterval(wecomQrPollTimer);
+  wecomQrPollTimer = 0;
+  wecomQrExpiresAt = 0;
+  wecomQrImage.removeAttribute("src");
+  wecomQrPanel.classList.add("hidden");
+}
+
+function renderWecomDocuments() {
+  const authorized = wecomAuthorizationStatus?.authorized === true;
+  const selected = selectedWecomDocument();
+  searchWecomDocumentsButton.disabled = !authorized;
+  createWecomDocumentButton.disabled = !authorized;
+  readWecomDocumentButton.disabled = !authorized || !selected || !["doc", "smartpage"].includes(selected.docType);
+  openWecomDocumentButton.disabled = !selected?.url;
+  const smartpageReady = selected?.docType !== "smartpage" || activeWecomDocumentContent?.docId === selected?.docId;
+  appendWecomDocumentButton.disabled = !authorized || !selected || !["doc", "smartpage"].includes(selected.docType) || !smartpageReady;
+  overwriteWecomDocumentButton.disabled = appendWecomDocumentButton.disabled;
+  wecomSelectedDocumentTitle.textContent = selected ? `${selected.name} · ${selected.docType}` : "尚未选择文档";
+  wecomDocumentResults.innerHTML = wecomDocumentResultsData.map((document) => `
+    <button class="wecom-document-result ${document.docId === selectedWecomDocumentId ? "active" : ""}" type="button" data-wecom-document-id="${escapeHtml(document.docId)}">
+      <strong>${escapeHtml(document.name || "未命名文档")}</strong>
+      <span>${escapeHtml(document.docType || "unknown")}${document.modifiedAt ? ` · ${escapeHtml(document.modifiedAt)}` : ""}</span>
+      ${document.highlights?.length ? `<small>${escapeHtml(document.highlights.join("；"))}</small>` : ""}
+    </button>
+  `).join("") || `<p>${authorized ? "输入关键词搜索当前账号有权访问的文档。" : "扫码授权后，可以搜索当前账号有权访问的企微文档。"}</p>`;
+  const pages = Array.isArray(activeWecomDocumentContent?.pages) ? activeWecomDocumentContent.pages : [];
+  const showPages = selected?.docType === "smartpage" && activeWecomDocumentContent?.docId === selected?.docId && pages.length > 0;
+  wecomDocumentPageSelect.classList.toggle("hidden", !showPages);
+  wecomDocumentPageSelect.innerHTML = showPages
+    ? pages.map((page) => `<option value="${escapeHtml(page.pageId)}">${escapeHtml(page.title || "未命名页面")}</option>`).join("")
+    : "";
+}
+
+function currentWecomRemoteSettings() {
+  let pairing = {};
+  try { pairing = JSON.parse(localStorage.getItem(WECOM_REMOTE_PAIRING_KEY) || "null") || {}; } catch { pairing = {}; }
+  return window.KardiiWecomRemote.normalizeSettings({ ...data.settings, ...pairing });
+}
+
+function remoteReadOnlyMcpTools() {
+  return mcpServers().filter((server) => server.lastTestAt && !server.lastError).flatMap((server) => (
+    (Array.isArray(server.tools) ? server.tools : []).filter((tool) => mcpToolRisk(tool) === "read").map((tool) => ({
+      key: `${server.serverId}::${tool.name}`,
+      serverName: server.name || server.serverName || "MCP 服务器",
+      toolName: tool.name,
+    }))
+  )).slice(0, 80);
+}
+
+async function refreshWecomRemoteFolders() {
+  try {
+    const folders = await invoke("list_wecom_remote_folders");
+    wecomRemoteFolderRegistry = Array.isArray(folders) ? folders.slice(0, 8) : [];
+    const summaries = wecomRemoteFolderRegistry.map((item) => ({
+      id: String(item.id || "").slice(0, 100),
+      name: String(item.name || "").slice(0, 120),
+    })).filter((item) => item.id && item.name);
+    if (JSON.stringify(data.settings.wecomRemoteAuthorizedFolders || []) !== JSON.stringify(summaries)) {
+      data.settings.wecomRemoteAuthorizedFolders = summaries;
+      if (!summaries.length) data.settings.wecomRemoteAllowAuthorizedFiles = false;
+      saveData();
+    } else {
+      renderWecomRemoteAgent();
+    }
+  } catch (error) {
+    setWecomStatus(wecomRemoteAgentStatus, `无法读取授权目录：${String(error)}`, "error");
+  }
+}
+
+async function addWecomRemoteFolder() {
+  addWecomRemoteFolderButton.disabled = true;
+  try {
+    await invoke("select_wecom_remote_folder");
+    await refreshWecomRemoteFolders();
+  } catch (error) {
+    setWecomStatus(wecomRemoteAgentStatus, String(error), "error");
+  } finally {
+    addWecomRemoteFolderButton.disabled = !currentWecomRemoteSettings().enabled;
+  }
+}
+
+async function removeWecomRemoteFolder(folderId) {
+  const folder = wecomRemoteFolderRegistry.find((item) => item.id === folderId);
+  if (!folder) return;
+  const confirmed = await window.kardiiConfirm({
+    title: "移除远程只读目录？",
+    message: `企微远程 Agent 将立即失去对“${folder.name}”的读取权限，不会删除目录或其中的文件。`,
+    confirmLabel: "移除授权",
+    tone: "danger",
+  });
+  if (!confirmed) return;
+  await invoke("remove_wecom_remote_folder", { folderId });
+  await refreshWecomRemoteFolders();
+}
+
+function renderWecomRemoteAgent() {
+  const settings = currentWecomRemoteSettings();
+  const pairingActive = Boolean(settings.pairingCode && settings.pairingExpiresAt > Date.now());
+  wecomRemoteAgentEnabledInput.checked = settings.enabled;
+  wecomRemoteKnowledgeInput.checked = settings.allowKnowledge;
+  wecomRemoteDocumentsInput.checked = settings.allowWecomDocuments;
+  wecomRemoteFilesInput.checked = settings.allowAuthorizedFiles;
+  wecomRemoteFileDeliveryInput.checked = settings.allowFileDelivery;
+  wecomRemoteKnowledgeInput.disabled = !settings.enabled;
+  wecomRemoteDocumentsInput.disabled = !settings.enabled;
+  wecomRemoteFilesInput.disabled = !settings.enabled || !settings.authorizedFolders.length;
+  wecomRemoteFileDeliveryInput.disabled = !settings.enabled || !settings.allowAuthorizedFiles || !settings.authorizedFolders.length;
+  addWecomRemoteFolderButton.disabled = !settings.enabled;
+  wecomRemoteFolderList.innerHTML = wecomRemoteFolderRegistry.length
+    ? wecomRemoteFolderRegistry.map((folder) => `<div><span><strong>${escapeHtml(folder.name)}</strong><small>${escapeHtml(folder.path || "")}</small></span><button type="button" data-remove-wecom-folder="${escapeHtml(folder.id)}" title="移除目录授权">×</button></div>`).join("")
+    : "<span>尚未选择目录</span>";
+  const readOnlyMcpTools = remoteReadOnlyMcpTools();
+  const validMcpKeys = new Set(readOnlyMcpTools.map((tool) => tool.key));
+  const activeMcpKeys = settings.allowedMcpTools.filter((key) => validMcpKeys.has(key));
+  if (activeMcpKeys.length !== settings.allowedMcpTools.length) {
+    data.settings.wecomRemoteAllowedMcpTools = activeMcpKeys;
+    queueMicrotask(saveData);
+  }
+  wecomRemoteMcpList.innerHTML = readOnlyMcpTools.length
+    ? readOnlyMcpTools.map((tool) => `<label><input type="checkbox" data-wecom-mcp-key="${escapeHtml(tool.key)}" ${activeMcpKeys.includes(tool.key) ? "checked" : ""} ${settings.enabled ? "" : "disabled"}><span><strong>${escapeHtml(tool.toolName)}</strong><small>${escapeHtml(tool.serverName)}</small></span></label>`).join("")
+    : "<span>尚无已验证且明确标记为只读的 MCP 工具</span>";
+  wecomRemoteOwnerLabel.textContent = settings.ownerUserId
+    ? `已绑定企微账号：${settings.ownerUserId}`
+    : "尚未绑定企微账号";
+  wecomRemotePairingCode.textContent = pairingActive ? settings.pairingCode : "未生成绑定码";
+  generateWecomRemotePairingButton.disabled = !settings.enabled || wecomBotRuntimeStatus?.connected !== true;
+  copyWecomRemotePairingButton.disabled = !pairingActive;
+  unbindWecomRemoteOwnerButton.disabled = !settings.ownerUserId;
+  if (!settings.enabled) {
+    setWecomStatus(wecomRemoteAgentStatus, "远程 Agent 已关闭；普通企微聊天仍然可用。 ");
+  } else if (!wecomBotRuntimeStatus?.connected) {
+    setWecomStatus(wecomRemoteAgentStatus, "请先连接企业微信机器人，才能生成绑定码。", "error");
+  } else if (settings.ownerUserId) {
+    const scopes = ["公开网页"];
+    if (settings.allowKnowledge) scopes.push("Kardii 知识库只读");
+    if (settings.allowWecomDocuments) scopes.push("企微文档只读");
+    if (settings.allowAuthorizedFiles && settings.authorizedFolders.length) scopes.push(`${settings.authorizedFolders.length} 个授权目录只读`);
+    if (settings.allowFileDelivery && settings.allowAuthorizedFiles && settings.authorizedFolders.length) scopes.push("指定文件可回传绑定账号");
+    if (settings.allowedMcpTools.length) scopes.push(`${settings.allowedMcpTools.length} 个 MCP 工具只读`);
+    setWecomStatus(wecomRemoteAgentStatus, `远程 Agent 已就绪 · 允许：${scopes.join("、")}`, "success");
+  } else if (pairingActive) {
+    const minutes = Math.max(1, Math.ceil((settings.pairingExpiresAt - Date.now()) / 60_000));
+    setWecomStatus(wecomRemoteAgentStatus, `绑定码约 ${minutes} 分钟内有效。请到机器人私聊发送：/绑定 ${settings.pairingCode}`);
+  } else {
+    setWecomStatus(wecomRemoteAgentStatus, "点击“生成绑定码”，再到机器人私聊完成本人绑定。 ");
+  }
+}
+
+function updateWecomRemoteSetting(key, value) {
+  data.settings = { ...data.settings, [key]: value };
+  saveData();
+  renderWecomRemoteAgent();
+}
+
+function generateWecomRemotePairingCode() {
+  const settings = currentWecomRemoteSettings();
+  if (!settings.enabled || wecomBotRuntimeStatus?.connected !== true) return;
+  const code = window.KardiiWecomRemote.createCode();
+  localStorage.setItem(WECOM_REMOTE_PAIRING_KEY, JSON.stringify({
+    wecomRemotePairingCode: code,
+    wecomRemotePairingExpiresAt: Date.now() + 10 * 60_000,
+  }));
+  renderWecomRemoteAgent();
+  showToast("企微远程绑定码已生成");
+}
+
+async function copyWecomRemotePairingCode() {
+  const settings = currentWecomRemoteSettings();
+  if (!settings.pairingCode || settings.pairingExpiresAt <= Date.now()) return;
+  try {
+    await invoke("write_clipboard_text", { text: settings.pairingCode });
+    setWecomStatus(wecomRemoteAgentStatus, `绑定码 ${settings.pairingCode} 已复制；请在机器人私聊发送“/绑定 ${settings.pairingCode}”。`, "success");
+  } catch (error) {
+    setWecomStatus(wecomRemoteAgentStatus, String(error), "error");
+  }
+}
+
+async function unbindWecomRemoteOwner() {
+  const settings = currentWecomRemoteSettings();
+  if (!settings.ownerUserId) return;
+  const confirmed = await window.kardiiConfirm({
+    title: "解除企微远程 Agent 绑定？",
+    message: "远程 Agent 会立即关闭，尚未完成的远程任务会安全停止。普通企微聊天和文档授权不会改变。",
+    confirmLabel: "解除并关闭",
+    tone: "danger",
+  });
+  if (!confirmed) return;
+  data.settings.wecomRemoteAgentEnabled = false;
+  data.settings.wecomRemoteOwnerUserId = "";
+  localStorage.removeItem(WECOM_REMOTE_PAIRING_KEY);
+  localStorage.removeItem(WECOM_REMOTE_PENDING_KEY);
+  saveData();
+  renderWecomRemoteAgent();
+  showToast("企微远程 Agent 已解除绑定");
+}
+
+function renderWecomConnection() {
+  const authorized = wecomAuthorizationStatus?.authorized === true;
+  const componentInstalled = wecomAuthorizationStatus?.component?.installed === true;
+  const botConnected = wecomBotRuntimeStatus?.connected === true;
+  const botRunning = wecomBotRuntimeStatus?.running === true;
+  const botModelLabel = wecomBotModelSelect.selectedOptions[0]?.textContent || "跟随桌面聊天模型";
+  const botModeLabel = wecomBotResponseModeSelect.value === "complete" ? "完整模式" : "快速模式";
+  const connectedParts = [authorized ? "文档已授权" : "文档未授权", botConnected ? "聊天已连接" : botRunning ? "聊天连接中" : "聊天未连接"];
+  wecomConnectionSummary.textContent = connectedParts.join(" · ");
+  wecomConnectionBadge.textContent = authorized && botConnected ? "全部已连接" : authorized || botConnected ? "部分已连接" : "未连接";
+  wecomConnectionBadge.className = `connection-state ${authorized || botConnected ? "connected" : botRunning ? "testing" : "disconnected"}`;
+  wecomDocumentAuthLabel.textContent = authorized ? "当前企业微信账号已授权" : componentInstalled ? "等待扫码授权" : "官方组件不可用";
+  authorizeWecomButton.disabled = !componentInstalled || Boolean(wecomQrPollTimer);
+  authorizeWecomButton.textContent = authorized ? "重新授权" : "扫码连接";
+  disconnectWecomDocumentsButton.disabled = !authorized;
+  refreshWecomButton.disabled = Boolean(wecomQrPollTimer);
+  stopWecomBotButton.disabled = !botRunning;
+  deleteWecomBotSecretButton.disabled = wecomBotSecretPresent !== true;
+  saveWecomBotButton.textContent = botRunning ? "重新连接" : "保存并连接";
+  if (wecomBotRuntimeStatus?.lastError) {
+    setWecomStatus(wecomBotStatus, wecomBotRuntimeStatus.lastError, "error");
+  } else if (botConnected) {
+    setWecomStatus(wecomBotStatus, `机器人已连接 · ${botModelLabel} · ${botModeLabel}${wecomBotRuntimeStatus.lastMessageAt ? ` · 最近收到消息 ${new Date(wecomBotRuntimeStatus.lastMessageAt * 1000).toLocaleString("zh-CN")}` : ""}`, "success");
+  } else if (botRunning) {
+    setWecomStatus(wecomBotStatus, "正在连接企业微信 API 模式机器人…");
+  } else {
+    setWecomStatus(wecomBotStatus, wecomBotSecretPresent ? "Bot Secret 已安全保存；点击保存并连接。" : "需要填写 Bot ID 与 Secret。 ");
+  }
+  renderWecomRemoteAgent();
+  renderWecomDocuments();
+}
+
+async function refreshWecomConnection({ quiet = false } = {}) {
+  if (!quiet) setWecomStatus(wecomDocumentStatus, "正在检查企业微信授权与机器人连接…");
+  try {
+    const [authorization, botStatus, secretPresent] = await Promise.all([
+      invoke("wecom_authorization_status"),
+      invoke("wecom_bot_status"),
+      invoke("has_wecom_bot_secret"),
+    ]);
+    wecomAuthorizationStatus = authorization;
+    wecomBotRuntimeStatus = botStatus;
+    wecomBotSecretPresent = secretPresent === true;
+    if (data.settings.wecomDocumentsConnected !== authorization.authorized) {
+      data.settings.wecomDocumentsConnected = authorization.authorized === true;
+      saveData();
+    }
+    if (authorization.authorized) {
+      setWecomStatus(wecomDocumentStatus, `文档授权可用 · 官方组件 ${authorization.component.version || authorization.component.expectedVersion}`, "success");
+      if (wecomQrPollTimer) {
+        try { await invoke("cancel_wecom_qr_authorization"); } catch { /* credentials are already available */ }
+        clearWecomQrPanel();
+        showToast("企业微信文档已连接");
+      }
+    } else if (authorization.component.installed) {
+      setWecomStatus(wecomDocumentStatus, `官方组件 ${authorization.component.version || authorization.component.expectedVersion} 已准备，等待扫码授权。`);
+    } else {
+      setWecomStatus(wecomDocumentStatus, "未检测到企业微信官方组件。正式安装包会自动内置；本地开发请运行 npm run prepare:wecom。", "error");
+    }
+  } catch (error) {
+    setWecomStatus(wecomDocumentStatus, String(error), "error");
+  }
+  renderWecomConnection();
+  renderConnections();
+}
+
+async function startWecomAuthorization() {
+  authorizeWecomButton.disabled = true;
+  setWecomStatus(wecomDocumentStatus, "正在生成企业微信扫码二维码…");
+  try {
+    const result = await invoke("start_wecom_qr_authorization");
+    wecomQrImage.src = result.qrDataUrl;
+    wecomQrExpiresAt = Number(result.expiresAt || 0) * 1000;
+    wecomQrPanel.classList.remove("hidden");
+    wecomQrPollTimer = window.setInterval(() => {
+      const seconds = Math.max(0, Math.ceil((wecomQrExpiresAt - Date.now()) / 1000));
+      wecomQrCountdown.textContent = seconds ? `二维码约 ${Math.ceil(seconds / 60)} 分钟内有效 · 扫码后会自动刷新` : "二维码已过期，请取消后重试";
+      void refreshWecomConnection({ quiet: true });
+      if (!seconds) clearWecomQrPanel();
+    }, 2_000);
+    setWecomStatus(wecomDocumentStatus, "请使用企业微信扫码并按页面提示完成授权。 ");
+  } catch (error) {
+    clearWecomQrPanel();
+    setWecomStatus(wecomDocumentStatus, String(error), "error");
+  } finally {
+    renderWecomConnection();
+  }
+}
+
+async function cancelWecomAuthorization() {
+  try { await invoke("cancel_wecom_qr_authorization"); } catch { /* status refresh below */ }
+  clearWecomQrPanel();
+  setWecomStatus(wecomDocumentStatus, "扫码已取消；需要时可以重新生成二维码。 ");
+  renderWecomConnection();
+}
+
+async function disconnectWecomDocumentAccount() {
+  const confirmed = await window.kardiiConfirm({
+    title: "断开企业微信文档连接？",
+    message: "Kardii 会删除这台电脑中由扫码产生的企微文档授权凭据与缓存。企业微信里的原文档不会删除，机器人聊天凭据也不会改变。",
+    confirmLabel: "断开文档连接",
+    tone: "danger",
+  });
+  if (!confirmed) return;
+  try {
+    await invoke("disconnect_wecom_documents");
+    data.settings.wecomDocumentsConnected = false;
+    wecomDocumentResultsData = [];
+    selectedWecomDocumentId = "";
+    activeWecomDocumentContent = null;
+    wecomDocumentPreview.textContent = "读取后在这里显示最新内容；编辑框始终只放准备写入的新内容。";
+    saveData();
+    await refreshWecomConnection();
+  } catch (error) {
+    setWecomStatus(wecomDocumentStatus, String(error), "error");
+  }
+}
+
+async function saveAndStartWecomBot(event) {
+  event.preventDefault();
+  const botId = wecomBotIdInput.value.trim();
+  const secret = wecomBotSecretInput.value.trim();
+  if (!botId) {
+    setWecomStatus(wecomBotStatus, "请填写 API 模式智能机器人的 Bot ID。", "error");
+    return;
+  }
+  saveWecomBotButton.disabled = true;
+  try {
+    if (secret) {
+      await invoke("save_wecom_bot_secret", { secret });
+      wecomBotSecretPresent = true;
+      wecomBotSecretInput.value = "";
+    }
+    if (!wecomBotSecretPresent && !(await invoke("has_wecom_bot_secret"))) throw new Error("请填写并保存 Bot Secret。 ");
+    data.settings.wecomBotModel = wecomBotModelSelect.value;
+    data.settings.wecomBotResponseMode = wecomBotResponseModeSelect.value === "complete" ? "complete" : "fast";
+    saveData();
+    wecomBotRuntimeStatus = await invoke("start_wecom_bot", { botId });
+    data.settings.wecomBotId = botId.slice(0, 256);
+    data.settings.wecomBotEnabled = true;
+    saveData();
+    setWecomStatus(wecomBotStatus, "已保存，正在连接企业微信机器人…");
+  } catch (error) {
+    setWecomStatus(wecomBotStatus, String(error), "error");
+  } finally {
+    saveWecomBotButton.disabled = false;
+    renderWecomConnection();
+  }
+}
+
+async function stopWecomBotConnection() {
+  try {
+    wecomBotRuntimeStatus = await invoke("stop_wecom_bot");
+    data.settings.wecomBotEnabled = false;
+    saveData();
+    renderWecomConnection();
+  } catch (error) {
+    setWecomStatus(wecomBotStatus, String(error), "error");
+  }
+}
+
+async function removeWecomBotSecret() {
+  const confirmed = await window.kardiiConfirm({
+    title: "删除企业微信机器人 Secret？",
+    message: "机器人聊天会立即停止，Secret 会从系统安全凭据库删除。文档扫码授权不会改变。",
+    confirmLabel: "删除 Secret",
+    tone: "danger",
+  });
+  if (!confirmed) return;
+  try {
+    await invoke("delete_wecom_bot_secret");
+    wecomBotSecretPresent = false;
+    wecomBotRuntimeStatus = await invoke("wecom_bot_status");
+    data.settings.wecomBotEnabled = false;
+    saveData();
+    renderWecomConnection();
+  } catch (error) {
+    setWecomStatus(wecomBotStatus, String(error), "error");
+  }
+}
+
+async function clearWecomChatHistory() {
+  const confirmed = await window.kardiiConfirm({
+    title: "清空企业微信聊天历史？",
+    message: "会删除这台电脑上所有企业微信 Bot、单聊和群聊与 Kardii 的会话历史。企业微信里的原消息不会删除，文档与机器人连接也不会改变。",
+    confirmLabel: "清空聊天历史",
+    tone: "danger",
+  });
+  if (!confirmed) return;
+  localStorage.setItem(WECOM_HISTORY_EPOCH_KEY, crypto.randomUUID());
+  localStorage.removeItem(WECOM_HISTORY_KEY);
+  showToast("企业微信聊天历史已清空");
+}
+
+async function searchWecomDocumentList() {
+  const query = wecomDocumentSearchInput.value.trim();
+  if (!query) {
+    setWecomStatus(wecomDocumentEditorStatus, "请先输入文档标题或正文关键词。", "error");
+    return;
+  }
+  searchWecomDocumentsButton.disabled = true;
+  setWecomStatus(wecomDocumentEditorStatus, "正在搜索当前账号有权访问的企微文档…");
+  try {
+    wecomDocumentResultsData = await invoke("search_wecom_documents", { query, limit: 10 });
+    selectedWecomDocumentId = wecomDocumentResultsData.length === 1 ? wecomDocumentResultsData[0].docId : "";
+    activeWecomDocumentContent = null;
+    wecomDocumentPreview.textContent = wecomDocumentResultsData.length
+      ? "请选择一份文档后读取；搜索到多个结果时 Kardii 不会自行猜测。"
+      : "当前账号有权访问的范围内没有找到匹配文档。";
+    setWecomStatus(wecomDocumentEditorStatus, `搜索完成，共 ${wecomDocumentResultsData.length} 个结果。`, wecomDocumentResultsData.length ? "success" : "");
+  } catch (error) {
+    setWecomStatus(wecomDocumentEditorStatus, String(error), "error");
+  } finally {
+    renderWecomDocuments();
+  }
+}
+
+async function readSelectedWecomDocument() {
+  const document = selectedWecomDocument();
+  if (!document) return;
+  readWecomDocumentButton.disabled = true;
+  setWecomStatus(wecomDocumentEditorStatus, "正在读取文档最新内容…");
+  try {
+    activeWecomDocumentContent = await invoke("read_wecom_document", {
+      request: { docId: document.docId, docType: document.docType },
+    });
+    wecomDocumentPreview.textContent = activeWecomDocumentContent.content || "文档当前没有可显示的文字内容。";
+    setWecomStatus(wecomDocumentEditorStatus, `已读取“${activeWecomDocumentContent.name || document.name}”的最新内容。编辑框仍为空，不会误把全文再次追加。`, "success");
+  } catch (error) {
+    setWecomStatus(wecomDocumentEditorStatus, String(error), "error");
+  } finally {
+    renderWecomDocuments();
+  }
+}
+
+async function writeWecomDocument(action) {
+  const selected = selectedWecomDocument();
+  const content = wecomDocumentContentInput.value.trim();
+  const title = wecomNewDocumentTitle.value.trim();
+  if (!content) {
+    setWecomStatus(wecomDocumentEditorStatus, "请先填写准备写入的新内容。", "error");
+    return;
+  }
+  if (action === "create" && !title) {
+    setWecomStatus(wecomDocumentEditorStatus, "创建智能文档时需要填写标题。", "error");
+    return;
+  }
+  if (action !== "create" && !selected) {
+    setWecomStatus(wecomDocumentEditorStatus, "请先从搜索结果中明确选择目标文档。", "error");
+    return;
+  }
+  const pageId = selected?.docType === "smartpage" ? wecomDocumentPageSelect.value : "";
+  const actionLabel = action === "create" ? "创建" : action === "append" ? "追加" : "覆盖";
+  const targetLabel = action === "create" ? `新智能文档“${title}”` : `“${selected.name}”${pageId ? `的页面“${wecomDocumentPageSelect.selectedOptions[0]?.textContent || pageId}”` : ""}`;
+  const confirmed = await window.kardiiConfirm({
+    title: `${actionLabel}${targetLabel}？`,
+    message: [
+      `目标：${targetLabel}`,
+      `动作：${actionLabel}`,
+      `内容预览：\n${content.slice(0, 2_000)}${content.length > 2_000 ? "\n…（预览已截取）" : ""}`,
+      action === "overwrite" ? "\n覆盖会替换目标文档或页面的全部原内容。" : "",
+      "\nKardii 会在写入前重新读取最新内容；本次确认不会用于下一次写入。",
+    ].join("\n"),
+    confirmLabel: `确认${actionLabel}`,
+    tone: action === "overwrite" ? "danger" : "default",
+  });
+  if (!confirmed) return;
+  for (const button of [createWecomDocumentButton, appendWecomDocumentButton, overwriteWecomDocumentButton]) button.disabled = true;
+  setWecomStatus(wecomDocumentEditorStatus, `正在${actionLabel}企业微信文档…`);
+  try {
+    const result = await invoke("write_wecom_document", {
+      request: {
+        action,
+        docId: selected?.docId || "",
+        docType: selected?.docType || "",
+        pageId,
+        title,
+        content,
+      },
+    });
+    wecomDocumentContentInput.value = "";
+    if (action === "create") {
+      wecomNewDocumentTitle.value = "";
+      if (result.docId) {
+        const created = { docId: result.docId, name: title, docType: "smartpage", url: result.url || "", modifiedAt: "", highlights: [] };
+        wecomDocumentResultsData = [created, ...wecomDocumentResultsData.filter((item) => item.docId !== created.docId)].slice(0, 10);
+        selectedWecomDocumentId = created.docId;
+        activeWecomDocumentContent = null;
+      }
+    }
+    setWecomStatus(wecomDocumentEditorStatus, `${actionLabel}完成${result.url ? "，可以在企业微信中打开核对。" : "。"}`, "success");
+    if (action !== "create") await readSelectedWecomDocument();
+    else if (result.url) {
+      wecomDocumentPreview.textContent = `新文档已创建：\n${result.url}`;
+    }
+  } catch (error) {
+    setWecomStatus(wecomDocumentEditorStatus, String(error), "error");
+  } finally {
+    renderWecomDocuments();
+  }
+}
+
 function renderConnections() {
   const config = emailConnectionConfig();
   emailCredentialPresent = activeEmailCredentialPresent();
   const connected = Boolean(config && emailCredentialPresent === true && !config.paused);
   const checking = Boolean(config && emailCredentialPresent === null);
   const connectedCount = [...emailCredentialStatuses.values()].filter(Boolean).length
-    + [...cloudCredentialStatuses.values()].filter(Boolean).length;
+    + [...cloudCredentialStatuses.values()].filter(Boolean).length
+    + (browserBridgeStatus?.paired ? 1 : 0)
+    + mcpServers().filter((server) => server.lastTestAt && !server.lastError).length
+    + (wecomAuthorizationStatus?.authorized ? 1 : 0)
+    + (wecomBotRuntimeStatus?.connected ? 1 : 0);
   connectionNavStatus.textContent = String(connectedCount);
   renderEmailAccountSelect();
   emailConnectionSummary.textContent = config
@@ -1030,6 +2755,53 @@ function renderConnections() {
     : config ? "尚未同步邮件" : "连接后可手动同步";
   renderEmailInbox();
   renderCloudConnections();
+  renderBrowserConnection();
+  renderMcpConnection();
+  renderWecomConnection();
+}
+
+function renderDailyBriefReminderSettings() {
+  dailyBriefReminderToggle.checked = data.settings?.dailyBriefReminderEnabled === true;
+  dailyBriefReminderTime.value = /^([01]\d|2[0-3]):[0-5]\d$/.test(data.settings?.dailyBriefReminderTime)
+    ? data.settings.dailyBriefReminderTime
+    : "09:00";
+  dailyBriefReminderTime.disabled = !dailyBriefReminderToggle.checked;
+  const lastDate = data.settings?.dailyBriefLastReminderDate;
+  document.getElementById("dailyBriefReminderStatus").textContent = dailyBriefReminderToggle.checked
+    ? `每天 ${dailyBriefReminderTime.value} 在 Kardii 运行或下次打开时建立提醒${lastDate ? `；最近提醒 ${lastDate}` : ""}。`
+    : "不会在后台读取或发送任何企业资料。";
+}
+
+function ensureDailyBriefReminder() {
+  if (data.settings?.dailyBriefReminderEnabled !== true) return;
+  const today = dateInputValue(new Date());
+  const time = /^([01]\d|2[0-3]):[0-5]\d$/.test(data.settings.dailyBriefReminderTime) ? data.settings.dailyBriefReminderTime : "09:00";
+  const currentTime = new Date().toTimeString().slice(0, 5);
+  if (data.settings.dailyBriefLastReminderDate === today || currentTime < time) return;
+  if (data.tasks.some((task) => task.source === "daily-enterprise-brief-reminder" && task.dueDate === today)) {
+    data.settings.dailyBriefLastReminderDate = today;
+    try {
+      localStorage.setItem(BUSINESS_DATA_KEY, JSON.stringify(data));
+    } catch {
+      // Storage errors are surfaced by the next explicit save.
+    }
+    return;
+  }
+  data.tasks.unshift({
+    id: crypto.randomUUID(),
+    title: "生成今日企业资料联合简报",
+    relation: "联合分析",
+    dueDate: today,
+    completed: false,
+    source: "daily-enterprise-brief-reminder",
+    createdAt: new Date().toISOString(),
+  });
+  data.settings.dailyBriefLastReminderDate = today;
+  try {
+    localStorage.setItem(BUSINESS_DATA_KEY, JSON.stringify(data));
+  } catch {
+    // Storage errors are surfaced by the next explicit save.
+  }
 }
 
 function loadEmailConnectionForm() {
@@ -1517,11 +3289,16 @@ function renderAll() {
   projectNavCount.textContent = String(data.projects.length);
   intelligenceNavCount.textContent = String(data.intelligence.length);
   knowledgeNavCount.textContent = String(data.knowledge.filter((item) => item.status !== "archived").length);
+  refreshAnalysisSelectors();
+  renderAnalysisSourceSummary();
+  renderEnterpriseAnalyses();
+  renderDailyBriefReminderSettings();
   renderDashboard();
   renderCustomers();
   renderProjects();
   renderIntelligence();
   renderReports();
+  renderWebsiteCollections();
   renderKnowledge();
   renderConnections();
 }
@@ -1605,7 +3382,7 @@ function knowledgePanelMarkup(item) {
         <span>${analyzedAt ? `上次分析：${escapeHtml(analyzedAt)}` : "先在本机提取文字，再使用当前 AI 分析相关内容"}</span>
       </div>
       <div class="knowledge-file-actions">
-        <button type="button" data-action="open-knowledge-file">打开原文件</button>
+        <button type="button" data-action="open-knowledge-file">${item.browserUrl ? "打开原网页" : "打开原文件"}</button>
         <button type="button" data-action="run-knowledge-analysis" ${running ? "disabled" : ""}>${running ? "正在分析…" : (analyzedAt ? "重新分析" : "AI 分析")}</button>
       </div>
     </div>
@@ -2399,6 +4176,11 @@ async function deleteCurrentEntity() {
     data.reports.forEach((report) => {
       report.knowledgeIds = (report.knowledgeIds || []).filter((id) => id !== editingId);
     });
+    data.websiteCollections.forEach((collection) => {
+      collection.knowledgeIds = (collection.knowledgeIds || []).filter((id) => id !== editingId);
+      collection.pageCount = collection.knowledgeIds.length;
+      collection.updatedAt = new Date().toISOString();
+    });
   } else if (modalType === "report") {
     data.reports = data.reports.filter((item) => item.id !== editingId);
     data.knowledge.forEach((item) => {
@@ -2609,6 +4391,211 @@ async function askKnowledgeBase() {
   }
 }
 
+function refreshSiteCrawlOptions(collection = null) {
+  siteCrawlRelationSelect.replaceChildren(new Option("不关联关系", ""));
+  data.customers.forEach((item) => siteCrawlRelationSelect.add(new Option(`${RELATIONSHIP_TYPES[item.relationshipType] || "关系"} · ${item.company}`, item.id)));
+  siteCrawlProjectSelect.replaceChildren(new Option("不关联项目", ""));
+  data.projects.forEach((item) => siteCrawlProjectSelect.add(new Option(item.name, item.id)));
+  siteCrawlRelationSelect.value = collection?.linkedCustomerId || "";
+  siteCrawlProjectSelect.value = collection?.linkedProjectId || "";
+}
+
+function openSiteCrawlModal(collectionId = "") {
+  const collection = data.websiteCollections.find((item) => item.id === collectionId) || null;
+  editingWebsiteCollectionId = collection?.id || "";
+  pendingWebsiteCrawl = null;
+  siteCrawlUrl.value = collection?.startUrl || "";
+  siteCrawlCollectionTitle.value = collection?.title || "";
+  siteCrawlMaxPages.value = String(collection?.maxPages || 10);
+  siteCrawlMaxDepth.value = String(collection?.maxDepth ?? 1);
+  siteCrawlTags.value = collection?.tags || "";
+  siteCrawlConsent.checked = false;
+  refreshSiteCrawlOptions(collection);
+  siteCrawlStatus.textContent = collection
+    ? "重新抓取会先显示新页面清单；确认保存后才替换这个集合的旧快照。"
+    : "先填写网址并确认范围。抓取完成后会显示页面清单，只有再次确认才保存到知识库。";
+  siteCrawlStatus.className = "";
+  siteCrawlResult.classList.add("hidden");
+  siteCrawlPageList.innerHTML = "";
+  runSiteCrawlButton.disabled = false;
+  runSiteCrawlButton.textContent = "预览抓取结果";
+  saveSiteCrawlButton.disabled = true;
+  siteCrawlBackdrop.classList.remove("hidden");
+  setTimeout(() => siteCrawlUrl.focus(), 50);
+}
+
+function closeSiteCrawlModal() {
+  siteCrawlBackdrop.classList.add("hidden");
+  pendingWebsiteCrawl = null;
+  editingWebsiteCollectionId = "";
+}
+
+function renderSiteCrawlResult(result) {
+  const pages = Array.isArray(result?.pages) ? result.pages : [];
+  const errors = Array.isArray(result?.errors) ? result.errors : [];
+  document.getElementById("siteCrawlResultSummary").textContent = `${pages.length} 个页面 · ${pages.reduce((sum, page) => sum + Number(page.charCount || 0), 0).toLocaleString("zh-CN")} 字${errors.length ? ` · ${errors.length} 项未完成` : ""}`;
+  siteCrawlPageList.innerHTML = [
+    ...pages.map((page, index) => `
+      <article class="site-crawl-page">
+        <input type="checkbox" data-crawl-page-index="${index}" checked aria-label="保存 ${escapeHtml(page.title || page.url)}">
+        <span class="file-type-badge">L${Number(page.depth) || 0}</span>
+        <div><strong>${escapeHtml(page.title || "未命名网页")}</strong><a href="#" data-action="open-crawl-url" data-crawl-url="${escapeHtml(page.url)}">${escapeHtml(page.url)}</a></div>
+        <small>${Number(page.charCount || 0).toLocaleString("zh-CN")} 字${page.warning ? ` · ${escapeHtml(page.warning)}` : ""}</small>
+      </article>
+    `),
+    ...errors.map((error) => `<div class="site-crawl-error">${escapeHtml(error)}</div>`),
+  ].join("");
+  siteCrawlResult.classList.remove("hidden");
+  saveSiteCrawlButton.disabled = pages.length === 0;
+}
+
+function selectedSiteCrawlPages() {
+  const pages = Array.isArray(pendingWebsiteCrawl?.pages) ? pendingWebsiteCrawl.pages : [];
+  return [...siteCrawlPageList.querySelectorAll("[data-crawl-page-index]:checked")]
+    .map((input) => pages[Number(input.dataset.crawlPageIndex)])
+    .filter(Boolean);
+}
+
+async function runSiteCrawl() {
+  const startUrl = siteCrawlUrl.value.trim();
+  if (!startUrl) {
+    siteCrawlStatus.textContent = "请先填写完整的 http 或 https 网址。";
+    siteCrawlStatus.className = "error";
+    siteCrawlUrl.focus();
+    return;
+  }
+  if (!siteCrawlConsent.checked) {
+    siteCrawlStatus.textContent = "请先确认你有权读取并保存这些公开页面。";
+    siteCrawlStatus.className = "error";
+    return;
+  }
+  runSiteCrawlButton.disabled = true;
+  saveSiteCrawlButton.disabled = true;
+  runSiteCrawlButton.textContent = "正在读取公开页面…";
+  siteCrawlStatus.textContent = "正在按同域范围读取；动态渲染、登录页、跨域链接和 robots.txt 禁止的路径不会加入。";
+  siteCrawlStatus.className = "";
+  try {
+    pendingWebsiteCrawl = await invoke("crawl_public_website", {
+      request: {
+        startUrl,
+        maxPages: Number(siteCrawlMaxPages.value),
+        maxDepth: Number(siteCrawlMaxDepth.value),
+      },
+    });
+    if (!siteCrawlCollectionTitle.value.trim()) siteCrawlCollectionTitle.value = pendingWebsiteCrawl.pages?.[0]?.title || "";
+    renderSiteCrawlResult(pendingWebsiteCrawl);
+    const robotsNote = pendingWebsiteCrawl.robotsApplied ? "已读取并应用 robots.txt。" : "站点未返回可读取的 robots.txt 规则。";
+    siteCrawlStatus.textContent = pendingWebsiteCrawl.errors?.length
+      ? `预览完成。成功读取 ${pendingWebsiteCrawl.pages.length} 页，另有 ${pendingWebsiteCrawl.errors.length} 项未完成；${robotsNote}请检查后再保存。`
+      : `预览完成。成功读取 ${pendingWebsiteCrawl.pages.length} 页；${robotsNote}请检查页面清单后再保存。`;
+  } catch (error) {
+    pendingWebsiteCrawl = null;
+    siteCrawlStatus.textContent = String(error);
+    siteCrawlStatus.className = "error";
+    siteCrawlResult.classList.add("hidden");
+  } finally {
+    runSiteCrawlButton.disabled = false;
+    runSiteCrawlButton.textContent = pendingWebsiteCrawl ? "重新预览" : "预览抓取结果";
+  }
+}
+
+function saveSiteCrawl() {
+  const pages = selectedSiteCrawlPages();
+  if (!pages.length) return;
+  const previousKnowledge = structuredClone(data.knowledge);
+  const previousCollections = structuredClone(data.websiteCollections || []);
+  const existing = data.websiteCollections.find((item) => item.id === editingWebsiteCollectionId);
+  const collectionId = existing?.id || crypto.randomUUID();
+  const now = new Date().toISOString();
+  try {
+    if (existing) {
+      const oldIds = new Set(existing.knowledgeIds || []);
+      data.knowledge = data.knowledge.filter((item) => !oldIds.has(item.id));
+    }
+    const knowledgeIds = [];
+    pages.forEach((page) => {
+      const item = {
+        id: crypto.randomUUID(),
+        title: page.title || page.url,
+        fileName: page.title || page.url,
+        filePath: "",
+        sourcePath: page.url,
+        storedInKardii: true,
+        fileType: "web",
+        fileSize: new Blob([page.content || ""]).size,
+        content: String(page.content || ""),
+        charCount: Number(page.charCount) || String(page.content || "").length,
+        pageCount: 1,
+        warning: page.warning || "公开网页快照可能与网站后续内容不同。",
+        status: "active",
+        tags: [siteCrawlTags.value.trim(), "网站"].filter(Boolean).join("、").slice(0, 200),
+        summary: `来自 ${pendingWebsiteCrawl.siteRoot} 的公开网页快照。`,
+        keyPoints: "",
+        risks: "",
+        actions: "",
+        analyzedAt: "",
+        linkedCustomerId: siteCrawlRelationSelect.value,
+        linkedProjectId: siteCrawlProjectSelect.value,
+        reportId: "",
+        websiteCollectionId: collectionId,
+        browserUrl: page.url,
+        siteRoot: pendingWebsiteCrawl.siteRoot,
+        crawlDepth: Number(page.depth) || 0,
+        capturedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      };
+      data.knowledge.unshift(item);
+      knowledgeIds.push(item.id);
+    });
+    const collection = {
+      id: collectionId,
+      title: siteCrawlCollectionTitle.value.trim() || pages[0]?.title || pendingWebsiteCrawl.siteRoot || "网站知识库",
+      startUrl: pendingWebsiteCrawl.startUrl || siteCrawlUrl.value.trim(),
+      siteRoot: pendingWebsiteCrawl.siteRoot,
+      maxPages: Number(siteCrawlMaxPages.value),
+      maxDepth: Number(siteCrawlMaxDepth.value),
+      linkedCustomerId: siteCrawlRelationSelect.value,
+      linkedProjectId: siteCrawlProjectSelect.value,
+      tags: siteCrawlTags.value.trim(),
+      knowledgeIds,
+      pageCount: pages.length,
+      errors: pendingWebsiteCrawl.errors || [],
+      robotsApplied: pendingWebsiteCrawl.robotsApplied === true,
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+    };
+    if (existing) Object.assign(existing, collection);
+    else data.websiteCollections.unshift(collection);
+    const totalChars = data.knowledge.reduce((sum, item) => sum + String(item.content || "").length, 0);
+    if (totalChars > 2_500_000) throw new Error("知识库已超过约 250 万字的本机安全容量。请减少抓取页数或先删除旧资料。");
+    knowledgeTypeFilter.value = "web";
+    if (!saveData()) throw new Error("本机存储空间不足，网站快照未能保存。");
+    const savedCount = pages.length;
+    closeSiteCrawlModal();
+    navigate("knowledge");
+    showToast(`${existing ? "网站集合已更新" : "网站集合已保存"} · ${savedCount} 页`);
+  } catch (error) {
+    data.knowledge = previousKnowledge;
+    data.websiteCollections = previousCollections;
+    renderAll();
+    siteCrawlStatus.textContent = String(error);
+    siteCrawlStatus.className = "error";
+  }
+}
+
+async function deleteWebsiteCollection(id) {
+  const collection = data.websiteCollections.find((item) => item.id === id);
+  if (!collection) return;
+  const confirmed = await window.kardiiConfirm({ title: `删除“${collection.title}”？`, message: `会删除这个集合及其 ${collection.knowledgeIds?.length || 0} 个网页快照；原网站不会发生任何变化。`, confirmLabel: "删除集合", tone: "danger" });
+  if (!confirmed) return;
+  const ids = new Set(collection.knowledgeIds || []);
+  data.knowledge = data.knowledge.filter((item) => !ids.has(item.id));
+  data.websiteCollections = data.websiteCollections.filter((item) => item.id !== id);
+  saveData();
+  showToast("网站集合和网页快照已删除");
+}
+
 async function importKnowledgeFiles() {
   const button = document.getElementById("importKnowledgeButton");
   button.disabled = true;
@@ -2623,6 +4610,19 @@ async function importKnowledgeFiles() {
     button.disabled = false;
     button.textContent = "＋ 导入文件";
   }
+}
+
+function renderPendingBundleFiles() {
+  bundleFileList.innerHTML = pendingBundleFiles.map((file) => `
+    <div class="bundle-file">
+      <span class="bundle-file-badge">${escapeHtml(file.fileType || "file")}</span>
+      <div><strong>${escapeHtml(file.name)}</strong><span>${formatFileSize(file.size)} · ${(Number(file.charCount) || 0).toLocaleString("zh-CN")} 字</span></div>
+      <small>${escapeHtml(file.warning || "已在本机读取，尚未保存")}</small>
+    </div>
+  `).join("");
+  const ocrCount = pendingBundleFiles.filter((file) => file.needsOcr === true && file.ocrToken).length;
+  ocrBundleButton.disabled = ocrCount === 0;
+  ocrBundleButton.textContent = ocrCount ? `识别扫描件 / 图片（${ocrCount}）` : "无需视觉识别";
 }
 
 function openBundlePreview(files, emailUid = "") {
@@ -2657,14 +4657,11 @@ function openBundlePreview(files, emailUid = "") {
   const matchedProject = data.projects.find((item) => String(item.name || "").trim().length >= 2 && searchable.includes(String(item.name).trim().toLowerCase()));
   bundleRelationSelect.value = matchedRelationship?.id || "";
   bundleProjectSelect.value = matchedProject?.id || "";
-  bundleFileList.innerHTML = pendingBundleFiles.map((file) => `
-    <div class="bundle-file">
-      <span class="bundle-file-badge">${escapeHtml(file.fileType || "file")}</span>
-      <div><strong>${escapeHtml(file.name)}</strong><span>${formatFileSize(file.size)} · ${(Number(file.charCount) || 0).toLocaleString("zh-CN")} 字</span></div>
-      <small>${escapeHtml(file.warning || "已在本机读取，尚未保存")}</small>
-    </div>
-  `).join("");
-  bundleStatus.textContent = `已读取 ${pendingBundleFiles.length} 份资料。原件尚未复制进 Kardii，先检查文件和关联对象。`;
+  renderPendingBundleFiles();
+  const ocrCount = pendingBundleFiles.filter((file) => file.needsOcr === true && file.ocrToken).length;
+  bundleStatus.textContent = ocrCount
+    ? `已读取 ${pendingBundleFiles.length} 份资料，其中 ${ocrCount} 份含扫描页或图片。建议先视觉识别，再综合分析。`
+    : `已读取 ${pendingBundleFiles.length} 份资料。原件尚未复制进 Kardii，先检查文件和关联对象。`;
   bundleStatus.className = "";
   bundleDraftFields.classList.add("hidden");
   ["bundleDraftTitle", "bundleDraftSummary", "bundleDraftKeyPoints", "bundleDraftCommitments", "bundleDraftQuestions", "bundleDraftRisks", "bundleDraftActions"]
@@ -2742,7 +4739,19 @@ function createBundleRelationship() {
 
 function currentConversationDocument() {
   try {
-    const messages = JSON.parse(localStorage.getItem(CHAT_HISTORY_KEY) || "[]");
+    let messages = [];
+    let sessionTitle = "当前 Kardii 聊天记录";
+    const sessionStore = JSON.parse(localStorage.getItem(CHAT_SESSIONS_KEY) || "null");
+    if (Array.isArray(sessionStore?.sessions)) {
+      const activeSession = sessionStore.sessions.find((session) => session?.id === sessionStore.activeSessionId)
+        || sessionStore.sessions[0];
+      if (activeSession) {
+        messages = activeSession.messages;
+        sessionTitle = `当前聊天会话：${String(activeSession.title || "新对话").slice(0, 60)}`;
+      }
+    } else {
+      messages = JSON.parse(localStorage.getItem(CHAT_HISTORY_KEY) || "[]");
+    }
     if (!Array.isArray(messages)) return null;
     const clean = messages
       .filter((message) => ["user", "assistant"].includes(message?.role) && typeof message?.content === "string" && message.content.trim())
@@ -2752,7 +4761,7 @@ function currentConversationDocument() {
       .map((message) => `${message.role === "user" ? "用户" : "Kardii"}：${message.content.trim()}`)
       .join("\n\n");
     return {
-      title: "当前 Kardii 聊天记录",
+      title: sessionTitle,
       content: content.slice(-80_000),
       messageCount: clean.length,
     };
@@ -2771,6 +4780,50 @@ function closeBundlePreview() {
   setBundleNewRelationVisible(false);
 }
 
+async function ocrPendingBundle() {
+  const candidates = pendingBundleFiles.filter((file) => file.needsOcr === true && file.ocrToken);
+  if (!candidates.length) return;
+  const ai = currentResearchAiConfig();
+  if (ai.provider !== "gemini") {
+    bundleStatus.textContent = "扫描件、图片和文档内图片识别目前需要在聊天设置中选择 Gemini。";
+    bundleStatus.className = "error";
+    return;
+  }
+  ocrBundleButton.disabled = true;
+  analyzeBundleButton.disabled = true;
+  bundleStatus.className = "";
+  try {
+    for (let index = 0; index < candidates.length; index += 1) {
+      const file = candidates[index];
+      bundleStatus.textContent = `正在识别 ${index + 1}/${candidates.length}：${file.name}。资料只在你点击后发送给 Gemini。`;
+      const result = await invoke("analyze_imported_knowledge_visual", {
+        request: {
+          ocrToken: file.ocrToken,
+          provider: ai.provider,
+          model: ai.model,
+          ollamaBaseUrl: ai.ollamaBaseUrl,
+        },
+      });
+      const original = String(file.content || "");
+      const placeholderOnly = /^\[(?:图片附件|扫描版 PDF|DOCX 图片型文档|PPTX 图片型文档|XLSX 图片型文档)\]/.test(original.trim());
+      file.content = placeholderOnly
+        ? String(result.content || "")
+        : `${original}\n\n[文档内图片视觉识别]\n${String(result.content || "")}`;
+      file.charCount = file.content.length;
+      file.warning = String(result.warning || "已完成视觉识别，请检查关键内容。");
+      file.needsOcr = false;
+      renderPendingBundleFiles();
+    }
+    bundleStatus.textContent = `已完成 ${candidates.length} 份资料的视觉识别。请检查后再分析或保存。`;
+  } catch (error) {
+    bundleStatus.textContent = String(error);
+    bundleStatus.className = "error";
+  } finally {
+    renderPendingBundleFiles();
+    analyzeBundleButton.disabled = false;
+  }
+}
+
 async function analyzePendingBundle() {
   if (!pendingBundleFiles.length) return;
   const ai = currentResearchAiConfig();
@@ -2779,6 +4832,7 @@ async function analyzePendingBundle() {
     return;
   }
   analyzeBundleButton.disabled = true;
+  ocrBundleButton.disabled = true;
   analyzeBundleButton.textContent = "正在综合分析…";
   bundleStatus.textContent = `正在比较 ${pendingBundleFiles.length} 份文件${bundleIncludeChat.checked ? "和当前聊天" : ""}；分析结果只会作为草稿，保存前仍可修改。`;
   try {
@@ -2810,6 +4864,7 @@ async function analyzePendingBundle() {
   } finally {
     analyzeBundleButton.disabled = false;
     analyzeBundleButton.textContent = pendingBundleAnalysis ? "重新分析" : "AI 综合分析";
+    if (pendingBundleFiles.length) renderPendingBundleFiles();
   }
 }
 
@@ -2821,6 +4876,7 @@ async function savePendingBundle() {
   if (!pendingBundleFiles.length) return;
   saveBundleButton.disabled = true;
   analyzeBundleButton.disabled = true;
+  ocrBundleButton.disabled = true;
   bundleStatus.textContent = "正在把确认过的原件复制进 Kardii 本地文件库…";
   const previousKnowledge = structuredClone(data.knowledge);
   const previousReports = structuredClone(data.reports);
@@ -2948,6 +5004,7 @@ async function savePendingBundle() {
   } finally {
     saveBundleButton.disabled = false;
     analyzeBundleButton.disabled = false;
+    if (pendingBundleFiles.length) renderPendingBundleFiles();
   }
 }
 
@@ -3008,7 +5065,8 @@ document.addEventListener("click", (event) => {
   if (action === "run-knowledge-analysis") runKnowledgeAnalysis();
   if (action === "open-knowledge-file") {
     const item = data.knowledge.find((entry) => entry.id === editingId);
-    if (item?.filePath) invoke("open_local_file", { path: item.filePath }).catch((error) => showKnowledgeAnalysisError(String(error)));
+    if (item?.browserUrl) invoke("open_external_url", { url: item.browserUrl }).catch((error) => showKnowledgeAnalysisError(String(error)));
+    else if (item?.filePath) invoke("open_local_file", { path: item.filePath }).catch((error) => showKnowledgeAnalysisError(String(error)));
   }
   if (action === "open-knowledge-source") {
     navigate("knowledge");
@@ -3018,6 +5076,24 @@ document.addEventListener("click", (event) => {
   if (action === "delete-local-email") deleteLocalEmailMessage(actionTarget.dataset.emailUid);
   if (action === "open-cloud-item") {
     const url = actionTarget.dataset.cloudUrl;
+    if (url) invoke("open_external_url", { url }).catch((error) => showToast(String(error)));
+  }
+  if (action === "load-enterprise-analysis") loadEnterpriseAnalysis(actionTarget.dataset.analysisId);
+  if (action === "delete-enterprise-analysis") deleteEnterpriseAnalysis(actionTarget.dataset.analysisId);
+  if (action === "refresh-website-collection") openSiteCrawlModal(actionTarget.dataset.collectionId);
+  if (action === "delete-website-collection") deleteWebsiteCollection(actionTarget.dataset.collectionId);
+  if (action === "open-website-collection") {
+    event.preventDefault();
+    const collection = data.websiteCollections.find((item) => item.id === actionTarget.dataset.collectionId);
+    if (collection?.startUrl) invoke("open_external_url", { url: collection.startUrl }).catch((error) => showToast(String(error)));
+  }
+  if (action === "open-crawl-url") {
+    event.preventDefault();
+    const url = actionTarget.dataset.crawlUrl;
+    if (url) invoke("open_external_url", { url }).catch((error) => showToast(String(error)));
+  }
+  if (action === "open-analysis-source-url") {
+    const url = actionTarget.dataset.sourceUrl;
     if (url) invoke("open_external_url", { url }).catch((error) => showToast(String(error)));
   }
   if (action === "delete-task") deleteTask(actionTarget.dataset.entityId);
@@ -3051,14 +5127,65 @@ intelligenceSearch.addEventListener("input", renderIntelligence);
 intelligenceStatusFilter.addEventListener("change", renderIntelligence);
 knowledgeSearch.addEventListener("input", () => {
   renderReports();
+  renderWebsiteCollections();
   renderKnowledge();
 });
-knowledgeTypeFilter.addEventListener("change", renderKnowledge);
+knowledgeTypeFilter.addEventListener("change", () => {
+  renderWebsiteCollections();
+  renderKnowledge();
+});
 captureStatusFilter.addEventListener("change", renderCaptureInbox);
 document.getElementById("importKnowledgeButton").addEventListener("click", importKnowledgeFiles);
+document.getElementById("importWebsiteButton").addEventListener("click", () => openSiteCrawlModal());
 document.getElementById("askKnowledgeButton").addEventListener("click", askKnowledgeBase);
+document.getElementById("generateEnterpriseAnalysisButton").addEventListener("click", generateEnterpriseAnalysis);
+document.getElementById("saveEnterpriseAnalysisButton").addEventListener("click", () => saveEnterpriseAnalysis(false));
+document.getElementById("saveEnterpriseTasksButton").addEventListener("click", () => saveEnterpriseAnalysis(true));
+document.getElementById("copyDailyBriefButton").addEventListener("click", async () => {
+  const text = analysisDraftValue("analysisDraftDailyBrief");
+  if (!text) return;
+  try {
+    await invoke("write_clipboard_text", { text });
+    showToast("今日简报已复制");
+  } catch (error) {
+    showToast(String(error));
+  }
+});
+[analysisProjectSelect, analysisRelationSelect, analysisRangeSelect].forEach((control) => control.addEventListener("change", renderAnalysisSourceSummary));
+document.querySelectorAll("[data-analysis-source]").forEach((control) => control.addEventListener("change", renderAnalysisSourceSummary));
+dailyBriefReminderToggle.addEventListener("change", () => {
+  data.settings.dailyBriefReminderEnabled = dailyBriefReminderToggle.checked;
+  if (!dailyBriefReminderToggle.checked) data.settings.dailyBriefLastReminderDate = "";
+  else ensureDailyBriefReminder();
+  saveData();
+  showToast(dailyBriefReminderToggle.checked ? "每日简报提醒已开启" : "每日简报提醒已关闭");
+});
+dailyBriefReminderTime.addEventListener("change", () => {
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(dailyBriefReminderTime.value)) return;
+  data.settings.dailyBriefReminderTime = dailyBriefReminderTime.value;
+  data.settings.dailyBriefLastReminderDate = "";
+  ensureDailyBriefReminder();
+  saveData();
+});
+document.getElementById("siteCrawlCloseButton").addEventListener("click", closeSiteCrawlModal);
+document.getElementById("siteCrawlCancelButton").addEventListener("click", closeSiteCrawlModal);
+runSiteCrawlButton.addEventListener("click", runSiteCrawl);
+saveSiteCrawlButton.addEventListener("click", saveSiteCrawl);
+siteCrawlPageList.addEventListener("change", (event) => {
+  if (!event.target.matches("[data-crawl-page-index]")) return;
+  const selected = selectedSiteCrawlPages();
+  saveSiteCrawlButton.disabled = selected.length === 0;
+  siteCrawlStatus.textContent = selected.length
+    ? `已选择 ${selected.length} / ${pendingWebsiteCrawl.pages.length} 页保存。可以继续取消不需要的页面，或确认保存。`
+    : "至少选择一个页面后才能保存。";
+  siteCrawlStatus.className = selected.length ? "" : "error";
+});
+siteCrawlBackdrop.addEventListener("mousedown", (event) => {
+  if (event.target === siteCrawlBackdrop) closeSiteCrawlModal();
+});
 document.getElementById("bundleCloseButton").addEventListener("click", closeBundlePreview);
 document.getElementById("bundleCancelButton").addEventListener("click", closeBundlePreview);
+ocrBundleButton.addEventListener("click", ocrPendingBundle);
 analyzeBundleButton.addEventListener("click", analyzePendingBundle);
 saveBundleButton.addEventListener("click", savePendingBundle);
 bundleBackdrop.addEventListener("mousedown", (event) => {
@@ -3136,6 +5263,126 @@ syncMicrosoftButton.addEventListener("click", () => syncCloudProvider("microsoft
 disconnectMicrosoftButton.addEventListener("click", () => disconnectCloudProvider("microsoft"));
 cloudProviderFilter.addEventListener("change", renderCloudConnections);
 cloudServiceFilter.addEventListener("change", renderCloudConnections);
+authorizeWecomButton.addEventListener("click", startWecomAuthorization);
+cancelWecomQrButton.addEventListener("click", cancelWecomAuthorization);
+disconnectWecomDocumentsButton.addEventListener("click", disconnectWecomDocumentAccount);
+refreshWecomButton.addEventListener("click", () => refreshWecomConnection());
+wecomBotForm.addEventListener("submit", saveAndStartWecomBot);
+stopWecomBotButton.addEventListener("click", stopWecomBotConnection);
+deleteWecomBotSecretButton.addEventListener("click", removeWecomBotSecret);
+clearWecomChatHistoryButton.addEventListener("click", clearWecomChatHistory);
+wecomRemoteAgentEnabledInput.addEventListener("change", () => {
+  updateWecomRemoteSetting("wecomRemoteAgentEnabled", wecomRemoteAgentEnabledInput.checked);
+  if (!wecomRemoteAgentEnabledInput.checked) {
+    localStorage.removeItem(WECOM_REMOTE_PAIRING_KEY);
+    localStorage.removeItem(WECOM_REMOTE_PENDING_KEY);
+    saveData();
+  }
+  renderWecomRemoteAgent();
+});
+wecomRemoteKnowledgeInput.addEventListener("change", () => {
+  updateWecomRemoteSetting("wecomRemoteAllowKnowledge", wecomRemoteKnowledgeInput.checked);
+});
+wecomRemoteDocumentsInput.addEventListener("change", () => {
+  updateWecomRemoteSetting("wecomRemoteAllowDocuments", wecomRemoteDocumentsInput.checked);
+});
+wecomRemoteFilesInput.addEventListener("change", () => {
+  updateWecomRemoteSetting("wecomRemoteAllowAuthorizedFiles", wecomRemoteFilesInput.checked);
+  if (!wecomRemoteFilesInput.checked) updateWecomRemoteSetting("wecomRemoteAllowFileDelivery", false);
+  renderWecomRemoteAgent();
+});
+wecomRemoteFileDeliveryInput.addEventListener("change", () => {
+  updateWecomRemoteSetting("wecomRemoteAllowFileDelivery", wecomRemoteFileDeliveryInput.checked);
+});
+addWecomRemoteFolderButton.addEventListener("click", addWecomRemoteFolder);
+wecomRemoteFolderList.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-remove-wecom-folder]");
+  if (button) void removeWecomRemoteFolder(button.dataset.removeWecomFolder);
+});
+wecomRemoteMcpList.addEventListener("change", (event) => {
+  const input = event.target.closest("[data-wecom-mcp-key]");
+  if (!input) return;
+  const selected = new Set(currentWecomRemoteSettings().allowedMcpTools);
+  if (input.checked) selected.add(input.dataset.wecomMcpKey);
+  else selected.delete(input.dataset.wecomMcpKey);
+  updateWecomRemoteSetting("wecomRemoteAllowedMcpTools", [...selected].slice(0, 80));
+});
+generateWecomRemotePairingButton.addEventListener("click", generateWecomRemotePairingCode);
+copyWecomRemotePairingButton.addEventListener("click", copyWecomRemotePairingCode);
+unbindWecomRemoteOwnerButton.addEventListener("click", unbindWecomRemoteOwner);
+searchWecomDocumentsButton.addEventListener("click", searchWecomDocumentList);
+wecomDocumentSearchInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    void searchWecomDocumentList();
+  }
+});
+wecomDocumentResults.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-wecom-document-id]");
+  if (!button) return;
+  selectedWecomDocumentId = button.dataset.wecomDocumentId;
+  activeWecomDocumentContent = null;
+  wecomDocumentPreview.textContent = "点击“读取最新内容”后显示正文；编辑框始终只放准备写入的新内容。";
+  renderWecomDocuments();
+});
+readWecomDocumentButton.addEventListener("click", readSelectedWecomDocument);
+openWecomDocumentButton.addEventListener("click", async () => {
+  const document = selectedWecomDocument();
+  if (document?.url) await invoke("open_external_url", { url: document.url });
+});
+createWecomDocumentButton.addEventListener("click", () => writeWecomDocument("create"));
+appendWecomDocumentButton.addEventListener("click", () => writeWecomDocument("append"));
+overwriteWecomDocumentButton.addEventListener("click", () => writeWecomDocument("overwrite"));
+startBrowserBridgeButton.addEventListener("click", startBrowserConnection);
+stopBrowserBridgeButton.addEventListener("click", stopBrowserConnection);
+copyBrowserPairingButton.addEventListener("click", copyBrowserPairingCode);
+openBrowserExtensionButton.addEventListener("click", openBrowserExtensionFolder);
+regenerateBrowserPairingButton.addEventListener("click", regenerateBrowserPairingCode);
+refreshBrowserButton.addEventListener("click", () => refreshBrowserConnection());
+sendBrowserPageToChatButton.addEventListener("click", sendBrowserPageToChat);
+sendBrowserPageToAgentButton.addEventListener("click", sendBrowserPageToAgent);
+saveBrowserPageButton.addEventListener("click", saveBrowserPageToKnowledge);
+clearBrowserPageButton.addEventListener("click", clearBrowserPage);
+mcpConnectionForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  saveMcpButton.disabled = true;
+  saveMcpServer().catch((error) => setMcpConnectionStatus(String(error), "error")).finally(() => { saveMcpButton.disabled = false; });
+});
+testMcpButton.addEventListener("click", testMcpConnection);
+newMcpServerButton.addEventListener("click", () => {
+  if (mcpServers().length >= 20) {
+    setMcpConnectionStatus("最多保存 20 个 MCP 服务器，请先移除不再使用的连接。", "error");
+    return;
+  }
+  editingMcpServerId = `mcp-${crypto.randomUUID()}`;
+  loadMcpConnectionForm();
+  setMcpConnectionStatus("正在添加 MCP 服务器。填写地址后先测试工具清单。");
+});
+mcpServerSelect.addEventListener("change", () => {
+  editingMcpServerId = mcpServerSelect.value;
+  if (mcpServers().some((server) => server.serverId === editingMcpServerId)) {
+    data.settings.activeMcpServerId = editingMcpServerId;
+    saveData();
+  }
+  loadMcpConnectionForm();
+  mcpToolOutput.textContent = "工具结果会显示在这里。";
+});
+removeMcpServerButton.addEventListener("click", removeMcpServer);
+clearMcpTokenButton.addEventListener("click", clearMcpToken);
+mcpToolSelect.addEventListener("change", renderMcpToolDetails);
+callMcpToolButton.addEventListener("click", callSelectedMcpTool);
+clearMcpLogsButton.addEventListener("click", async () => {
+  if (!mcpLogs.length) return;
+  const confirmed = await window.kardiiConfirm({
+    title: "清空 MCP 本机调用日志？",
+    message: "只会删除服务器名称、工具名称、成功状态和时间；外部 MCP 服务器上的数据不会改变。",
+    confirmLabel: "清空日志",
+    tone: "danger",
+  });
+  if (!confirmed) return;
+  mcpLogs = [];
+  saveMcpLogs();
+});
 knowledgeQuestion.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) askKnowledgeBase();
 });
@@ -3161,6 +5408,10 @@ modalBackdrop.addEventListener("mousedown", (event) => {
 });
 entityForm.addEventListener("submit", submitEntity);
 window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !siteCrawlBackdrop.classList.contains("hidden")) {
+    closeSiteCrawlModal();
+    return;
+  }
   if (event.key === "Escape" && !bundleBackdrop.classList.contains("hidden")) {
     closeBundlePreview();
     return;
@@ -3172,8 +5423,13 @@ window.addEventListener("storage", (event) => {
   if (event.key === BUSINESS_DATA_KEY) {
     data = loadData();
     editingEmailAccountId = data.settings.activeEmailAccountId || "";
+    editingMcpServerId = data.settings.activeMcpServerId || "";
+    wecomBotIdInput.value = data.settings.wecomBotId || "";
+    wecomBotModelSelect.value = data.settings.wecomBotModel || "inherit";
+    wecomBotResponseModeSelect.value = data.settings.wecomBotResponseMode || "fast";
     loadEmailConnectionForm();
     loadCloudConnectionForms();
+    loadMcpConnectionForm();
     renderAll();
   }
   if (event.key === WORKBENCH_TARGET_KEY && event.newValue) {
@@ -3183,7 +5439,23 @@ window.addEventListener("storage", (event) => {
 
 loadEmailConnectionForm();
 loadCloudConnectionForms();
+loadMcpConnectionForm();
+wecomBotIdInput.value = data.settings.wecomBotId || "";
+wecomBotModelSelect.value = data.settings.wecomBotModel || "inherit";
+wecomBotResponseModeSelect.value = data.settings.wecomBotResponseMode || "fast";
+ensureDailyBriefReminder();
 navigate("dashboard");
 renderAll();
 consumeWorkbenchTarget();
 refreshEmailCredentialStatus();
+void refreshMcpCredentialStatuses();
+void refreshWecomConnection({ quiet: true });
+void refreshWecomRemoteFolders();
+void listen("kardii-wecom-status", ({ payload }) => {
+  wecomBotRuntimeStatus = payload;
+  renderConnections();
+});
+void refreshBrowserConnection({ start: data.settings.browserBridgeEnabled === true, quiet: true });
+browserPollTimer = window.setInterval(() => {
+  if (browserBridgeStatus?.running) void refreshBrowserConnection({ quiet: true });
+}, 2_500);

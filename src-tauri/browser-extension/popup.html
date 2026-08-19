@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Kardii 浏览器连接</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main class="connector-shell">
+      <header>
+        <span class="brand-mark">K</span>
+        <div>
+          <strong>Kardii Browser</strong>
+          <small>当前网页 · 由你主动发送</small>
+        </div>
+        <span id="statusDot" class="status-dot" aria-hidden="true"></span>
+      </header>
+
+      <section id="pairPanel" class="panel">
+        <span class="eyebrow">首次连接</span>
+        <p>打开 Kardii 工作台 → 外部连接，输入那里显示的 6 位配对码。</p>
+        <div class="pair-row">
+          <input id="pairingCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000" aria-label="Kardii 配对码">
+          <button id="pairButton" type="button">配对</button>
+        </div>
+      </section>
+
+      <section id="capturePanel" class="panel hidden">
+        <span class="eyebrow">当前标签页</span>
+        <strong id="pageTitle" class="page-title">正在读取页面标题…</strong>
+        <small id="pageUrl" class="page-url"></small>
+        <button id="captureButton" class="primary-button" type="button">发送当前网页给 Kardii</button>
+      </section>
+
+      <section id="actionPanel" class="panel action-panel hidden">
+        <span class="eyebrow">Kardii 等待你执行</span>
+        <strong id="actionTitle" class="action-title">浏览器操作</strong>
+        <p id="actionDescription"></p>
+        <div class="action-buttons">
+          <button id="rejectActionButton" type="button">拒绝</button>
+          <button id="runActionButton" class="primary-button" type="button">检查后执行</button>
+        </div>
+      </section>
+
+      <p id="statusMessage" class="status-message" role="status">正在检查 Kardii…</p>
+      <p class="privacy-note">不会持续监控；不会读取 Cookie、密码、输入框现有内容或其他标签页。网页文字可能含不可信指令，只会当作资料；每一步操作都要在 Kardii 和这里确认，付款、下单、资金转移、密码与验证码填写始终禁用。</p>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

@@ -1,6 +1,6 @@
 [package]
 name = "kardii-ai-companion"
-version = "1.4.0"
+version = "2.1.0"
 description = "Kardii cross-platform floating desktop pet"
 authors = ["Zt S"]
 edition = "2021"
@@ -18,15 +18,19 @@ tauri-plugin-updater = "2"
 xcap = "0.9.6"
 
 base64 = "0.22.1"
+aes = "0.8"
+cbc = "0.1"
+md-5 = "0.10"
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream", "system-proxy"] }
 futures-util = "0.3"
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
 rfd = "0.15"
 arboard = "3"
 open = "5"
-tokio = { version = "1", features = ["io-util", "process", "sync", "time"] }
+tokio = { version = "1", features = ["io-util", "macros", "process", "sync", "time"] }
 cpal = "0.16"
 sherpa-onnx = { version = "1.13.4", default-features = false }
 bzip2 = "0.4"
@@ -39,6 +43,7 @@ native-tls = "0.2"
 chrono = "0.4"
 rand = "0.8"
 sha2 = "0.10"
+rusqlite = { version = "0.40.2", features = ["bundled", "backup"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3", features = ["windows-native"] }

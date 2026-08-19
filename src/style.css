@@ -54,6 +54,40 @@ body.menu-side-right #pet {
   transition: transform 150ms ease;
 }
 
+.agent-notice {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  z-index: 8;
+  width: min(310px, calc(100% - 24px));
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px 9px;
+  padding: 10px 12px;
+  color: #553d48;
+  text-align: left;
+  cursor: pointer;
+  border: 1px solid rgba(218, 140, 171, .58);
+  border-radius: 13px;
+  background: rgba(255, 249, 252, .96);
+  box-shadow: 0 12px 30px rgba(90, 52, 68, .2), 0 0 22px rgba(221, 122, 161, .14);
+  backdrop-filter: blur(14px);
+  animation: agent-notice-in .24s ease-out;
+}
+
+.agent-notice.hidden { display: none; }
+.agent-notice:hover { border-color: rgba(204, 94, 137, .8); box-shadow: 0 14px 34px rgba(90, 52, 68, .24), 0 0 26px rgba(221, 122, 161, .2); }
+.agent-notice span { grid-row: 1 / 3; align-self: center; padding: 5px 6px; color: #fff; font-size: 8px; font-weight: 800; letter-spacing: .08em; border-radius: 8px; background: #d46d96; }
+.agent-notice strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.agent-notice small { overflow: hidden; color: #977582; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+
+@keyframes agent-notice-in {
+  from { opacity: 0; transform: translate(-50%, -8px) scale(.98); }
+  to { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+
+.agent-notice { transform: translateX(-50%); }
+
 .menu {
   position: fixed;
   right: 8px;

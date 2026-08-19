@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Kardii Browser Connector",
+  "version": "2.1.0",
+  "description": "由你主动发送当前网页，并逐步确认 Kardii 提议的受控网页操作。",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:43198/*"
+  ],
+  "action": {
+    "default_title": "发送当前网页给 Kardii",
+    "default_popup": "popup.html"
+  }
+}

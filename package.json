@@ -1,17 +1,28 @@
 {
   "name": "kardii-ai-companion",
   "private": true,
-  "version": "1.4.0",
+  "version": "2.1.0",
   "scripts": {
     "dev": "tauri dev",
     "build": "tauri build",
+    "prepare:wecom": "node tools/prepare-wecom-cli.mjs --current",
     "tauri": "tauri",
     "test:v1": "node tools/check_v1.mjs",
     "test:v1.1": "node tools/check_v1_1.mjs",
     "test:v1.2": "node tools/check_v1_2.mjs",
     "test:v1.3": "node tools/check_v1_3.mjs",
     "test:v1.3.1": "node tools/check_v1_3_1.mjs",
-    "test:v1.4": "node tools/check_v1_4.mjs"
+    "test:v1.4": "node tools/check_v1_4.mjs",
+    "test:v1.5": "node tools/check_v1_5.mjs",
+    "test:v1.5.1": "node tools/check_v1_5_1.mjs",
+    "test:v1.6": "node tools/check_v1_6.mjs",
+    "test:v1.6.1": "node tools/check_v1_6_1.mjs",
+    "test:v1.7": "node tools/check_v1_7.mjs",
+    "test:v1.8": "node tools/check_v1_8.mjs",
+    "test:v1.9": "node tools/check_v1_9.mjs",
+    "test:v2.0": "node tools/check_v2_0.mjs",
+    "test:v2.0.1": "node tools/check_v2_0_1.mjs",
+    "test:v2.1": "node tools/check_v2_1.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0"
