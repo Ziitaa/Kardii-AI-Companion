@@ -1252,6 +1252,21 @@ fn attachment_extension(bytes: &[u8], mime_type: &str) -> &'static str {
     }
 }
 
+fn normalized_attachment_mime(bytes: &[u8], header_mime: &str) -> String {
+    let detected = if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
+        Some("image/png")
+    } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        Some("image/jpeg")
+    } else if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else if bytes.starts_with(b"%PDF") {
+        Some("application/pdf")
+    } else {
+        None
+    };
+    detected.unwrap_or(header_mime).to_string()
+}
+
 fn safe_incoming_attachment_name(value: &str, bytes: &[u8], mime_type: &str) -> String {
     let mut name: String = value
         .trim()
@@ -1346,6 +1361,7 @@ async fn download_wecom_attachment(
     if bytes.is_empty() || bytes.len() > MAX_WECOM_ATTACHMENT_BYTES {
         return Err("企微附件为空或超过 20 MB。".into());
     }
+    let mime_type = normalized_attachment_mime(&bytes, &mime_type);
     let name = safe_incoming_attachment_name(
         header_name.as_deref().unwrap_or(&reference.name),
         &bytes,
@@ -2075,5 +2091,21 @@ mod tests {
         for public in ["1.1.1.1", "8.8.8.8", "2606:4700:4700::1111"] {
             assert!(public_wecom_media_ip(public.parse().unwrap()), "rejected {public}");
         }
+    }
+
+    #[test]
+    fn attachment_mime_uses_verified_content_signature() {
+        assert_eq!(
+            normalized_attachment_mime(&[0xff, 0xd8, 0xff, 0x00], "application/octet-stream"),
+            "image/jpeg"
+        );
+        assert_eq!(
+            normalized_attachment_mime(b"%PDF-1.7", "application/octet-stream"),
+            "application/pdf"
+        );
+        assert_eq!(
+            normalized_attachment_mime(b"plain text", "text/plain"),
+            "text/plain"
+        );
     }
 }
