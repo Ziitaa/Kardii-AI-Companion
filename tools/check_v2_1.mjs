@@ -74,6 +74,8 @@ assert(mainJs.includes("wecomRemoteStreams") && mainJs.includes("/结果"), "远
 assert(mainJs.includes("activeCount >= 3"), "远程任务没有并发数量上限");
 assert(mainJs.includes("wecomModelOptionAvailable") && mainJs.includes("/模型 DeepSeek") && mainJs.includes("/模型 Codex"), "企微模型切换入口缺失");
 assert(mainJs.includes("prepareWecomAttachments") && mainJs.includes("replyWecomFile"), "企微附件处理或文件回复入口缺失");
+assert(mainJs.includes("attachmentImages: attachment.images") && libRs.includes('"type": "image"'), "企微图片没有通过安全图像输入传给 Codex");
+assert(mainJs.includes("wecomAiFailure(error)"), "企微 AI 失败时没有返回可诊断的脱敏原因");
 
 assert(agentJs.includes("disableSkills: true"), "企微远程任务可能自动套用桌面自定义技能");
 assert(agentJs.includes("window.KardiiWecomRemote.actionViolation(task.remoteSource, action)"), "Agent 执行前没有强制远程白名单");

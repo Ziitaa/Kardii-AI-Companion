@@ -268,7 +268,7 @@ async function replyWecomFile(payload, filename, content) {
 
 async function prepareWecomAttachments(payload, question, ai) {
   const attachments = Array.isArray(payload.attachments) ? payload.attachments.slice(0, 6) : [];
-  if (!attachments.length) return { context: "", names: [] };
+  if (!attachments.length) return { context: "", names: [], images: [] };
   const prepared = [];
   const images = [];
   for (const attachment of attachments) {
@@ -279,14 +279,14 @@ async function prepareWecomAttachments(payload, question, ai) {
     try {
       const result = await invoke("prepare_agent_attachment", { request: { name, dataBase64 } });
       prepared.push({ name, content: String(result?.content || "").slice(0, 12_000), warning: String(result?.warning || "") });
-      if (ai.provider === "gemini" && mimeType.startsWith("image/") && images.length < 6) {
+      if (["gemini", "codex"].includes(ai.provider) && mimeType.startsWith("image/") && images.length < 6) {
         images.push({ name, mimeType, dataBase64 });
       }
     } catch (error) {
       prepared.push({ name, content: `[附件无法读取：${String(error)}]`, warning: "" });
     }
   }
-  if (images.length) {
+  if (ai.provider === "gemini" && images.length) {
     try {
       const visual = await invoke("analyze_agent_images", {
         request: {
@@ -307,7 +307,22 @@ async function prepareWecomAttachments(payload, question, ai) {
     item.content,
     item.warning ? `提示：${item.warning}` : "",
   ].filter(Boolean).join("\n")).join("\n\n").slice(0, 24_000);
-  return { context, names: attachments.map((item) => String(item?.name || "企微附件").slice(0, 180)) };
+  return {
+    context,
+    names: attachments.map((item) => String(item?.name || "企微附件").slice(0, 180)),
+    images: ai.provider === "codex" ? images : [],
+  };
+}
+
+function wecomAiFailure(error) {
+  const detail = String(error || "")
+    .replace(/\b(?:sk|AIza)[-_A-Za-z0-9]{12,}\b/g, "[已隐藏的凭据]")
+    .replace(/[A-Z]:\\[^\r\n]+/gi, "[本机路径]")
+    .trim()
+    .slice(0, 700);
+  return detail
+    ? `Kardii 暂时无法生成回复：${detail}`
+    : "Kardii 暂时无法生成回复。请打开桌面 Kardii 检查当前 AI 连接。";
 }
 
 function activeWecomRemoteStream(taskCode) {
@@ -666,6 +681,7 @@ async function handleWecomMessage(payload = {}) {
       request: {
         text: text || "请分析我发送的附件。",
         attachmentContext: attachment.context,
+        attachmentImages: attachment.images,
         history,
         profile: wecomProfile(ai),
         provider: ai.provider,
@@ -694,7 +710,7 @@ async function handleWecomMessage(payload = {}) {
     await streamQueue.catch(() => {});
     const failure = answer.trim()
       ? `${answer.trim()}\n\n（回复中断，请稍后重试。）`
-      : "Kardii 暂时无法生成回复。请打开桌面 Kardii 检查当前 AI 连接。";
+      : wecomAiFailure(error);
     try {
       await invoke("reply_wecom_message", {
         messageId,
