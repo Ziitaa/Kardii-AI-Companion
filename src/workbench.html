@@ -29,6 +29,14 @@
           <article><span>机会扫描</span><strong id="scanStatus">未运行</strong><small>不会为了展示而制造假结果</small></article>
           <article><span>需要批准</span><strong id="approvalCount">0</strong><small>只有真正需要你介入时才出现</small></article>
         </div>
+        <section class="panel connection-panel">
+          <div class="panel-head"><div><span class="eyebrow">ACCOUNT</span><h3>Binance · 只读连接</h3></div></div>
+          <div class="connection-row">
+            <div><strong id="binanceConnectionStatus">未连接</strong><span id="binanceConnectionDetail">以后注册好账户后再连接即可。</span></div>
+            <div class="connection-actions"><button id="binanceConnectBtn" class="primary">连接只读 API</button><button id="binanceDisconnectBtn" class="secondary hidden">断开</button></div>
+          </div>
+          <div class="connection-note">Kardii 只接受严格只读权限。检测到交易、提现、内部转账、Margin、Futures、Options 等权限会直接拒绝保存。</div>
+        </section>
         <section class="panel"><div class="panel-head"><div><span class="eyebrow">INTERNAL</span><h3>内部状态</h3></div></div>
           <div class="internal-list">
             <div><strong>策略实验</strong><span>保存假设、参数、回测/模拟结果与复盘，不要求你手动维护。</span></div>
