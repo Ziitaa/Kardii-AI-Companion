@@ -39,6 +39,8 @@ pub struct BinanceApiRestrictions {
     #[serde(default)]
     enable_internal_transfer: bool,
     #[serde(default)]
+    permits_universal_transfer: bool,
+    #[serde(default)]
     enable_margin: bool,
     #[serde(default)]
     enable_futures: bool,
@@ -150,6 +152,8 @@ async fn binance_signed_json<T: DeserializeOwned>(
 fn readonly_permissions_are_safe(value: &BinanceApiRestrictions) -> bool {
     value.enable_reading
         && !value.enable_withdrawals
+        && !value.enable_internal_transfer
+        && !value.permits_universal_transfer
         && !value.enable_spot_and_margin_trading
         && !value.enable_margin
         && !value.enable_futures
@@ -259,17 +263,13 @@ async fn inspect_binance_readonly(
     Ok(BinanceReadOnlyStatus {
         configured: true,
         verified: true,
-        safe_read_only: !account.can_trade && !account.can_withdraw,
+        safe_read_only: true,
         account_type: account.account_type,
         can_deposit: account.can_deposit,
         nonzero_balances: balances,
         permissions: Some(permissions),
         checked_at: Utc::now().to_rfc3339(),
-        error: if account.can_trade || account.can_withdraw {
-            "账户返回的权限状态仍包含交易或提现能力，因此 Kardii 将其视为不安全。".to_string()
-        } else {
-            String::new()
-        },
+        error: String::new(),
     })
 }
 
