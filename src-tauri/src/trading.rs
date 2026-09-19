@@ -2082,6 +2082,42 @@ impl TradingRuntimeState {
         })
     }
 
+    fn apply_realized_loss_guards(&self, policy: &RuntimeRiskPolicy) -> Result<(), String> {
+        if !policy.real_execution_enabled { return Ok(()); }
+        let (daily_realized, consecutive_losses): (f64, usize) = self.with_database(|connection| {
+            let day_prefix = Utc::now().format("%Y-%m-%d").to_string();
+            let daily_realized: f64 = connection.query_row(
+                "SELECT COALESCE(SUM(amount), 0) FROM real_ledger_events
+                 WHERE event_type = 'realized_pnl' AND created_at LIKE ?1",
+                [format!("{day_prefix}%")],
+                |row| row.get(0),
+            ).map_err(|error| format!("无法统计当日已实现损益：{error}"))?;
+
+            let mut statement = connection.prepare(
+                "SELECT amount FROM real_ledger_events
+                 WHERE event_type = 'realized_pnl'
+                 ORDER BY created_at DESC LIMIT 20"
+            ).map_err(|error| format!("无法读取最近已实现损益：{error}"))?;
+            let rows = statement.query_map([], |row| row.get::<_, f64>(0))
+                .map_err(|error| format!("无法读取最近已实现损益：{error}"))?;
+            let mut consecutive_losses = 0usize;
+            for row in rows {
+                let amount = row.map_err(|error| format!("无法整理最近已实现损益：{error}"))?;
+                if amount < 0.0 { consecutive_losses += 1; } else { break; }
+            }
+            Ok((daily_realized, consecutive_losses))
+        })?;
+
+        if policy.max_daily_loss_usdt > 0.0 && daily_realized <= -policy.max_daily_loss_usdt {
+            let reason = format!("当日已实现亏损 {:.2} USDT 已达到最大亏损上限 {:.2} USDT。", daily_realized.abs(), policy.max_daily_loss_usdt);
+            let _ = self.latch_execution_guard(&reason, "daily-loss-limit");
+        } else if consecutive_losses >= 3 {
+            let reason = format!("真实账本出现连续 {consecutive_losses} 笔已实现亏损，已自动停机。");
+            let _ = self.latch_execution_guard(&reason, "consecutive-realized-losses");
+        }
+        Ok(())
+    }
+
     pub fn execution_readiness(&self) -> Result<ExecutionReadiness, String> {
         let policy = self.load_risk_policy().unwrap_or_else(|_| default_risk_policy());
         let account_configured = load_binance_credentials_from_keyring()?.is_some();
@@ -2119,6 +2155,7 @@ impl TradingRuntimeState {
 
     pub fn evaluate_risk(&self, request: &TradeRiskRequest) -> Result<RiskDecision, String> {
         let policy = self.load_risk_policy().unwrap_or_else(|_| default_risk_policy());
+        let _ = self.apply_realized_loss_guards(&policy);
         let mut reasons = Vec::new();
         let guard = self.load_execution_guard().unwrap_or(ExecutionGuardStatus { latched: true, reason: "无法读取执行 Kill Switch 状态。".to_string(), source: "system".to_string(), updated_at: Utc::now().to_rfc3339() });
         if guard.latched { reasons.push(format!("Kill Switch 已触发：{}", guard.reason)); }
