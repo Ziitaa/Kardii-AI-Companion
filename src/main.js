@@ -103,6 +103,7 @@ document.addEventListener("click",async(event)=>{
   if(action==="smaller") await setScale(scale-0.1);
   if(action==="larger") await setScale(scale+0.1);
   if(action==="reset-size") await setScale(0.82);
+  if(action==="passthrough"){ closeContextMenu(); await appWindow.setIgnoreCursorEvents(true); }
   if(action==="hide") await appWindow.hide();
   if(action==="quit"){ await window.KardiiStorage.flush(); await invoke("quit_app"); }
   if(state||action||!menu.contains(event.target)) closeContextMenu();
