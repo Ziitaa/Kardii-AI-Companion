@@ -941,12 +941,22 @@ pub struct TradingRuntimeSnapshot {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ExecutionGuardStatus {
+    latched: bool,
+    reason: String,
+    source: String,
+    updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ExecutionReadiness {
     ready: bool,
     account_configured: bool,
     reconciliation_ready: bool,
     risk_limits_configured: bool,
     real_execution_enabled: bool,
+    kill_switch_latched: bool,
     reasons: Vec<String>,
 }
 
@@ -1112,6 +1122,13 @@ impl TradingRuntimeState {
                status TEXT NOT NULL,
                detail TEXT NOT NULL
              );
+             CREATE TABLE IF NOT EXISTS execution_guard (
+               id INTEGER PRIMARY KEY CHECK(id = 1),
+               latched INTEGER NOT NULL,
+               reason TEXT NOT NULL,
+               source TEXT NOT NULL,
+               updated_at TEXT NOT NULL
+             );
              CREATE TABLE IF NOT EXISTS trade_intents (
                id TEXT PRIMARY KEY NOT NULL,
                symbol TEXT NOT NULL,
@@ -1146,6 +1163,11 @@ impl TradingRuntimeState {
             ],
         ).map_err(|error| format!("无法初始化风险策略：{error}"))?;
 
+        connection.execute(
+            "INSERT OR IGNORE INTO execution_guard(id, latched, reason, source, updated_at) VALUES(1, 0, '', 'system', ?1)",
+            [Utc::now().to_rfc3339()],
+        ).map_err(|error| format!("无法初始化执行 Kill Switch：{error}"))?;
+
         let mut guard = self.database.lock()
             .map_err(|_| "Kardii 交易研究数据库暂时不可用。".to_string())?;
         *guard = Some(connection);
@@ -1166,6 +1188,47 @@ impl TradingRuntimeState {
         let connection = guard.as_mut()
             .ok_or_else(|| "Kardii 交易研究数据库尚未初始化。".to_string())?;
         action(connection)
+    }
+
+    fn load_execution_guard(&self) -> Result<ExecutionGuardStatus, String> {
+        self.with_database(|connection| {
+            connection.query_row(
+                "SELECT latched, reason, source, updated_at FROM execution_guard WHERE id = 1",
+                [],
+                |row| Ok(ExecutionGuardStatus {
+                    latched: row.get::<_, i64>(0)? != 0,
+                    reason: row.get(1)?,
+                    source: row.get(2)?,
+                    updated_at: row.get(3)?,
+                }),
+            ).map_err(|error| format!("无法读取执行 Kill Switch：{error}"))
+        })
+    }
+
+    fn latch_execution_guard(&self, reason: &str, source: &str) -> Result<ExecutionGuardStatus, String> {
+        self.with_database(|connection| {
+            connection.execute(
+                "UPDATE execution_guard SET latched = 1, reason = ?1, source = ?2, updated_at = ?3 WHERE id = 1",
+                params![reason, source, Utc::now().to_rfc3339()],
+            ).map_err(|error| format!("无法触发执行 Kill Switch：{error}"))?;
+            Ok(())
+        })?;
+        self.load_execution_guard()
+    }
+
+    pub fn reset_execution_guard(&self) -> Result<ExecutionGuardStatus, String> {
+        let policy = self.load_risk_policy().unwrap_or_else(|_| default_risk_policy());
+        if policy.real_execution_enabled {
+            return Err("请先关闭真实交易总开关，再重置 Kill Switch。".to_string());
+        }
+        self.with_database(|connection| {
+            connection.execute(
+                "UPDATE execution_guard SET latched = 0, reason = '', source = 'manual-reset', updated_at = ?1 WHERE id = 1",
+                [Utc::now().to_rfc3339()],
+            ).map_err(|error| format!("无法重置执行 Kill Switch：{error}"))?;
+            Ok(())
+        })?;
+        self.load_execution_guard()
     }
 
     fn load_real_ledger_status(&self) -> Result<RealLedgerStatus, String> {
@@ -1541,7 +1604,9 @@ impl TradingRuntimeState {
         };
         let status = inspect_binance_readonly(&api_key, &api_secret).await?;
         if !status.safe_read_only || !status.error.is_empty() {
-            return Err(if status.error.is_empty() { "Binance API Key 不满足只读安全要求。".to_string() } else { status.error });
+            let reason = if status.error.is_empty() { "Binance API Key 不满足只读安全要求。".to_string() } else { status.error };
+            let _ = self.latch_execution_guard(&reason, "binance-api-permission");
+            return Err(reason);
         }
         self.persist_binance_balance_snapshot(&status)?;
         let _ = self.sync_binance_cash_events(&api_key, &api_secret).await?;
@@ -1883,7 +1948,9 @@ impl TradingRuntimeState {
         let risk_limits_configured = policy.max_order_notional_usdt > 0.0
             && policy.max_daily_loss_usdt > 0.0
             && policy.max_open_positions > 0;
+        let guard = self.load_execution_guard().unwrap_or(ExecutionGuardStatus { latched: true, reason: "无法读取执行 Kill Switch 状态。".to_string(), source: "system".to_string(), updated_at: Utc::now().to_rfc3339() });
         let mut reasons = Vec::new();
+        if guard.latched { reasons.push(format!("Kill Switch 已触发：{}", guard.reason)); }
         if !account_configured { reasons.push("尚未配置 Binance 只读账户。".to_string()); }
         if !reconciliation_ready { reasons.push("真实账本与账户对账尚未完整。".to_string()); }
         if !risk_limits_configured { reasons.push("单笔上限、每日最大亏损或最大同时持仓尚未全部配置。".to_string()); }
@@ -1894,6 +1961,7 @@ impl TradingRuntimeState {
             reconciliation_ready,
             risk_limits_configured,
             real_execution_enabled: policy.real_execution_enabled,
+            kill_switch_latched: guard.latched,
             reasons,
         })
     }
@@ -1901,6 +1969,8 @@ impl TradingRuntimeState {
     pub fn evaluate_risk(&self, request: &TradeRiskRequest) -> Result<RiskDecision, String> {
         let policy = self.load_risk_policy().unwrap_or_else(|_| default_risk_policy());
         let mut reasons = Vec::new();
+        let guard = self.load_execution_guard().unwrap_or(ExecutionGuardStatus { latched: true, reason: "无法读取执行 Kill Switch 状态。".to_string(), source: "system".to_string(), updated_at: Utc::now().to_rfc3339() });
+        if guard.latched { reasons.push(format!("Kill Switch 已触发：{}", guard.reason)); }
         let symbol = request.symbol.trim().to_uppercase();
         let side = request.side.trim().to_lowercase();
 
@@ -1949,6 +2019,20 @@ impl TradingRuntimeState {
 
         Ok(RiskDecision { allowed: reasons.is_empty(), reasons, policy })
     }
+}
+
+#[tauri::command]
+pub fn get_execution_guard_status(
+    state: tauri::State<'_, TradingRuntimeState>,
+) -> Result<ExecutionGuardStatus, String> {
+    state.load_execution_guard()
+}
+
+#[tauri::command]
+pub fn reset_execution_kill_switch(
+    state: tauri::State<'_, TradingRuntimeState>,
+) -> Result<ExecutionGuardStatus, String> {
+    state.reset_execution_guard()
 }
 
 #[tauri::command]

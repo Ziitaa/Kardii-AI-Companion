@@ -261,6 +261,17 @@ fn read_status(path: &Path) -> Result<serde_json::Value, String> {
         )),
     ).ok();
 
+    let kill_switch = connection.query_row(
+        "SELECT latched, reason, source, updated_at FROM execution_guard WHERE id = 1",
+        [],
+        |row| Ok((
+            row.get::<_, i64>(0)? != 0,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+        )),
+    ).ok();
+
     let reconciliation = connection
         .query_row(
             "SELECT status, detail, checked_at FROM ledger_reconciliation WHERE venue = 'binance'",
@@ -309,6 +320,12 @@ fn read_status(path: &Path) -> Result<serde_json::Value, String> {
             "maxOrderNotionalUsdt": value.1,
             "maxDailyLossUsdt": value.2,
             "maxOpenPositions": value.3
+        })),
+        "killSwitch": kill_switch.map(|value| serde_json::json!({
+            "latched": value.0,
+            "reason": value.1,
+            "source": value.2,
+            "updatedAt": value.3
         })),
         "remoteEnabled": false
     }))
