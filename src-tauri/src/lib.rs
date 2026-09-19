@@ -4532,19 +4532,27 @@ pub fn run() {
                 }
             });
 
-            let show = MenuItem::with_id(app, "show", "显示 Kardii", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "退出 Kardii", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show, &quit])?;
+            let show = MenuItem::with_id(app, "show", "显示 Niko", true, None::<&str>)?;
+            let interactive = MenuItem::with_id(app, "interactive", "恢复 Niko 鼠标交互", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "退出 Niko", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show, &interactive, &quit])?;
 
             TrayIconBuilder::new()
                 .icon(app.default_window_icon().expect("Kardii app icon").clone())
-                .tooltip("Kardii AI Companion")
+                .tooltip("Niko Workbench")
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => {
                         if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.set_ignore_cursor_events(false);
                             let _ = window.show();
                             let _ = window.set_focus();
+                        }
+                    }
+                    "interactive" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.set_ignore_cursor_events(false);
+                            let _ = window.show();
                         }
                     }
                     "quit" => app.exit(0),
