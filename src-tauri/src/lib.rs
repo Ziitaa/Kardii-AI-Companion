@@ -30,6 +30,7 @@ use storage::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use futures_util::StreamExt;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
         path::{Path, PathBuf},
