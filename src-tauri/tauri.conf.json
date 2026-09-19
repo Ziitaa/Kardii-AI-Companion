@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Niko Workbench",
   "version": "2.2.0",
-  "identifier": "com.sztzzz7.kardii",
+  "identifier": "com.sztzzz7.niko-workbench",
   "build": {
     "frontendDist": "../src"
   },
