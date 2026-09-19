@@ -1,4 +1,4 @@
-const { getCurrentWindow, getAllWindows, PhysicalPosition, LogicalSize } = window.__TAURI__.window;
+const { getCurrentWindow, getAllWindows, LogicalSize } = window.__TAURI__.window;
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
@@ -12,15 +12,13 @@ const agentNoticeTitle = document.getElementById("agentNoticeTitle");
 const agentNoticeMessage = document.getElementById("agentNoticeMessage");
 
 const states = ["idle","thinking","talking","happy","loading","sleep","error"];
-const BASE_WINDOW = { width: 440, height: 360 };
-const MENU_PANEL_WIDTH = 316;
+const BASE_WINDOW = { width: 300, height: 260 };
 let currentState = "idle";
-let scale = Number(localStorage.getItem("kardii-scale") || "1");
+let scale = Number(localStorage.getItem("kardii-scale") || "0.82");
 let lastInteraction = Date.now();
 let clickTimer;
 let dragStart = null;
 let didDrag = false;
-let menuLayout = null;
 let agentNoticeTaskId = "";
 
 function touch(){ lastInteraction = Date.now(); }
@@ -34,35 +32,17 @@ function setState(state){
 }
 
 async function setScale(next){
-  scale = Math.max(0.6, Math.min(2.4, Number(next.toFixed(2))));
-  document.documentElement.style.setProperty("--pet-scale", scale);
+  const numeric = Number(next);
+  scale = Math.max(0.55, Math.min(1.35, Number.isFinite(numeric) ? numeric : 0.82));
   localStorage.setItem("kardii-scale", String(scale));
   await appWindow.setSize(new LogicalSize(
-    Math.max(280, Math.round(BASE_WINDOW.width * scale)),
-    Math.max(230, Math.round(BASE_WINDOW.height * scale)),
+    Math.max(180, Math.round(BASE_WINDOW.width * scale)),
+    Math.max(160, Math.round(BASE_WINDOW.height * scale)),
   ));
 }
 
-async function openContextMenu(){
-  if(!menu.classList.contains("hidden")) return;
-  menuLayout = { position: await appWindow.outerPosition() };
-  await appWindow.setSize(new LogicalSize(
-    Math.max(280, Math.round(BASE_WINDOW.width * scale)) + MENU_PANEL_WIDTH,
-    Math.max(230, Math.round(BASE_WINDOW.height * scale)),
-  ));
-  menu.classList.remove("hidden");
-}
-
-async function closeContextMenu(){
-  if(menu.classList.contains("hidden")) return;
-  menu.classList.add("hidden");
-  await appWindow.setSize(new LogicalSize(
-    Math.max(280, Math.round(BASE_WINDOW.width * scale)),
-    Math.max(230, Math.round(BASE_WINDOW.height * scale)),
-  ));
-  if(menuLayout?.position) await appWindow.setPosition(new PhysicalPosition(menuLayout.position.x, menuLayout.position.y));
-  menuLayout = null;
-}
+function openContextMenu(){ menu.classList.remove("hidden"); }
+function closeContextMenu(){ menu.classList.add("hidden"); }
 
 async function toggleWindow(label){
   const target = (await getAllWindows()).find((window) => window.label === label);
@@ -93,37 +73,39 @@ pet.addEventListener("mousedown",(event)=>{
 });
 window.addEventListener("mousemove",(event)=>{
   if(!dragStart || (event.buttons & 1)===0) return;
-  if(Math.hypot(event.screenX-dragStart.x,event.screenY-dragStart.y)<12) return;
-  dragStart=null; didDrag=true; clearTimeout(clickTimer); void appWindow.startDragging();
+  if(Math.hypot(event.screenX-dragStart.x,event.screenY-dragStart.y)<10) return;
+  dragStart=null; didDrag=true; clearTimeout(clickTimer); closeContextMenu(); void appWindow.startDragging();
 });
 window.addEventListener("mouseup",(event)=>{
   if(event.button!==0 || !dragStart) return;
   const distance=Math.hypot(event.screenX-dragStart.x,event.screenY-dragStart.y);
   dragStart=null;
-  if(!didDrag && distance<12){
+  if(!didDrag && distance<10){
     clearTimeout(clickTimer);
-    clickTimer=setTimeout(()=>void toggleWindow("chat"),240);
+    clickTimer=setTimeout(()=>void toggleWindow("chat"),220);
   }
 });
 pet.addEventListener("dblclick",()=>{
   clearTimeout(clickTimer);
   setState(states[(states.indexOf(currentState)+1)%states.length]);
 });
-document.addEventListener("contextmenu",async(event)=>{
+document.addEventListener("contextmenu",(event)=>{
   event.preventDefault();
-  if(menu.classList.contains("hidden")) await openContextMenu(); else await closeContextMenu();
+  if(menu.classList.contains("hidden")) openContextMenu(); else closeContextMenu();
 });
 document.addEventListener("click",async(event)=>{
   const state=event.target?.dataset?.state;
   const action=event.target?.dataset?.action;
-  if(state||action) await closeContextMenu();
   if(state) setState(state);
   if(action==="workbench") await toggleWindow("workbench");
   if(action==="chat") await toggleWindow("chat");
   if(action==="agent") await openAgent();
+  if(action==="smaller") await setScale(scale-0.1);
+  if(action==="larger") await setScale(scale+0.1);
+  if(action==="reset-size") await setScale(0.82);
   if(action==="hide") await appWindow.hide();
   if(action==="quit"){ await window.KardiiStorage.flush(); await invoke("quit_app"); }
-  if(!menu.contains(event.target)) await closeContextMenu();
+  if(state||action||!menu.contains(event.target)) closeContextMenu();
 });
 listen("kardii-state",({payload})=>setState(payload));
 listen("kardii-agent-notice",({payload})=>showAgentNotice(payload));
