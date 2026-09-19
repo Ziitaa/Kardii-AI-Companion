@@ -357,6 +357,34 @@ struct BinanceWithdrawRecord {
     withdraw_order_id: String,
 }
 
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BinanceTradeRecord {
+    #[serde(default)]
+    symbol: String,
+    #[serde(default)]
+    id: u64,
+    #[serde(default)]
+    order_id: i64,
+    #[serde(default)]
+    price: String,
+    #[serde(default)]
+    qty: String,
+    #[serde(default)]
+    quote_qty: String,
+    #[serde(default)]
+    commission: String,
+    #[serde(default)]
+    commission_asset: String,
+    #[serde(default)]
+    time: i64,
+    #[serde(default)]
+    is_buyer: bool,
+    #[serde(default)]
+    is_maker: bool,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct BinanceTicker {
@@ -1138,6 +1166,184 @@ impl TradingRuntimeState {
     }
 
 
+
+    fn tracked_trade_symbols(&self) -> Result<Vec<String>, String> {
+        self.with_database(|connection| {
+            let mut symbols = Vec::<String>::new();
+
+            let mut statement = connection
+                .prepare(
+                    "SELECT symbol
+                     FROM strategy_experiments
+                     WHERE symbol LIKE '%USDT'
+                     ORDER BY CASE status WHEN 'observing' THEN 0 ELSE 1 END, updated_at DESC
+                     LIMIT 8",
+                )
+                .map_err(|error| format!("无法读取策略交易对：{error}"))?;
+            let rows = statement
+                .query_map([], |row| row.get::<_, String>(0))
+                .map_err(|error| format!("无法读取策略交易对：{error}"))?;
+            for row in rows {
+                let symbol = row.map_err(|error| format!("无法整理策略交易对：{error}"))?;
+                if tradable_usdt_symbol(&symbol) && !symbols.contains(&symbol) {
+                    symbols.push(symbol);
+                }
+            }
+
+            if symbols.len() < 8 {
+                let mut statement = connection
+                    .prepare(
+                        "SELECT asset
+                         FROM account_balance_snapshots
+                         WHERE venue = 'binance'
+                         GROUP BY asset
+                         ORDER BY MAX(id) DESC
+                         LIMIT 12",
+                    )
+                    .map_err(|error| format!("无法读取 Binance 余额资产：{error}"))?;
+                let rows = statement
+                    .query_map([], |row| row.get::<_, String>(0))
+                    .map_err(|error| format!("无法读取 Binance 余额资产：{error}"))?;
+                for row in rows {
+                    let asset = row
+                        .map_err(|error| format!("无法整理 Binance 余额资产：{error}"))?
+                        .trim()
+                        .to_uppercase();
+                    let symbol = format!("{asset}USDT");
+                    if tradable_usdt_symbol(&symbol) && !symbols.contains(&symbol) {
+                        symbols.push(symbol);
+                        if symbols.len() >= 8 {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            Ok(symbols)
+        })
+    }
+
+    async fn sync_binance_trade_events(
+        &self,
+        api_key: &str,
+        api_secret: &str,
+    ) -> Result<usize, String> {
+        let symbols = self.tracked_trade_symbols()?;
+        if symbols.is_empty() {
+            return Ok(0);
+        }
+
+        let mut total_inserted = 0usize;
+        for symbol in symbols {
+            let trades = binance_signed_json::<Vec<BinanceTradeRecord>>(
+                api_key,
+                api_secret,
+                "/api/v3/myTrades",
+                &format!("symbol={symbol}&limit=1000"),
+            )
+            .await?;
+
+            total_inserted += self.with_database_mut(|connection| {
+                let transaction = connection
+                    .transaction()
+                    .map_err(|error| format!("无法开始同步 {symbol} 成交：{error}"))?;
+                let mut inserted = 0usize;
+                let base_asset = symbol
+                    .strip_suffix("USDT")
+                    .unwrap_or("")
+                    .to_string();
+                if base_asset.is_empty() {
+                    return Ok(0usize);
+                }
+
+                for trade in trades {
+                    let external_id = format!("{}:{}", trade.symbol, trade.id);
+                    let created_at = Utc::now().to_rfc3339();
+                    let qty = parse_number(&trade.qty).abs();
+                    let quote_qty = parse_number(&trade.quote_qty).abs();
+                    let raw = serde_json::json!({
+                        "symbol": trade.symbol,
+                        "tradeId": trade.id,
+                        "orderId": trade.order_id,
+                        "price": trade.price,
+                        "isBuyer": trade.is_buyer,
+                        "isMaker": trade.is_maker
+                    })
+                    .to_string();
+
+                    if qty > 0.0 {
+                        let amount = if trade.is_buyer { qty } else { -qty };
+                        inserted += transaction
+                            .execute(
+                                "INSERT OR IGNORE INTO real_ledger_events(
+                                   event_key, venue, event_type, asset, amount, occurred_at,
+                                   external_id, source, raw_json, created_at
+                                 ) VALUES(?1, 'binance', 'trade_base', ?2, ?3, ?4, ?5, 'binance-my-trades', ?6, ?7)",
+                                params![
+                                    format!("binance:trade:{}:{}:base", trade.symbol, trade.id),
+                                    base_asset,
+                                    amount,
+                                    trade.time.to_string(),
+                                    external_id,
+                                    raw,
+                                    created_at,
+                                ],
+                            )
+                            .map_err(|error| format!("无法写入 {symbol} 基础资产成交：{error}"))?;
+                    }
+
+                    if quote_qty > 0.0 {
+                        let amount = if trade.is_buyer { -quote_qty } else { quote_qty };
+                        inserted += transaction
+                            .execute(
+                                "INSERT OR IGNORE INTO real_ledger_events(
+                                   event_key, venue, event_type, asset, amount, occurred_at,
+                                   external_id, source, raw_json, created_at
+                                 ) VALUES(?1, 'binance', 'trade_quote', 'USDT', ?2, ?3, ?4, 'binance-my-trades', ?5, ?6)",
+                                params![
+                                    format!("binance:trade:{}:{}:quote", trade.symbol, trade.id),
+                                    amount,
+                                    trade.time.to_string(),
+                                    external_id,
+                                    raw,
+                                    created_at,
+                                ],
+                            )
+                            .map_err(|error| format!("无法写入 {symbol} 计价资产成交：{error}"))?;
+                    }
+
+                    let commission = parse_number(&trade.commission).abs();
+                    if commission > 0.0 && !trade.commission_asset.trim().is_empty() {
+                        inserted += transaction
+                            .execute(
+                                "INSERT OR IGNORE INTO real_ledger_events(
+                                   event_key, venue, event_type, asset, amount, occurred_at,
+                                   external_id, source, raw_json, created_at
+                                 ) VALUES(?1, 'binance', 'fee', ?2, ?3, ?4, ?5, 'binance-my-trades', ?6, ?7)",
+                                params![
+                                    format!("binance:trade:{}:{}:fee", trade.symbol, trade.id),
+                                    trade.commission_asset.trim().to_uppercase(),
+                                    -commission,
+                                    trade.time.to_string(),
+                                    external_id,
+                                    raw,
+                                    created_at,
+                                ],
+                            )
+                            .map_err(|error| format!("无法写入 {symbol} 成交手续费：{error}"))?;
+                    }
+                }
+
+                transaction
+                    .commit()
+                    .map_err(|error| format!("无法提交 {symbol} 成交账本：{error}"))?;
+                Ok(inserted)
+            })?;
+        }
+
+        Ok(total_inserted)
+    }
+
     async fn sync_binance_cash_events(
         &self,
         api_key: &str,
@@ -1286,6 +1492,19 @@ impl TradingRuntimeState {
         }
         self.persist_binance_balance_snapshot(&status)?;
         let _ = self.sync_binance_cash_events(&api_key, &api_secret).await?;
+        let _ = self.sync_binance_trade_events(&api_key, &api_secret).await?;
+        self.with_database(|connection| {
+            connection.execute(
+                "UPDATE ledger_reconciliation
+                 SET checked_at = ?1, status = 'partial', detail = ?2
+                 WHERE venue = 'binance'",
+                params![
+                    Utc::now().to_rfc3339(),
+                    "已同步余额快照、充值、提现、提现手续费，以及当前追踪 USDT 交易对最近成交与成交手续费；仍未宣称覆盖全部历史交易对。"
+                ],
+            ).map_err(|error| format!("无法更新 Binance 成交对账状态：{error}"))?;
+            Ok(())
+        })?;
         self.load_real_ledger_status()
     }
 
