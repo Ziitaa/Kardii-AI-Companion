@@ -144,7 +144,7 @@ fn initialize_schema(connection: &Connection) -> Result<(), String> {
 fn validate_key(key: &str) -> Result<(), String> {
     if key.is_empty()
         || key.len() > MAX_STORAGE_KEY_BYTES
-        || !key.starts_with("kardii-")
+        || !(key.starts_with("kardii-") || key.starts_with("niko-"))
         || EPHEMERAL_KEYS.contains(&key)
     {
         return Err("这个本机状态键不允许写入 SQLite。".into());
