@@ -31,15 +31,13 @@ use storage::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap, HashSet, VecDeque},
-    hash::{Hash, Hasher},
-    path::{Component, Path, PathBuf},
+    collections::{HashMap, HashSet, VecDeque},
+        path::{Path, PathBuf},
     process::Stdio,
-    net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs},
+    net::{IpAddr, SocketAddr, ToSocketAddrs},
     sync::{Mutex, OnceLock},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-use futures_util::StreamExt;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, Lines};
 use tauri::ipc::Channel;
 use tauri_plugin_updater::UpdaterExt;
