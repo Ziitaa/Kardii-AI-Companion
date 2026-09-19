@@ -201,3 +201,9 @@ h1, h2, p { margin-top: 0; }
   .question-input-actions { align-items: stretch; flex-direction: column; }
   .question-input-actions > div { flex-wrap: wrap; }
 }
+
+.create-advanced { margin: 2px 0 8px; border: 1px solid rgba(171,104,134,.16); border-radius: 14px; background: rgba(255,255,255,.45); }
+.create-advanced summary { padding: 10px 12px; cursor: pointer; color: #8e6d7b; font-size: 12px; font-weight: 700; }
+.create-advanced[open] { padding-bottom: 8px; }
+.create-advanced .create-options { margin: 8px 12px; }
+.advanced-label { margin-left: 4px; padding: 1px 5px; border-radius: 999px; font-size: 9px; opacity: .65; background: rgba(174,105,136,.10); }
