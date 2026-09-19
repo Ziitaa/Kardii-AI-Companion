@@ -1,0 +1,1 @@
+{"mode":"sandbox","real_money_enabled":false,"allowed_autonomous":["research","code","test","git_commit","browser_read","state_update"],"requires_human_approval":["production_deploy","paid_service","domain_purchase","real_payment","wallet_transfer","identity_verification","contract_signature"],"denied":["credential_exfiltration","unrelated_private_repo_access","policy_bypass"]}
