@@ -939,6 +939,17 @@ pub struct TradingRuntimeSnapshot {
     risk_policy: RuntimeRiskPolicy,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecutionReadiness {
+    ready: bool,
+    account_configured: bool,
+    reconciliation_ready: bool,
+    risk_limits_configured: bool,
+    real_execution_enabled: bool,
+    reasons: Vec<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TradeRiskRequest {
@@ -1855,6 +1866,38 @@ impl TradingRuntimeState {
         })
     }
 
+    pub fn execution_readiness(&self) -> Result<ExecutionReadiness, String> {
+        let policy = self.load_risk_policy().unwrap_or_else(|_| default_risk_policy());
+        let account_configured = load_binance_credentials_from_keyring()?.is_some();
+        let reconciliation_status = self.with_database(|connection| {
+            connection
+                .query_row(
+                    "SELECT status FROM ledger_reconciliation WHERE venue = 'binance'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(|error| format!("无法读取真实账本对账状态：{error}"))
+        })?;
+        let reconciliation_ready = matches!(reconciliation_status.as_deref(), Some("complete") | Some("ok"));
+        let risk_limits_configured = policy.max_order_notional_usdt > 0.0
+            && policy.max_daily_loss_usdt > 0.0
+            && policy.max_open_positions > 0;
+        let mut reasons = Vec::new();
+        if !account_configured { reasons.push("尚未配置 Binance 只读账户。".to_string()); }
+        if !reconciliation_ready { reasons.push("真实账本与账户对账尚未完整。".to_string()); }
+        if !risk_limits_configured { reasons.push("单笔上限、每日最大亏损或最大同时持仓尚未全部配置。".to_string()); }
+        if !policy.real_execution_enabled { reasons.push("真实交易总开关仍关闭。".to_string()); }
+        Ok(ExecutionReadiness {
+            ready: reasons.is_empty(),
+            account_configured,
+            reconciliation_ready,
+            risk_limits_configured,
+            real_execution_enabled: policy.real_execution_enabled,
+            reasons,
+        })
+    }
+
     pub fn evaluate_risk(&self, request: &TradeRiskRequest) -> Result<RiskDecision, String> {
         let policy = self.load_risk_policy().unwrap_or_else(|_| default_risk_policy());
         let mut reasons = Vec::new();
@@ -1906,6 +1949,13 @@ impl TradingRuntimeState {
 
         Ok(RiskDecision { allowed: reasons.is_empty(), reasons, policy })
     }
+}
+
+#[tauri::command]
+pub fn get_execution_readiness(
+    state: tauri::State<'_, TradingRuntimeState>,
+) -> Result<ExecutionReadiness, String> {
+    state.execution_readiness()
 }
 
 #[tauri::command]

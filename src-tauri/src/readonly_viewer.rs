@@ -250,6 +250,17 @@ fn read_status(path: &Path) -> Result<serde_json::Value, String> {
         .query_row("SELECT COUNT(*) FROM account_balance_snapshots", [], |row| row.get(0))
         .unwrap_or(0);
 
+    let risk_gate = connection.query_row(
+        "SELECT real_execution_enabled, max_order_notional_usdt, max_daily_loss_usdt, max_open_positions FROM risk_policy WHERE id = 1",
+        [],
+        |row| Ok((
+            row.get::<_, i64>(0)? != 0,
+            row.get::<_, f64>(1)?,
+            row.get::<_, f64>(2)?,
+            row.get::<_, i64>(3)?,
+        )),
+    ).ok();
+
     let reconciliation = connection
         .query_row(
             "SELECT status, detail, checked_at FROM ledger_reconciliation WHERE venue = 'binance'",
@@ -292,6 +303,13 @@ fn read_status(path: &Path) -> Result<serde_json::Value, String> {
             "checkedAt": value.2
         })),
         "recentResearch": recent,
+        "executionGate": risk_gate.map(|value| serde_json::json!({
+            "realExecutionEnabled": value.0,
+            "riskLimitsConfigured": value.1 > 0.0 && value.2 > 0.0 && value.3 > 0,
+            "maxOrderNotionalUsdt": value.1,
+            "maxDailyLossUsdt": value.2,
+            "maxOpenPositions": value.3
+        })),
         "remoteEnabled": false
     }))
 }

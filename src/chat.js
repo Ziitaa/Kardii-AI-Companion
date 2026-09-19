@@ -2240,6 +2240,11 @@ async function handleTradingRuntimeQuestion(text) {
   if(!looksRelevant)return false;
   try{
     const runtime=await invoke("get_trading_runtime_status");
+    const wantsExecution=/(?:执行准备|为什么不能下单|为什么还不能|能不能下单|可以下单|准备好交易|下单条件|真实执行)/.test(question);
+    let executionReadiness=null;
+    if(wantsExecution){
+      try{executionReadiness=await invoke("get_execution_readiness");}catch{}
+    }
     let coreLedger=null;
     try{coreLedger=await invoke("get_real_ledger_status");}catch{}
     const wantsAccount=/(?:Binance|币安|账户|余额|API)/i.test(question);
@@ -2269,6 +2274,7 @@ async function handleTradingRuntimeQuestion(text) {
       binanceAccount?(binanceAccount.configured
         ?("Binance 只读账户："+(binanceAccount.safeReadOnly?"已安全连接":"权限不安全/待处理")+"；非零余额资产 "+(binanceAccount.nonzeroBalances?.length||0)+" 个。")
         :"Binance 只读账户：尚未配置。"):"",
+      executionReadiness?("真实执行准备："+(executionReadiness.ready?"已满足":"未满足")+"。"+(executionReadiness.reasons?.length?" 原因："+executionReadiness.reasons.join("；"):"")):"",
       Array.isArray(runtime.markets)?("支持市场："+runtime.markets.map(x=>x.label+"["+(x.status==="active"?"运行中":"计划中")+"]").join("、")):"",
       runtime.riskPolicy?.note||""
     ].filter(Boolean);
