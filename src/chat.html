@@ -9,7 +9,7 @@
   </head>
   <body>
     <main class="chat-card" aria-label="Kardii 聊天窗口">
-      <header data-tauri-drag-region>
+      <header id="chatDragHeader" data-tauri-drag-region>
         <div class="avatar">K</div>
         <div class="chat-identity">
           <strong>Kardii</strong>
@@ -53,7 +53,7 @@
         </div>
       </div>
 
-      <div id="businessCaptureNotice" class="business-capture-notice hidden">
+      <div id="businessCaptureNotice" class="business-capture-notice hidden" aria-hidden="true">
         <span id="businessCaptureText"></span>
         <div>
           <button id="undoBusinessCaptureButton" type="button">撤销</button>
@@ -383,7 +383,7 @@
       <section id="welcomePanel" class="welcome-panel hidden" role="dialog" aria-modal="true" aria-labelledby="welcomeTitle">
         <div class="welcome-card">
           <div class="welcome-badge-row"><span class="help-kicker">WHAT'S NEW</span><span id="welcomeVersionBadge" class="help-version">v2.1.0</span></div>
-          <h2 id="welcomeTitle">Niko 已准备好开始工作</h2>
+          <h2 id="welcomeTitle">Kardii 已准备好</h2>
           <p>保留稳定的聊天、Agent、研究资料与使用说明；旧的个人工作与企业协作入口已经从前台移除。</p>
           <ul id="welcomeHighlights"></ul>
           <div class="welcome-actions">
