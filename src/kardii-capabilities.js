@@ -110,5 +110,37 @@
     ].join("\n");
   }
 
-  window.KardiiCapabilities = { version: VERSION, features: FEATURES, knowledgeText };
+  const versionHighlights = [
+    "Niko Workbench 成为唯一工作台。",
+    "Codex / ChatGPT OAuth 成为默认模型入口。",
+    "保留 Agent、Browser、MCP、Terminal、Skills、Automation 与 SQLite。",
+    "移除旧企业微信、企业邮箱和企业云办公模块。",
+  ];
+
+  const troubleshooting = [
+    { id: "codex", title: "Codex 未连接", symptom: "Niko 无法开始模型任务", keywords: "codex chatgpt 登录", steps: ["打开模型设置。", "使用 ChatGPT 完成 Codex 登录。", "回到帮助页刷新状态。"] },
+    { id: "browser", title: "Browser 未连接", symptom: "Agent 无法读取当前浏览器页面", keywords: "browser chrome edge", steps: ["启动 Browser bridge。", "确认扩展已经配对。", "重新运行任务。"] },
+    { id: "storage", title: "SQLite 未就绪", symptom: "状态或会话无法可靠持久化", keywords: "sqlite storage 数据", steps: ["重新打开 Niko Workbench。", "刷新帮助状态。", "若仍失败，保留错误信息再检查 storage bootstrap。"] },
+  ];
+
+  function statusRows(status = {}) {
+    return [
+      { label: "Codex", value: status.codexAuthenticated ? "ChatGPT 已登录" : "未登录 / 未确认", tone: status.codexAuthenticated ? "good" : "warn" },
+      { label: "Agent", value: `${Number(status.agentRunning || 0)} 运行 · ${Number(status.agentQueued || 0)} 排队`, tone: "neutral" },
+      { label: "Browser", value: status.browserRunning ? (status.browserPaired ? "已运行 · 已配对" : "已运行 · 未配对") : "未运行", tone: status.browserRunning ? "good" : "neutral" },
+      { label: "MCP", value: `${Number(status.mcpConnected || 0)} / ${Number(status.mcpConfigured || 0)} 已连接`, tone: "neutral" },
+      { label: "SQLite", value: status.storageReady ? `已就绪 · ${Number(status.storageItemCount || 0)} 项` : "未就绪 / 未确认", tone: status.storageReady ? "good" : "warn" },
+      { label: "Memory", value: `${Number(status.memoryCount || 0)} 条`, tone: "neutral" },
+    ];
+  }
+
+  function selfCheckRows(status = {}) {
+    return [
+      { title: "Codex / ChatGPT", detail: status.codexAuthenticated ? "登录正常" : "需要登录或刷新状态", tone: status.codexAuthenticated ? "good" : "warn", actionLabel: "模型设置", action: "agent-settings" },
+      { title: "SQLite", detail: status.storageReady ? "持久化正常" : "持久化尚未就绪", tone: status.storageReady ? "good" : "warn", actionLabel: "刷新", action: "agent-settings" },
+      { title: "Browser", detail: status.browserRunning ? "Bridge 已运行" : "按需启动即可", tone: status.browserRunning ? "good" : "neutral", actionLabel: "查看工具", action: "agent-settings" },
+    ];
+  }
+
+  window.KardiiCapabilities = { version: VERSION, features: FEATURES, versionHighlights, troubleshooting, knowledgeText, statusRows, selfCheckRows };
 })();
