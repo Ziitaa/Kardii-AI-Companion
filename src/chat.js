@@ -321,7 +321,7 @@ const TOUR_STEPS = Object.freeze([
   {
     selector: "#workbenchButton",
     title: "长期资料放进工作台",
-    description: "关系、项目、待办、知识库、邮箱和云端连接都集中在这里整理。",
+    description: "目标、业务、实验、Activity、Memory、Skills 和 Treasury 都集中在这里。",
   },
   {
     selector: "#helpButton",
@@ -1062,46 +1062,27 @@ function loadMemories() {
 
 function capabilityConnections() {
   const businessData = loadBusinessData();
-  const emailAccounts = Array.isArray(businessData?.settings?.emailAccounts)
-    ? businessData.settings.emailAccounts.filter((account) => typeof account?.accountId === "string" && account.accountId.trim())
-    : [];
-  const cloudConnections = businessData?.settings?.cloudConnections && typeof businessData.settings.cloudConnections === "object"
-    ? Object.values(businessData.settings.cloudConnections)
-      .filter((connection) => typeof connection?.accountId === "string" && connection.accountId.trim())
-    : [];
   const mcpServers = Array.isArray(businessData?.settings?.mcpServers)
     ? businessData.settings.mcpServers.filter((server) => typeof server?.serverId === "string" && server.serverId.trim())
     : [];
-  return { emailAccounts, cloudConnections, mcpServers };
+  return { mcpServers };
 }
 
 function currentCapabilityStatus() {
-  const ai = currentAiConfig();
   const connections = capabilityConnections();
   const agentTasks = [...agentTasksById().values()];
-  const modelName = ai.provider === "deepseek"
-    ? "V4 Flash"
-    : ai.provider === "gemini"
-      ? ai.model.replace("gemini-", "").replaceAll("-", " ")
-      : ai.provider === "codex"
-        ? "ChatGPT"
-        : ai.model || "未选择模型";
   return {
     appVersion,
-    providerName: AI_PROVIDERS[ai.provider]?.name || ai.provider,
-    modelName,
+    providerName: "Codex",
+    modelName: "ChatGPT",
     providerReady,
     agentMode,
     autoAgentHandoff,
     agentRunning: agentTasks.filter((task) => ["planning", "running"].includes(task.status)).length,
     agentQueued: agentTasks.filter((task) => task.status === "queued").length,
     voiceModelState,
-    emailConfigured: connections.emailAccounts.length,
-    cloudConfigured: connections.cloudConnections.length,
     mcpConfigured: connections.mcpServers.length,
     mcpConnected: connections.mcpServers.filter((server) => server.lastTestAt && !server.lastError).length,
-    emailConnected: capabilityRuntime.emailConnected,
-    cloudConnected: capabilityRuntime.cloudConnected,
     browserRunning: capabilityRuntime.browserRunning,
     browserPaired: capabilityRuntime.browserPaired,
     browserCaptureTitle: capabilityRuntime.browserCaptureTitle,
@@ -1112,8 +1093,6 @@ function currentCapabilityStatus() {
     storageItemCount: capabilityRuntime.storageItemCount,
     storageSnapshotCount: capabilityRuntime.storageSnapshotCount,
     storageIntegrity: capabilityRuntime.storageIntegrity,
-    wecomDocumentsAuthorized: capabilityRuntime.wecomDocumentsAuthorized,
-    wecomBotConnected: capabilityRuntime.wecomBotConnected,
     memoryCount: memories.length,
   };
 }
@@ -1126,6 +1105,55 @@ function currentProfile() {
 }
 
 async function refreshCapabilityRuntime({ checkConnections = true, checkCodex = true } = {}) {
+  refreshHelpStatusButton.disabled = true;
+  const tasks = [];
+  if (checkConnections) {
+    tasks.push((async () => {
+      try {
+        const status = await invoke("browser_bridge_status");
+        capabilityRuntime.browserRunning = status.running === true;
+        capabilityRuntime.browserPaired = status.paired === true;
+        capabilityRuntime.browserCaptureTitle = String(status.latestTitle || "");
+      } catch {
+        capabilityRuntime.browserRunning = false;
+        capabilityRuntime.browserPaired = false;
+        capabilityRuntime.browserCaptureTitle = "";
+      }
+    })());
+  }
+  if (checkCodex) {
+    tasks.push((async () => {
+      try {
+        const status = await invoke("get_codex_status");
+        capabilityRuntime.codexChecked = true;
+        capabilityRuntime.codexInstalled = status.installed === true;
+        capabilityRuntime.codexAuthenticated = status.authenticated === true;
+        providerReady = capabilityRuntime.codexInstalled && capabilityRuntime.codexAuthenticated;
+      } catch {
+        capabilityRuntime.codexChecked = false;
+      }
+    })());
+  }
+  tasks.push((async () => {
+    try {
+      const status = await window.KardiiStorage.status();
+      capabilityRuntime.storageReady = status.ready === true;
+      capabilityRuntime.storageItemCount = Number(status.itemCount || 0);
+      capabilityRuntime.storageSnapshotCount = Number(status.snapshotCount || 0);
+      capabilityRuntime.storageIntegrity = String(status.integrity || "");
+    } catch (error) {
+      capabilityRuntime.storageReady = false;
+      capabilityRuntime.storageIntegrity = String(error || "SQLite 尚未准备好");
+    }
+  })());
+  try {
+    await Promise.all(tasks);
+    capabilityRuntime.checkedAt = new Date();
+  } finally {
+    refreshHelpStatusButton.disabled = false;
+    renderHelpStatus();
+  }
+} = {}) {
   const { emailAccounts, cloudConnections } = capabilityConnections();
   refreshHelpStatusButton.disabled = true;
 
