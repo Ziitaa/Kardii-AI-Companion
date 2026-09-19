@@ -36,7 +36,7 @@ use storage::{
     storage_bootstrap, storage_clear, storage_create_snapshot, storage_remove,
     storage_restore_snapshot, storage_set, storage_status, StorageState,
 };
-use trading::{delete_binance_readonly_credentials, evaluate_trade_risk, get_binance_readonly_status, get_market_snapshot, get_symbol_research, get_trading_runtime_status, refresh_trading_runtime, save_binance_readonly_credentials, scan_market_opportunities, TradingRuntimeState};
+use trading::{delete_binance_readonly_credentials, evaluate_trade_risk, get_binance_readonly_status, get_market_snapshot, get_real_ledger_status, get_symbol_research, get_trading_runtime_status, refresh_trading_runtime, save_binance_readonly_credentials, scan_market_opportunities, sync_binance_readonly_ledger, TradingRuntimeState};
 use wecom::{
     cancel_wecom_qr_authorization, delete_wecom_bot_secret, disconnect_wecom_documents,
     has_wecom_bot_secret, read_wecom_document, reply_wecom_media, reply_wecom_message,
@@ -5939,9 +5939,11 @@ pub fn run() {
             app.manage(voice_state);
             tauri::async_runtime::spawn(async move {
                 let _ = trading_runtime.refresh().await;
+                let _ = trading_runtime.sync_binance_readonly_snapshot().await;
                 loop {
                     tokio::time::sleep(Duration::from_secs(300)).await;
                     let _ = trading_runtime.refresh().await;
+                    let _ = trading_runtime.sync_binance_readonly_snapshot().await;
                 }
             });
 
@@ -6047,6 +6049,8 @@ pub fn run() {
             save_binance_readonly_credentials,
             get_binance_readonly_status,
             delete_binance_readonly_credentials,
+            get_real_ledger_status,
+            sync_binance_readonly_ledger,
             get_market_snapshot,
             get_symbol_research,
             get_trading_runtime_status,

@@ -2231,6 +2231,8 @@ async function handleTradingRuntimeQuestion(text) {
   if(!looksRelevant)return false;
   try{
     const runtime=await invoke("get_trading_runtime_status");
+    let coreLedger=null;
+    try{coreLedger=await invoke("get_real_ledger_status");}catch{}
     const wantsAccount=/(?:Binance|币安|账户|余额|API)/i.test(question);
     let binanceAccount=null;
     if(wantsAccount){
@@ -2253,7 +2255,8 @@ async function handleTradingRuntimeQuestion(text) {
       experiments.length?("正在观察的策略实验："+experiments.map(x=>x.symbol+"（已观察 "+x.observationCount+" 次）").join("、")):"当前没有持续观察实验。",
       history.length?("最近研究历史："+history.map(x=>x.symbol+" "+new Date(x.scannedAt).toLocaleTimeString("zh-CN",{hour:"2-digit",minute:"2-digit"})).join("、")):"",
       runtime.persistenceError?("本地研究库状态："+runtime.persistenceError):"研究历史已写入本机持久化数据库。",
-      "真实账本："+rows.length+" 条；已记录已实现损益合计 "+realized.toFixed(4)+"（仅统计真实账本中的 realized_pnl 记录）。",
+      coreLedger?("核心真实账本："+coreLedger.eventCount+" 条真实事件；余额快照 "+coreLedger.snapshotCount+" 条；对账状态 "+coreLedger.reconciliationStatus+"。"):"",
+      rows.length?("旧版手工账本仍有 "+rows.length+" 条本地记录；后续迁移时会和核心真实账本分开处理。"):"",
       binanceAccount?(binanceAccount.configured
         ?("Binance 只读账户："+(binanceAccount.safeReadOnly?"已安全连接":"权限不安全/待处理")+"；非零余额资产 "+(binanceAccount.nonzeroBalances?.length||0)+" 个。")
         :"Binance 只读账户：尚未配置。"):"",

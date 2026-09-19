@@ -839,6 +839,18 @@ fn market_domains() -> Vec<MarketDomainStatus> {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RealLedgerStatus {
+    event_count: i64,
+    snapshot_count: i64,
+    latest_event_at: String,
+    latest_snapshot_at: String,
+    reconciliation_status: String,
+    reconciliation_detail: String,
+    full_event_sync_enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TradingRuntimeSnapshot {
     mode: String,
     refreshing: bool,
@@ -956,6 +968,39 @@ impl TradingRuntimeState {
                max_daily_loss_usdt REAL NOT NULL,
                max_open_positions INTEGER NOT NULL,
                note TEXT NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS real_ledger_events (
+               event_key TEXT PRIMARY KEY NOT NULL,
+               venue TEXT NOT NULL,
+               event_type TEXT NOT NULL,
+               asset TEXT NOT NULL,
+               amount REAL NOT NULL,
+               occurred_at TEXT NOT NULL,
+               external_id TEXT NOT NULL,
+               source TEXT NOT NULL,
+               raw_json TEXT NOT NULL,
+               created_at TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS real_ledger_events_time
+               ON real_ledger_events(occurred_at DESC);
+             CREATE TABLE IF NOT EXISTS account_balance_snapshots (
+               id INTEGER PRIMARY KEY AUTOINCREMENT,
+               venue TEXT NOT NULL,
+               captured_at TEXT NOT NULL,
+               asset TEXT NOT NULL,
+               free REAL NOT NULL,
+               locked REAL NOT NULL,
+               total REAL NOT NULL,
+               source TEXT NOT NULL,
+               UNIQUE(venue, captured_at, asset)
+             );
+             CREATE INDEX IF NOT EXISTS balance_snapshots_time
+               ON account_balance_snapshots(venue, captured_at DESC);
+             CREATE TABLE IF NOT EXISTS ledger_reconciliation (
+               venue TEXT PRIMARY KEY NOT NULL,
+               checked_at TEXT NOT NULL,
+               status TEXT NOT NULL,
+               detail TEXT NOT NULL
              );"
         ).map_err(|error| format!("无法初始化 Kardii 交易研究数据库：{error}"))?;
 
@@ -997,6 +1042,68 @@ impl TradingRuntimeState {
         let connection = guard.as_mut()
             .ok_or_else(|| "Kardii 交易研究数据库尚未初始化。".to_string())?;
         action(connection)
+    }
+
+    fn load_real_ledger_status(&self) -> Result<RealLedgerStatus, String> {
+        self.with_database(|connection| {
+            let event_count: i64 = connection.query_row("SELECT COUNT(*) FROM real_ledger_events", [], |row| row.get(0))
+                .map_err(|error| format!("无法统计真实账本：{error}"))?;
+            let snapshot_count: i64 = connection.query_row("SELECT COUNT(*) FROM account_balance_snapshots", [], |row| row.get(0))
+                .map_err(|error| format!("无法统计余额快照：{error}"))?;
+            let latest_event_at: String = connection.query_row("SELECT COALESCE(MAX(occurred_at), '') FROM real_ledger_events", [], |row| row.get(0))
+                .map_err(|error| format!("无法读取最新真实账本时间：{error}"))?;
+            let latest_snapshot_at: String = connection.query_row("SELECT COALESCE(MAX(captured_at), '') FROM account_balance_snapshots", [], |row| row.get(0))
+                .map_err(|error| format!("无法读取最新余额快照：{error}"))?;
+            let reconciliation = connection.query_row(
+                "SELECT status, detail FROM ledger_reconciliation WHERE venue = 'binance'",
+                [],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            ).optional().map_err(|error| format!("无法读取账本对账状态：{error}"))?;
+            Ok(RealLedgerStatus {
+                event_count,
+                snapshot_count,
+                latest_event_at,
+                latest_snapshot_at,
+                reconciliation_status: reconciliation.as_ref().map(|v| v.0.clone()).unwrap_or_else(|| "not-configured".to_string()),
+                reconciliation_detail: reconciliation.map(|v| v.1).unwrap_or_else(|| "尚未连接真实账户；不会把模拟数据写入真实账本。".to_string()),
+                full_event_sync_enabled: false,
+            })
+        })
+    }
+
+    fn persist_binance_balance_snapshot(&self, status: &BinanceReadOnlyStatus) -> Result<(), String> {
+        self.with_database_mut(|connection| {
+            let transaction = connection.transaction().map_err(|error| format!("无法开始保存真实余额快照：{error}"))?;
+            for balance in &status.nonzero_balances {
+                let free = parse_number(&balance.free);
+                let locked = parse_number(&balance.locked);
+                transaction.execute(
+                    "INSERT OR IGNORE INTO account_balance_snapshots(venue, captured_at, asset, free, locked, total, source) VALUES('binance', ?1, ?2, ?3, ?4, ?5, 'binance-readonly-account')",
+                    params![status.checked_at, balance.asset, free, locked, free + locked],
+                ).map_err(|error| format!("无法保存 Binance 余额快照：{error}"))?;
+            }
+            transaction.execute(
+                "INSERT INTO ledger_reconciliation(venue, checked_at, status, detail) VALUES('binance', ?1, 'partial', ?2) ON CONFLICT(venue) DO UPDATE SET checked_at = excluded.checked_at, status = excluded.status, detail = excluded.detail",
+                params![status.checked_at, "余额快照已自动保存；充值、提现、成交、手续费与已实现盈亏事件连接器尚未启用，因此不会用余额差额猜测交易事件。"],
+            ).map_err(|error| format!("无法保存账本对账状态：{error}"))?;
+            transaction.execute(
+                "DELETE FROM account_balance_snapshots WHERE id NOT IN (SELECT id FROM account_balance_snapshots ORDER BY id DESC LIMIT 50000)",
+                [],
+            ).map_err(|error| format!("无法整理余额快照：{error}"))?;
+            transaction.commit().map_err(|error| format!("无法提交真实余额快照：{error}"))
+        })
+    }
+
+    pub async fn sync_binance_readonly_snapshot(&self) -> Result<RealLedgerStatus, String> {
+        let Some((api_key, api_secret)) = load_binance_credentials_from_keyring()? else {
+            return self.load_real_ledger_status();
+        };
+        let status = inspect_binance_readonly(&api_key, &api_secret).await?;
+        if !status.safe_read_only || !status.error.is_empty() {
+            return Err(if status.error.is_empty() { "Binance API Key 不满足只读安全要求。".to_string() } else { status.error });
+        }
+        self.persist_binance_balance_snapshot(&status)?;
+        self.load_real_ledger_status()
     }
 
     fn load_risk_policy(&self) -> Result<RuntimeRiskPolicy, String> {
@@ -1240,6 +1347,20 @@ impl TradingRuntimeState {
 
         Ok(RiskDecision { allowed: reasons.is_empty(), reasons, policy })
     }
+}
+
+#[tauri::command]
+pub fn get_real_ledger_status(
+    state: tauri::State<'_, TradingRuntimeState>,
+) -> Result<RealLedgerStatus, String> {
+    state.load_real_ledger_status()
+}
+
+#[tauri::command]
+pub async fn sync_binance_readonly_ledger(
+    state: tauri::State<'_, TradingRuntimeState>,
+) -> Result<RealLedgerStatus, String> {
+    state.sync_binance_readonly_snapshot().await
 }
 
 #[tauri::command]
