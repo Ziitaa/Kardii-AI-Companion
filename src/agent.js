@@ -861,7 +861,7 @@ function currentAiConfig(task = null) {
   }
   let saved = {};
   try { saved = JSON.parse(localStorage.getItem(AI_SETTINGS_KEY) || "{}"); } catch { saved = {}; }
-  const provider = ["deepseek", "gemini", "ollama", "codex"].includes(saved.provider) ? saved.provider : "deepseek";
+  const provider = "codex";
   const model = provider === "deepseek"
     ? "deepseek-v4-flash"
     : provider === "gemini"
