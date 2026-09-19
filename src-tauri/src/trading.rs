@@ -598,6 +598,22 @@ pub async fn get_symbol_research(symbol: String) -> Result<SymbolResearch, Strin
     })
 }
 
+fn millis_timestamp_rfc3339(value: i64) -> String {
+    chrono::DateTime::<Utc>::from_timestamp_millis(value)
+        .map(|time| time.to_rfc3339())
+        .unwrap_or_else(|| Utc::now().to_rfc3339())
+}
+
+fn binance_apply_time_rfc3339(value: &str) -> String {
+    let clean = value.trim();
+    if clean.is_empty() {
+        return Utc::now().to_rfc3339();
+    }
+    chrono::NaiveDateTime::parse_from_str(clean, "%Y-%m-%d %H:%M:%S")
+        .map(|time| time.and_utc().to_rfc3339())
+        .unwrap_or_else(|_| clean.to_string())
+}
+
 fn parse_number(value: &str) -> f64 {
     value.parse::<f64>().unwrap_or(0.0)
 }
@@ -1431,7 +1447,7 @@ impl TradingRuntimeState {
                                     format!("binance:trade:{}:{}:base", trade.symbol, trade.id),
                                     base_asset,
                                     amount,
-                                    trade.time.to_string(),
+                                    millis_timestamp_rfc3339(trade.time),
                                     external_id,
                                     raw,
                                     created_at,
@@ -1545,7 +1561,7 @@ impl TradingRuntimeState {
                         format!("binance:deposit:{external_id}"),
                         item.coin.trim().to_uppercase(),
                         parse_number(&item.amount),
-                        item.insert_time.to_string(),
+                        millis_timestamp_rfc3339(item.insert_time),
                         external_id,
                         raw,
                         created_at,
@@ -1563,11 +1579,7 @@ impl TradingRuntimeState {
                 if external_id.is_empty() || item.coin.trim().is_empty() {
                     continue;
                 }
-                let occurred_at = chrono::NaiveDateTime::parse_from_str(
-                    item.apply_time.trim(),
-                    "%Y-%m-%d %H:%M:%S",
-                ).map(|value| value.and_utc().timestamp_millis().to_string())
-                 .unwrap_or_else(|_| item.apply_time.clone());
+                let occurred_at = binance_apply_time_rfc3339(&item.apply_time);
                 let raw = serde_json::json!({
                     "id": item.id,
                     "txId": item.tx_id,
@@ -1604,7 +1616,7 @@ impl TradingRuntimeState {
                             format!("binance:withdrawal-fee:{external_id}"),
                             item.coin.trim().to_uppercase(),
                             -fee,
-                            item.apply_time.clone(),
+                            binance_apply_time_rfc3339(&item.apply_time),
                             external_id,
                             raw,
                             created_at,
