@@ -1,0 +1,43 @@
+name: Niko Workbench CI
+
+on:
+  push:
+    branches:
+      - agent/niko-workbench-v0
+  pull_request:
+    branches:
+      - agent/kardii-v1.5-browser-connections
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install dependencies
+        run: npm ci
+      - name: Rust compile check
+        working-directory: src-tauri
+        run: cargo check --locked
+      - name: Frontend syntax check
+        shell: bash
+        run: |
+          node --check src/main.js
+          node --check src/chat.js
+          node --check src/agent.js
+          node --check src/niko-workbench.js
