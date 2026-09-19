@@ -3,31 +3,31 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Kardii Workspace</title>
+    <title>Niko Console</title>
     <link rel="stylesheet" href="./workbench.css">
     <link rel="stylesheet" href="./kardii-dialog.css">
   </head>
   <body>
     <main class="app-shell">
-      <aside class="sidebar" aria-label="Kardii 主侧栏">
+      <aside class="sidebar" aria-label="Niko 主侧栏">
         <div class="brand" data-tauri-drag-region>
           <div class="brand-mark">K</div>
           <div>
-            <strong>Kardii</strong>
-            <span>Workspace</span>
+            <strong>Niko</strong>
+            <span>Console</span>
           </div>
         </div>
 
-        <nav class="primary-nav" aria-label="Kardii 工作台导航">
+        <nav class="primary-nav" aria-label="Niko 控制台导航">
           <button class="nav-item active" type="button" data-view="dashboard">
-            <span class="nav-icon">⌂</span><span>今日工作台</span>
+            <span class="nav-icon">⌂</span><span>Niko 控制台</span>
           </button>
           <button class="nav-item" type="button" data-view="customers">
             <span class="nav-icon">♧</span><span>关系库</span>
             <span id="customerNavCount" class="nav-count">0</span>
           </button>
           <button class="nav-item" type="button" data-view="projects">
-            <span class="nav-icon">◇</span><span>项目库</span>
+            <span class="nav-icon">◇</span><span>策略与实验</span>
             <span id="projectNavCount" class="nav-count">0</span>
           </button>
           <button class="nav-item" type="button" data-view="analysis">
@@ -35,11 +35,11 @@
             <span id="analysisNavCount" class="nav-count">0</span>
           </button>
           <button class="nav-item" type="button" data-view="intelligence">
-            <span class="nav-icon">◎</span><span>商业情报</span>
+            <span class="nav-icon">◎</span><span>市场研究</span>
             <span id="intelligenceNavCount" class="nav-count">0</span>
           </button>
           <button class="nav-item" type="button" data-view="knowledge">
-            <span class="nav-icon">▤</span><span>知识库</span>
+            <span class="nav-icon">▤</span><span>研究资料</span>
             <span id="knowledgeNavCount" class="nav-count">0</span>
           </button>
           <button class="nav-item" type="button" data-view="connections">
@@ -55,7 +55,7 @@
           </label>
           <button id="openChatButton" class="ask-kardii" type="button">
             <span class="kardii-dot"></span>
-            <span><strong>问问 Kardii</strong><small>随时讨论已有资料</small></span>
+            <span><strong>问问 Niko</strong><small>聊天、研究或交给 Agent</small></span>
           </button>
           <span class="local-note">数据仅保存在这台电脑</span>
         </div>
@@ -64,8 +64,8 @@
       <section class="workspace">
         <header class="topbar" data-tauri-drag-region>
           <div>
-            <span id="viewEyebrow" class="eyebrow">BUSINESS WORKBENCH</span>
-            <h1 id="viewTitle">今日工作台</h1>
+            <span id="viewEyebrow" class="eyebrow">NIKO CONSOLE</span>
+            <h1 id="viewTitle">Niko 控制台</h1>
           </div>
           <div class="topbar-actions">
             <button id="globalSearchButton" class="ghost-button" type="button" title="搜索">⌕</button>
@@ -80,8 +80,8 @@
             <div class="welcome-row">
               <div>
                 <p id="todayLabel" class="date-label"></p>
-                <h2 id="welcomeTitle">今天先推进最重要的一步。</h2>
-            <p class="muted">Kardii 已为你整理关系、项目、文件与下一步行动。</p>
+                <h2 id="welcomeTitle">先看 Niko 现在在做什么。</h2>
+            <p class="muted">这里保留策略实验、市场研究、研究资料与下一步行动；不再管理你的个人工作关系。</p>
               </div>
               <button class="outline-button" type="button" data-action="add-task">添加今日任务</button>
             </div>
@@ -94,10 +94,10 @@
                 <span>待跟进关系</span><strong id="followupCount">0</strong><small>按下次行动时间排序</small>
               </article>
               <article class="metric-card amber">
-                <span>进行中项目</span><strong id="activeProjectCount">0</strong><small>需要持续推进</small>
+                <span>运行中实验</span><strong id="activeProjectCount">0</strong><small>策略、验证与复盘</small>
               </article>
               <article class="metric-card green">
-                <span>本周新记录</span><strong id="weeklyNoteCount">0</strong><small>快速记录与沟通纪要</small>
+                <span>本周研究记录</span><strong id="weeklyNoteCount">0</strong><small>快速记录与沟通纪要</small>
               </article>
             </div>
 
@@ -131,7 +131,7 @@
 
               <article class="panel project-panel">
                 <div class="panel-heading">
-                  <div><span class="section-kicker">ACTIVE PROJECTS</span><h3>重点项目</h3></div>
+                  <div><span class="section-kicker">ACTIVE EXPERIMENTS</span><h3>策略与实验</h3></div>
                   <button class="text-button" type="button" data-navigate="projects">查看全部</button>
                 </div>
                 <div id="dashboardProjects" class="compact-list"></div>
@@ -147,7 +147,7 @@
 
               <article class="panel notes-panel">
                 <div class="panel-heading">
-                  <div><span class="section-kicker">QUICK CAPTURE</span><h3>最近记录</h3></div>
+                  <div><span class="section-kicker">RESEARCH NOTES</span><h3>最近研究记录</h3></div>
                   <button class="text-button" type="button" data-action="add-note">＋ 记录</button>
                 </div>
                 <div id="recentNotes" class="compact-list"></div>
@@ -190,7 +190,7 @@
             <div class="toolbar">
               <label class="search-box">
                 <span>⌕</span>
-                <input id="projectSearch" type="search" placeholder="搜索项目、目标、关系或下一步">
+                <input id="projectSearch" type="search" placeholder="搜索策略、实验、目标或下一步">
               </label>
               <select id="projectStatusFilter" class="filter-select" aria-label="按状态筛选">
                 <option value="">全部状态</option>
@@ -200,8 +200,8 @@
                 <option value="completed">已完成</option>
                 <option value="archived">已归档</option>
               </select>
-              <div class="view-summary"><strong id="projectSummary">0 个项目</strong><span>目标、关系、资料与下一步行动</span></div>
-              <button class="primary-button" type="button" data-action="add-project">＋ 新建项目</button>
+              <div class="view-summary"><strong id="projectSummary">0 个实验</strong><span>目标、假设、资料与下一步行动</span></div>
+              <button class="primary-button" type="button" data-action="add-project">＋ 新建策略实验</button>
             </div>
             <div id="projectGrid" class="project-grid"></div>
           </section>
@@ -283,16 +283,16 @@
           <section id="intelligenceView" class="view" data-view-panel="intelligence">
             <div class="intelligence-intro">
               <div>
-                <span class="section-kicker">BUSINESS INTELLIGENCE</span>
-                <h2>把公开事实和 AI 判断分开保存。</h2>
-                <p>每份背调都保留来源、风险、机会和下一步，可关联到关系对象或项目。</p>
+                <span class="section-kicker">MARKET RESEARCH</span>
+                <h2>把市场事实、来源和研究判断分开保存。</h2>
+                <p>每份研究保留来源、观察、风险和下一步，用于验证策略与市场假设；这里不是买卖建议页。</p>
               </div>
-              <button class="primary-button" type="button" data-action="add-intelligence">＋ 新建背调</button>
+              <button class="primary-button" type="button" data-action="add-intelligence">＋ 新建市场研究</button>
             </div>
             <div class="toolbar intelligence-toolbar">
               <label class="search-box">
                 <span>⌕</span>
-                <input id="intelligenceSearch" type="search" placeholder="搜索公司、品牌、联系人或市场">
+                <input id="intelligenceSearch" type="search" placeholder="搜索市场、交易所、资产、交易对或协议">
               </label>
               <select id="intelligenceStatusFilter" class="filter-select" aria-label="按背调状态筛选">
                 <option value="">全部状态</option>
@@ -301,7 +301,7 @@
                 <option value="reviewed">已核验</option>
                 <option value="archived">已归档</option>
               </select>
-              <div class="view-summary"><strong id="intelligenceSummary">0 份背调</strong><span>公司、品牌与联系人</span></div>
+              <div class="view-summary"><strong id="intelligenceSummary">0 份研究</strong><span>市场、交易所、资产与协议</span></div>
             </div>
             <div id="intelligenceGrid" class="intelligence-grid"></div>
           </section>
@@ -309,9 +309,9 @@
           <section id="knowledgeView" class="view" data-view-panel="knowledge">
             <div class="knowledge-intro">
               <div>
-                <span class="section-kicker">KNOWLEDGE &amp; FILE ANALYSIS</span>
-                <h2>让文件、聊天记录与项目资料真正参与工作。</h2>
-                <p>支持 PDF、Word、PPT、Excel、图片与常见文本；先预览和编辑 AI 结论，再确认保存。</p>
+                <span class="section-kicker">RESEARCH LIBRARY</span>
+                <h2>保存研究材料、网页快照与策略证据。</h2>
+                <p>支持 PDF、Word、PPT、Excel、图片与常见文本；保留原始资料、来源和分析结果，方便复盘。</p>
               </div>
               <div class="knowledge-import-actions">
                 <button id="importWebsiteButton" class="outline-button" type="button">◎ 导入网站</button>
@@ -340,7 +340,7 @@
               <div class="knowledge-main">
                 <section id="websiteCollectionSection" class="website-collection-library">
                   <div class="report-library-heading">
-                    <div><span class="section-kicker">WEBSITE COLLECTIONS</span><h3>多网页知识库</h3></div>
+                    <div><span class="section-kicker">WEBSITE COLLECTIONS</span><h3>网站研究集合</h3></div>
                     <span id="websiteCollectionSummary">0 个网站集合</span>
                   </div>
                   <div id="websiteCollectionGrid" class="website-collection-grid"></div>
@@ -357,7 +357,7 @@
               <aside class="knowledge-qa" aria-label="知识库问答">
                 <div class="knowledge-qa-heading">
                   <span class="section-kicker">ASK YOUR FILES</span>
-                  <h3>问知识库</h3>
+                  <h3>问研究资料</h3>
                   <p>先在本机检索相关片段，再交给当前 AI 回答并标注来源。</p>
                 </div>
                 <textarea id="knowledgeQuestion" rows="4" maxlength="1000" aria-label="向知识库提问"></textarea>
@@ -373,8 +373,8 @@
             <div class="connections-intro">
               <div>
                 <span class="section-kicker">EXTERNAL CONNECTIONS</span>
-                <h2>把浏览器、邮箱、日历与云盘变成 Kardii 的资料入口。</h2>
-                <p>浏览器只在你点击扩展后读取当前页。当前版本不会发送、删除、移动或标记邮件，也不会改写日历和云端文件；网页中的文字只会作为不可信资料，不会变成自动操作指令。</p>
+                <h2>保留 Niko 真正需要的资料入口。</h2>
+                <p>浏览器、邮箱与云端连接默认只读，用于研究、留存证据和获取任务资料。企业协作与通用工具配置不再作为前台功能。</p>
               </div>
               <span class="read-only-badge">默认只读 · 写入确认</span>
             </div>
@@ -393,7 +393,7 @@
                   <label class="form-field full">
                     <span>邮箱类型</span>
                     <select id="emailPresetSelect">
-                      <option value="wecom">企业微信邮箱 / 腾讯企业邮箱</option>
+                      
                       <option value="qq">QQ 邮箱</option>
                       <option value="163">163 邮箱</option>
                       <option value="gmail">Gmail</option>
@@ -424,7 +424,7 @@
                     <span>客户端专用密码 / 授权码</span>
                     <input id="emailPasswordInput" type="password" maxlength="512" autocomplete="new-password" placeholder="只保存到 Windows 凭据管理器或 macOS 钥匙串">
                   </label>
-                  <p class="connection-help full">请勿填写日常登录密码。企业微信、QQ、163 和 Gmail 应先开启 IMAP，并生成客户端专用密码、授权码或应用专用密码；若后台给出的服务器地址不同，以后台为准。Kardii 的 JSON 备份不会包含它。</p>
+                  <p class="connection-help full">请勿填写日常登录密码。QQ、163 和 Gmail 应先开启 IMAP，并生成客户端专用密码、授权码或应用专用密码；若后台给出的服务器地址不同，以后台为准。Niko 的 JSON 备份不会包含它。</p>
                   <div class="connection-actions full">
                     <button id="pauseEmailButton" class="archive-action" type="button">暂停同步</button>
                     <button id="disconnectEmailButton" class="delete-action" type="button">删除凭据</button>
@@ -718,8 +718,8 @@
 
             <div class="future-connections-grid">
               <article><span>数据权限</span><strong>默认只读</strong><p>连接仅列出最近项目，不会批量上传企业文件。</p></article>
-              <article><span>内部整理</span><strong>人工确认</strong><p>选择资料后再归档到关系、项目和知识库。</p></article>
-              <article><span>MCP 工具连接</span><strong>逐次确认</strong><p>可连接 Streamable HTTP 服务器，读取工具清单并保留本机调用日志。</p></article>
+              <article><span>研究留存</span><strong>人工确认</strong><p>选择资料后再保存到策略实验或研究资料。</p></article>
+              
             </div>
           </section>
         </div>

@@ -14,11 +14,11 @@
     "windows": [
       {
         "label": "main",
-        "title": "Kardii AI Companion",
-        "width": 440,
-        "height": 360,
-        "minWidth": 280,
-        "minHeight": 230,
+        "title": "Niko",
+        "width": 205,
+        "height": 180,
+        "minWidth": 170,
+        "minHeight": 150,
         "resizable": false,
         "fullscreen": false,
         "decorations": false,

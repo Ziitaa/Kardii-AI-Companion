@@ -572,10 +572,21 @@
     ];
   }
 
+  const HIDDEN_FEATURE_IDS = new Set(["wecom", "enterprise-analysis", "mcp"]);
+  const ACTIVE_FEATURES = FEATURES.filter((feature) => !HIDDEN_FEATURE_IDS.has(feature.id)).map((feature) => {
+    if (feature.id === "workbench") return {...feature,title:"Niko 控制台",summary:"集中查看策略实验、市场研究、研究资料与执行任务。",steps:["打开工作台进入 Niko 控制台。","用“策略与实验”保存验证计划与复盘。","用“市场研究”和“研究资料”保留来源与证据。"],example:"打开 Niko 控制台，告诉我当前有哪些策略实验、研究资料和待执行任务。",promptFact:"Niko 控制台前台保留策略与实验、市场研究、研究资料和外部资料入口；旧的关系库、企业联合分析、企业微信与 MCP 配置不再作为前台功能。"};
+    if (feature.id === "connections") return {...feature,title:"连接研究资料来源",summary:"可保留邮箱、浏览器当前页以及 Google / Microsoft 的只读资料入口。",steps:["打开工作台的“外部连接”。","按需要连接邮箱、浏览器或云端资料。","同步或发送资料后再交给 Niko 研究、归档或执行。"],promptFact:"前台外部连接保留 IMAP 邮箱、Google/Microsoft 只读概览与 Chrome/Edge 当前网页；企业微信和 MCP 配置已从前台移除。"};
+    return feature;
+  });
+  const ACTIVE_TROUBLESHOOTING = TROUBLESHOOTING.filter((item) => !/(wecom|mcp|enterprise)/i.test(item.id));
+  const ACTIVE_VERSION_HIGHLIGHTS = VERSION_HIGHLIGHTS.filter((line) => !/(企业微信|企微|联合分析|MCP)/i.test(line)).map((line) => line.replace(/Kardii/g,"Niko"));
+  const filteredStatusRows = (status = {}) => statusRows(status).filter((row) => !["wecom","mcp"].includes(row.id));
+  const filteredSelfCheckRows = (status = {}) => selfCheckRows(status).filter((row) => !["wecom","mcp"].includes(row.id));
+
   function knowledgeText(status = {}) {
-    const featureLines = FEATURES.map((feature) => `- ${feature.title}：${feature.promptFact}`);
+    const featureLines = ACTIVE_FEATURES.map((feature) => `- ${feature.title}：${feature.promptFact}`);
     const limitationLines = LIMITATIONS.map((item) => `- ${item}`);
-    const rows = statusRows(status).map((row) => `- ${row.label}：${row.value}`);
+    const rows = filteredStatusRows(status).map((row) => `- ${row.label}：${row.value}`);
     const optional = [];
     if (status.codexChecked) {
       optional.push(`- Codex：${status.codexInstalled ? "已安装" : "未安装"}，${status.codexAuthenticated ? "已使用 ChatGPT 登录" : "尚未登录"}。`);
@@ -605,12 +616,12 @@
 
   window.KardiiCapabilities = Object.freeze({
     version: VERSION,
-    features: Object.freeze(FEATURES.map((feature) => Object.freeze(feature))),
-    troubleshooting: Object.freeze(TROUBLESHOOTING.map((item) => Object.freeze(item))),
-    versionHighlights: Object.freeze(VERSION_HIGHLIGHTS),
+    features: Object.freeze(ACTIVE_FEATURES.map((feature) => Object.freeze(feature))),
+    troubleshooting: Object.freeze(ACTIVE_TROUBLESHOOTING.map((item) => Object.freeze(item))),
+    versionHighlights: Object.freeze(ACTIVE_VERSION_HIGHLIGHTS),
     limitations: Object.freeze(LIMITATIONS),
-    statusRows,
-    selfCheckRows,
+    statusRows: filteredStatusRows,
+    selfCheckRows: filteredSelfCheckRows,
     knowledgeText,
     isCapabilityQuestion,
   });

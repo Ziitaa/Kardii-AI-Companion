@@ -63,10 +63,10 @@ const INTELLIGENCE_STATUSES = {
   archived: "已归档",
 };
 const INTELLIGENCE_KINDS = {
-  company: "公司",
-  person: "联系人",
-  brand: "品牌",
-  market: "市场",
+  company: "交易所 / 平台",
+  person: "资产 / 交易对",
+  brand: "协议 / 工具",
+  market: "市场 / 主题",
 };
 const KNOWLEDGE_TEXT_TYPES = new Set([
   "txt", "md", "json", "csv", "log", "toml", "yaml", "yml", "js", "ts", "html", "css", "rs", "py",
@@ -79,13 +79,13 @@ const EMAIL_PRESETS = {
 };
 
 const viewMeta = {
-  dashboard: ["KARDII WORKBENCH", "今日工作台"],
-  customers: ["RELATIONSHIP MANAGEMENT", "关系库"],
-  projects: ["PROJECT MANAGEMENT", "项目库"],
-  analysis: ["ENTERPRISE BRIEFING", "联合分析"],
-  intelligence: ["BUSINESS INTELLIGENCE", "商业情报"],
-  knowledge: ["KNOWLEDGE & MEMORY", "知识库"],
-  connections: ["EXTERNAL CONNECTIONS", "外部连接"],
+  dashboard: ["NIKO CONSOLE", "Niko 控制台"],
+  customers: ["HIDDEN", "关系库"],
+  projects: ["STRATEGY & EXPERIMENTS", "策略与实验"],
+  analysis: ["HIDDEN", "联合分析"],
+  intelligence: ["MARKET RESEARCH", "市场研究"],
+  knowledge: ["RESEARCH LIBRARY", "研究资料"],
+  connections: ["DATA SOURCES", "外部连接"],
 };
 
 const seedData = {
@@ -1097,19 +1097,19 @@ function renderIntelligence() {
     ].join(" ").toLowerCase();
     return (!query || haystack.includes(query)) && (!status || item.status === status);
   });
-  document.getElementById("intelligenceSummary").textContent = `${items.length} / ${data.intelligence.length} 份背调`;
+  document.getElementById("intelligenceSummary").textContent = `${items.length} / ${data.intelligence.length} 份研究`;
   intelligenceGrid.innerHTML = items.map((item) => `
     <article class="intelligence-card" data-action="edit-intelligence" data-entity-id="${item.id}">
       <div class="intelligence-card-head">
         <div>
           <span class="intelligence-kind">${INTELLIGENCE_KINDS[item.kind] || "公司"}</span>
-          <h3>${escapeHtml(item.subject || "未命名背调")}</h3>
+          <h3>${escapeHtml(item.subject || "未命名研究")}</h3>
         </div>
         <span class="intelligence-status ${escapeHtml(item.status || "planned")}">${INTELLIGENCE_STATUSES[item.status] || "待调查"}</span>
       </div>
-      <p class="intelligence-objective">${escapeHtml(item.objective || "尚未填写本次背调目的")}</p>
+      <p class="intelligence-objective">${escapeHtml(item.objective || "尚未填写本次研究目的")}</p>
       <div class="intelligence-signals">
-        <div class="signal-box"><span>合作机会（AI 判断）</span><strong>${escapeHtml(item.opportunities || "待分析")}</strong></div>
+        <div class="signal-box"><span>研究信号</span><strong>${escapeHtml(item.opportunities || "待分析")}</strong></div>
         <div class="signal-box"><span>风险提示（AI 判断）</span><strong>${escapeHtml(item.risks || "待分析")}</strong></div>
       </div>
       <div class="intelligence-meta">
@@ -3359,7 +3359,7 @@ function researchPanelMarkup(item) {
           </button>
         `).join("")}
       </div>
-    ` : '<p class="research-empty">联网调查完成后，来源会保存在这里；公开事实中的 [1]、[2] 会对应这些网页。</p>'}
+    ` : '<p class="research-empty">联网研究完成后，来源会保存在这里；事实中的 [1]、[2] 会对应这些网页。</p>'}
     <div id="researchError" class="research-error hidden"></div>
   `;
 }
@@ -3582,7 +3582,7 @@ function openModal(type, entityId = "") {
     },
     project: {
       eyebrow: "PROJECT MANAGEMENT",
-      title: project ? project.name : "新建项目",
+      title: project ? project.name : "新建策略实验",
       button: project ? "保存修改" : "保存项目",
       fields: [
         { name: "name", label: "项目名称", required: true, placeholder: "例如：德国分销商开发", value: project?.name || "" },
@@ -3619,24 +3619,24 @@ function openModal(type, entityId = "") {
       ],
     },
     intelligence: {
-      eyebrow: "BUSINESS INTELLIGENCE",
-      title: intelligence ? intelligence.subject : "新建背调",
-      button: intelligence ? "保存背调" : "创建背调",
+      eyebrow: "MARKET RESEARCH",
+      title: intelligence ? intelligence.subject : "新建市场研究",
+      button: intelligence ? "保存研究" : "创建研究",
       fields: [
-        { name: "subject", label: "背调对象", required: true, placeholder: "公司、品牌或联系人名称", value: intelligence?.subject || "" },
+        { name: "subject", label: "研究对象", required: true, placeholder: "市场、交易所、资产、交易对或协议", value: intelligence?.subject || "" },
         { name: "kind", label: "对象类型", type: "select", options: Object.entries(INTELLIGENCE_KINDS), value: intelligence?.kind || "company" },
-        { name: "country", label: "国家 / 地区", placeholder: "例如：美国", value: intelligence?.country || "" },
-        { name: "website", label: "官网 / 主页", type: "url", placeholder: "https://", value: intelligence?.website || "" },
+        { name: "country", label: "市场 / 地区", placeholder: "例如：全球、美国、链上", value: intelligence?.country || "" },
+        { name: "website", label: "主要来源 / 主页", type: "url", placeholder: "https://", value: intelligence?.website || "" },
         { name: "status", label: "调查状态", type: "select", options: Object.entries(INTELLIGENCE_STATUSES), value: intelligence?.status || "planned" },
-        { name: "linkedCustomerId", label: "关联关系", type: "select", options: intelligenceCustomerOptions, value: intelligence?.linkedCustomerId || "" },
-        { name: "linkedProjectId", label: "关联项目", type: "select", options: intelligenceProjectOptions, value: intelligence?.linkedProjectId || "" },
-        { name: "nextAction", label: "下一步行动", placeholder: "例如：核验公司注册信息", value: intelligence?.nextAction || "" },
-        { name: "objective", label: "本次调查目的", type: "textarea", required: true, full: true, placeholder: "例如：判断是否适合作为欧洲分销合作伙伴", value: intelligence?.objective || "" },
-        { name: "facts", label: "公开事实（只写可被来源支持的内容）", type: "textarea", full: true, placeholder: "成立时间、主营业务、团队、渠道、市场等", value: intelligence?.facts || "" },
+        
+        { name: "linkedProjectId", label: "关联策略 / 实验", type: "select", options: intelligenceProjectOptions, value: intelligence?.linkedProjectId || "" },
+        { name: "nextAction", label: "下一步研究", placeholder: "例如：核对资金费率与现货价差数据", value: intelligence?.nextAction || "" },
+        { name: "objective", label: "本次研究目的", type: "textarea", required: true, full: true, placeholder: "例如：验证某个价差、流动性或风险假设", value: intelligence?.objective || "" },
+        { name: "facts", label: "可核验事实 / 数据", type: "textarea", full: true, placeholder: "价格、费率、规则、流动性、链上或公开来源数据", value: intelligence?.facts || "" },
         { name: "sources", label: "公开来源（每行一个链接）", type: "textarea", full: true, placeholder: "https://example.com/company\nhttps://example.com/news", value: intelligence?.sources || "" },
-        { name: "analysis", label: "综合判断（AI / 人工分析）", type: "textarea", full: true, placeholder: "把推断与公开事实分开，不要写成已经核实的事实", value: intelligence?.analysis || "" },
-        { name: "opportunities", label: "合作机会（AI 判断）", type: "textarea", placeholder: "可能的合作切入点", value: intelligence?.opportunities || "" },
-        { name: "risks", label: "风险与待核验项（AI 判断）", type: "textarea", placeholder: "风险、矛盾信息或缺失证据", value: intelligence?.risks || "" },
+        { name: "analysis", label: "研究判断（与事实分开）", type: "textarea", full: true, placeholder: "记录假设、解释和不确定性，不把推断写成事实", value: intelligence?.analysis || "" },
+        { name: "opportunities", label: "值得继续观察的信号", type: "textarea", placeholder: "只记录研究信号，不作为买卖建议", value: intelligence?.opportunities || "" },
+        { name: "risks", label: "风险与待核验项", type: "textarea", placeholder: "流动性、执行、平台、智能合约、数据缺口等", value: intelligence?.risks || "" },
       ],
     },
     knowledge: {
@@ -3647,8 +3647,8 @@ function openModal(type, entityId = "") {
         { name: "title", label: "资料名称", required: true, full: true, value: knowledge?.title || knowledge?.fileName || "" },
         { name: "tags", label: "标签", placeholder: "例如：Target、合同、地址材料", value: knowledge?.tags || "" },
         { name: "status", label: "资料状态", type: "select", options: [["active", "可检索"], ["archived", "已归档"]], value: knowledge?.status || "active" },
-        { name: "linkedCustomerId", label: "关联关系", type: "select", options: knowledgeCustomerOptions, value: knowledge?.linkedCustomerId || "" },
-        { name: "linkedProjectId", label: "关联项目", type: "select", options: knowledgeProjectOptions, value: knowledge?.linkedProjectId || "" },
+        
+        { name: "linkedProjectId", label: "关联策略 / 实验", type: "select", options: knowledgeProjectOptions, value: knowledge?.linkedProjectId || "" },
         { name: "manualNotes", label: "人工备注", type: "textarea", full: true, placeholder: "补充文件用途、版本差异或需要长期记住的内容", value: knowledge?.manualNotes || "" },
       ],
     },
@@ -3772,7 +3772,7 @@ async function runIntelligenceResearch() {
   if (!intelligence) return;
   const values = intelligenceValuesFromForm(new FormData(entityForm));
   if (!values.subject || !values.objective) {
-    showResearchError("请先填写背调对象和调查目的。");
+    showResearchError("请先填写研究对象和研究目的。");
     return;
   }
   const ai = currentResearchAiConfig();
@@ -3815,7 +3815,7 @@ async function runIntelligenceResearch() {
     activeResearchId = "";
     saveData();
     if (shouldRefreshModal) openModal("intelligence", intelligence.id);
-    showToast(`已完成 ${intelligence.subject} 的初步背调，请人工核验来源`);
+    showToast(`已完成 ${intelligence.subject} 的初步研究，请核验来源`);
   } catch (error) {
     intelligence.status = previousStatus;
     intelligence.updatedAt = new Date().toISOString();

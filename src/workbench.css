@@ -966,3 +966,9 @@ button { cursor: pointer; }
   .report-grid { grid-template-columns: 1fr; }
   .knowledge-qa { position: static; }
 }
+
+/* Niko: hide retired personal-work and generic connector surfaces without deleting stable internals. */
+.nav-item[data-view="customers"],.nav-item[data-view="analysis"],#customersView,#enterpriseAnalysisView,
+.capture-toggle,.capture-inbox,.followup-panel,.metric-card.blue,.wecom-connection-card,.mcp-connection-card,
+.future-connections-grid article:last-child,.entity-relations{display:none!important}
+.dashboard-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
