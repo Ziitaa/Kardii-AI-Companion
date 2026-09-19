@@ -2,8 +2,6 @@ mod browser;
 mod mcp;
 mod storage;
 mod voice;
-mod oauth;
-mod wecom;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use image::{DynamicImage, ImageFormat};
 use mailparse::MailHeaderMap;
@@ -27,20 +25,9 @@ use mcp::{
     call_mcp_tool, delete_mcp_token, has_mcp_token, save_mcp_token,
     test_mcp_connection,
 };
-use oauth::{
-    disconnect_oauth_connection, oauth_connection_status, start_oauth_connection,
-    sync_cloud_overview,
-};
 use storage::{
     storage_bootstrap, storage_clear, storage_create_snapshot, storage_remove,
     storage_restore_snapshot, storage_set, storage_status, StorageState,
-};
-use wecom::{
-    cancel_wecom_qr_authorization, delete_wecom_bot_secret, disconnect_wecom_documents,
-    has_wecom_bot_secret, read_wecom_document, reply_wecom_media, reply_wecom_message,
-    save_wecom_bot_secret, search_wecom_documents, start_wecom_bot,
-    start_wecom_qr_authorization, stop_wecom_bot, wecom_authorization_status,
-    wecom_bot_status, wecom_component_status, write_wecom_document, WecomState,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -5918,7 +5905,6 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(StreamState::default())
-        .manage(WecomState::default())
         .setup(|app| {
             let app_data_dir = app
                 .path()
@@ -5984,22 +5970,6 @@ pub fn run() {
             delete_mcp_token,
             test_mcp_connection,
             call_mcp_tool,
-            wecom_component_status,
-            wecom_authorization_status,
-            start_wecom_qr_authorization,
-            cancel_wecom_qr_authorization,
-            disconnect_wecom_documents,
-            search_wecom_documents,
-            read_wecom_document,
-            write_wecom_document,
-            save_wecom_bot_secret,
-            has_wecom_bot_secret,
-            delete_wecom_bot_secret,
-            start_wecom_bot,
-            stop_wecom_bot,
-            wecom_bot_status,
-            reply_wecom_message,
-            reply_wecom_media,
             request_screen_capture_permission,
             list_desktop_windows,
             capture_desktop_window,
@@ -6007,25 +5977,11 @@ pub fn run() {
             save_provider_key,
             has_provider_key,
             delete_provider_key,
-            save_email_password,
-            has_email_password,
-            delete_email_password,
-            test_email_connection,
-            sync_email_inbox,
-            prepare_email_bundle,
-            delete_local_email_cache,
-            clear_email_account_cache,
-            start_oauth_connection,
-            oauth_connection_status,
-            disconnect_oauth_connection,
-            sync_cloud_overview,
             get_codex_status,
             start_codex_login,
             logout_codex,
             reset_codex_conversation,
             stream_ai_message,
-            answer_wecom_message,
-            stream_wecom_message,
             stop_ai_message,
             test_ai_connection,
             run_business_research,
@@ -6034,17 +5990,10 @@ pub fn run() {
             prepare_agent_attachment,
             analyze_agent_images,
             analyze_agent_documents,
-            select_wecom_remote_folder,
-            list_wecom_remote_folders,
-            remove_wecom_remote_folder,
-            search_wecom_remote_files,
-            read_wecom_remote_file,
-            prepare_wecom_remote_outbound_file,
             analyze_imported_knowledge_visual,
             run_web_search,
             analyze_knowledge_document,
             analyze_knowledge_bundle,
-            analyze_enterprise_bundle,
             ask_knowledge_base,
             crawl_public_website,
             list_ollama_models,
@@ -6074,46 +6023,3 @@ pub fn run() {
         .expect("error while running Kardii AI Companion");
 }
 
-#[cfg(test)]
-mod wecom_remote_path_tests {
-    use super::*;
-
-    #[test]
-    fn remote_file_paths_must_stay_relative_and_normal() {
-        for invalid in ["", ".", "../secret.txt", "reports/../secret.txt", "/secret.txt"] {
-            assert!(
-                validated_wecom_remote_relative_path(invalid).is_err(),
-                "accepted unsafe path: {invalid}"
-            );
-        }
-        assert_eq!(
-            validated_wecom_remote_relative_path("reports/2026/summary.md").unwrap(),
-            PathBuf::from("reports/2026/summary.md")
-        );
-    }
-
-    #[test]
-    fn remote_files_use_a_bounded_document_allowlist() {
-        assert!(supported_wecom_remote_file(Path::new("report.pdf")));
-        assert!(supported_wecom_remote_file(Path::new("notes.md")));
-        assert!(!supported_wecom_remote_file(Path::new("installer.exe")));
-        assert!(!supported_wecom_remote_file(Path::new("archive.zip")));
-    }
-
-    #[test]
-    fn codex_images_use_structured_input_without_leaking_base64_into_prompt() {
-        let data_url = "data:image/png;base64,iVBORw0KGgo=";
-        let messages = vec![ChatMessage {
-            role: "user".into(),
-            content: json!([
-                { "type": "text", "text": "请描述图片" },
-                { "type": "image_url", "image_url": { "url": data_url } }
-            ]),
-        }];
-        assert_eq!(codex_latest_image_urls(&messages), vec![data_url.to_string()]);
-        let prompt = codex_prompt(&messages, 700).unwrap();
-        assert!(prompt.contains("请描述图片"));
-        assert!(prompt.contains("图片附件已通过安全图像输入单独提供"));
-        assert!(!prompt.contains(data_url));
-    }
-}
