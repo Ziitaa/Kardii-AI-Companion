@@ -1,0 +1,6 @@
+const {getCurrentWindow,getAllWindows}=window.__TAURI__.window;
+const win=getCurrentWindow(),title=document.getElementById("title"),today=document.getElementById("today"),placeholder=document.getElementById("placeholder"),placeholderTitle=document.getElementById("placeholderTitle");
+document.getElementById("date").textContent=new Intl.DateTimeFormat("zh-CN",{dateStyle:"full"}).format(new Date());
+document.querySelectorAll("nav button").forEach(btn=>btn.addEventListener("click",()=>{document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("active",x===btn));if(btn.dataset.view==="today"){today.classList.add("active");placeholder.classList.remove("active");title.textContent="今天"}else{today.classList.remove("active");placeholder.classList.add("active");const name=btn.textContent.trim();title.textContent=name;placeholderTitle.textContent=name}}));
+async function show(label){const target=(await getAllWindows()).find(x=>x.label===label);if(!target)return;await target.show();await target.unminimize();await target.setFocus()}
+document.getElementById("openChat").onclick=()=>show("chat");document.getElementById("openAgent").onclick=()=>show("agent");document.getElementById("minimize").onclick=()=>win.minimize();document.getElementById("close").onclick=()=>win.hide();
