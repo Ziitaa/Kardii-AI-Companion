@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Kardii Agent</title>
+    <title>Niko Agent</title>
     <link rel="stylesheet" href="./agent.css">
     <link rel="stylesheet" href="./kardii-dialog.css">
   </head>
@@ -12,7 +12,7 @@
       <header class="titlebar" data-tauri-drag-region>
         <div class="brand" data-tauri-drag-region>
           <span class="brand-mark">K</span>
-          <div><strong>Kardii Agent</strong><span>任务隔离，并行执行，后台继续</span></div>
+          <div><strong>Niko Agent</strong><span>任务隔离，并行执行，后台继续</span></div>
         </div>
         <div class="window-actions">
           <span id="parallelStatus" class="parallel-status" aria-live="polite">Agent 0 / 3</span>
@@ -39,7 +39,7 @@
           <section id="createView" class="create-view">
             <div class="create-copy">
               <span class="eyebrow">NEW AGENT TASK</span>
-              <h1>告诉 Kardii 你想完成什么</h1>
+              <h1>告诉 Niko 你想完成什么</h1>
               <p>最多 3 个任务可以各自保留计划与上下文并行执行。涉及文件、剪贴板、浏览器、终端或外部写入时仍会暂停等待确认。</p>
             </div>
             <form id="createTaskForm" class="create-form">
@@ -53,7 +53,7 @@
                 <label for="taskSkillSelect">执行技能</label>
                 <select id="taskSkillSelect"><option value="">自动匹配或不使用</option></select>
               </div>
-              <button id="startTaskButton" class="primary-button" type="submit">交给 Kardii</button>
+              <button id="startTaskButton" class="primary-button" type="submit">交给 Niko</button>
             </form>
           </section>
 
@@ -87,7 +87,7 @@
 
           <section id="automationsView" class="skills-view hidden">
             <div class="skills-heading">
-              <div><span class="eyebrow">AUTOMATIONS</span><h1>后台自动化</h1><p>Kardii 留在托盘时会按时建立并执行任务；只读步骤可在后台继续，需要授权、回答或执行完成时由桌宠提醒。完全退出或电脑关机时不会执行。</p></div>
+              <div><span class="eyebrow">AUTOMATIONS</span><h1>后台自动化</h1><p>Niko 留在托盘时会按时建立并执行任务；只读步骤可在后台继续，需要授权、回答或执行完成时由桌宠提醒。完全退出或电脑关机时不会执行。</p></div>
               <button id="newAutomationButton" class="primary-button" type="button">＋ 新自动化</button>
             </div>
             <div class="skills-layout">
