@@ -956,6 +956,34 @@ pub struct RiskDecision {
     policy: RuntimeRiskPolicy,
 }
 
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TradeIntentRequest {
+    symbol: String,
+    side: String,
+    notional_usdt: f64,
+    #[serde(default)]
+    rationale: String,
+    #[serde(default)]
+    source: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TradeIntentRecord {
+    id: String,
+    symbol: String,
+    side: String,
+    notional_usdt: f64,
+    rationale: String,
+    source: String,
+    status: String,
+    real_execution_allowed: bool,
+    risk_reasons: Vec<String>,
+    created_at: String,
+}
+
 #[derive(Clone)]
 pub struct TradingRuntimeState {
     inner: Arc<RwLock<TradingRuntimeSnapshot>>,
@@ -1072,7 +1100,21 @@ impl TradingRuntimeState {
                checked_at TEXT NOT NULL,
                status TEXT NOT NULL,
                detail TEXT NOT NULL
-             );"
+             );
+             CREATE TABLE IF NOT EXISTS trade_intents (
+               id TEXT PRIMARY KEY NOT NULL,
+               symbol TEXT NOT NULL,
+               side TEXT NOT NULL,
+               notional_usdt REAL NOT NULL,
+               rationale TEXT NOT NULL,
+               source TEXT NOT NULL,
+               status TEXT NOT NULL,
+               real_execution_allowed INTEGER NOT NULL,
+               risk_reasons_json TEXT NOT NULL,
+               created_at TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS trade_intents_created
+               ON trade_intents(created_at DESC);"
         ).map_err(|error| format!("无法初始化 Kardii 交易研究数据库：{error}"))?;
 
         let policy = default_risk_policy();
@@ -1712,6 +1754,107 @@ impl TradingRuntimeState {
         }
     }
 
+
+    pub fn create_trade_intent_record(
+        &self,
+        request: TradeIntentRequest,
+    ) -> Result<TradeIntentRecord, String> {
+        let symbol = request.symbol.trim().to_uppercase();
+        let side = request.side.trim().to_lowercase();
+        if !tradable_usdt_symbol(&symbol) {
+            return Err("Trade Intent 只接受有效的 USDT 现货交易对。".to_string());
+        }
+        if !matches!(side.as_str(), "buy" | "sell") {
+            return Err("Trade Intent 的方向必须是 buy 或 sell。".to_string());
+        }
+        if !request.notional_usdt.is_finite() || request.notional_usdt <= 0.0 {
+            return Err("Trade Intent 的名义金额必须大于 0。".to_string());
+        }
+
+        let risk = self.evaluate_risk(&TradeRiskRequest {
+            symbol: symbol.clone(),
+            side: side.clone(),
+            notional_usdt: request.notional_usdt,
+            leverage: 1.0,
+        })?;
+        let now = Utc::now();
+        let record = TradeIntentRecord {
+            id: format!(
+                "intent-{}-{}-{}",
+                now.timestamp_micros(),
+                symbol,
+                side
+            ),
+            symbol,
+            side,
+            notional_usdt: request.notional_usdt,
+            rationale: request.rationale.trim().chars().take(1000).collect(),
+            source: request.source.trim().chars().take(120).collect(),
+            status: if risk.allowed {
+                "risk-approved-not-executed".to_string()
+            } else {
+                "dry-run-only".to_string()
+            },
+            real_execution_allowed: risk.allowed,
+            risk_reasons: risk.reasons.clone(),
+            created_at: now.to_rfc3339(),
+        };
+
+        self.with_database(|connection| {
+            connection.execute(
+                "INSERT INTO trade_intents(
+                   id, symbol, side, notional_usdt, rationale, source, status,
+                   real_execution_allowed, risk_reasons_json, created_at
+                 ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![
+                    record.id,
+                    record.symbol,
+                    record.side,
+                    record.notional_usdt,
+                    record.rationale,
+                    record.source,
+                    record.status,
+                    record.real_execution_allowed as i64,
+                    serde_json::to_string(&record.risk_reasons)
+                        .map_err(|error| format!("无法序列化 Trade Intent 风险原因：{error}"))?,
+                    record.created_at,
+                ],
+            ).map_err(|error| format!("无法保存 Trade Intent：{error}"))?;
+            Ok(())
+        })?;
+
+        Ok(record)
+    }
+
+    pub fn recent_trade_intents(&self, limit: usize) -> Result<Vec<TradeIntentRecord>, String> {
+        self.with_database(|connection| {
+            let mut statement = connection.prepare(
+                "SELECT id, symbol, side, notional_usdt, rationale, source, status,
+                        real_execution_allowed, risk_reasons_json, created_at
+                 FROM trade_intents
+                 ORDER BY created_at DESC
+                 LIMIT ?1"
+            ).map_err(|error| format!("无法读取 Trade Intent：{error}"))?;
+            let rows = statement.query_map([limit.clamp(1, 50) as i64], |row| {
+                let risk_json: String = row.get(8)?;
+                Ok(TradeIntentRecord {
+                    id: row.get(0)?,
+                    symbol: row.get(1)?,
+                    side: row.get(2)?,
+                    notional_usdt: row.get(3)?,
+                    rationale: row.get(4)?,
+                    source: row.get(5)?,
+                    status: row.get(6)?,
+                    real_execution_allowed: row.get::<_, i64>(7)? != 0,
+                    risk_reasons: serde_json::from_str(&risk_json).unwrap_or_default(),
+                    created_at: row.get(9)?,
+                })
+            }).map_err(|error| format!("无法读取 Trade Intent：{error}"))?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(|error| format!("无法整理 Trade Intent：{error}"))
+        })
+    }
+
     pub fn evaluate_risk(&self, request: &TradeRiskRequest) -> Result<RiskDecision, String> {
         let policy = self.load_risk_policy().unwrap_or_else(|_| default_risk_policy());
         let mut reasons = Vec::new();
@@ -1777,6 +1920,23 @@ pub async fn refresh_trading_runtime(
     state: tauri::State<'_, TradingRuntimeState>,
 ) -> Result<TradingRuntimeSnapshot, String> {
     state.refresh().await
+}
+
+
+#[tauri::command]
+pub fn create_trade_intent(
+    request: TradeIntentRequest,
+    state: tauri::State<'_, TradingRuntimeState>,
+) -> Result<TradeIntentRecord, String> {
+    state.create_trade_intent_record(request)
+}
+
+#[tauri::command]
+pub fn list_trade_intents(
+    limit: Option<usize>,
+    state: tauri::State<'_, TradingRuntimeState>,
+) -> Result<Vec<TradeIntentRecord>, String> {
+    state.recent_trade_intents(limit.unwrap_or(10))
 }
 
 #[tauri::command]
