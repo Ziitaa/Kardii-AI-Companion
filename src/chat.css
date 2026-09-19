@@ -13,7 +13,7 @@ html, body {
   background: transparent;
 }
 
-body { padding: 8px; }
+body { padding: 0; }
 
 .chat-card {
   position: relative;
@@ -24,7 +24,7 @@ body { padding: 8px; }
   height: 100%;
   overflow: hidden;
   color: #4d3f45;
-  background: rgba(255, 250, 252, 0.97);
+  background: #fffafd;
   border: 1px solid rgba(225, 166, 189, 0.72);
   border-radius: 22px;
   box-shadow: 0 16px 42px rgba(87, 56, 69, 0.25);
@@ -1951,4 +1951,40 @@ textarea {
   .header-actions .icon-button:focus-visible,
   .header-actions .icon-button.is-active { transform: none; }
   .chat-quick-start button:hover { transform: none; }
+}
+
+/* Niko v2.2 first-run simplification */
+.chat-sessions-button,
+.workbench-button,
+.tools-button,
+.profile-button,
+.help-button {
+  display: none !important;
+}
+.header-actions {
+  flex: 0 0 auto;
+  gap: 2px;
+}
+.chat-identity {
+  max-width: none;
+  flex: 1 1 auto;
+}
+header {
+  padding: 10px 11px 9px;
+  min-width: 0;
+}
+.header-actions .icon-button {
+  flex-basis: 28px;
+  width: 28px;
+  height: 28px;
+}
+.close-chat-button {
+  margin-right: 1px;
+}
+.chat-card {
+  border-radius: 16px;
+  box-shadow: 0 12px 32px rgba(87, 56, 69, 0.18);
+}
+.messages {
+  background: #fffafd;
 }
