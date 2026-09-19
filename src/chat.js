@@ -3007,8 +3007,7 @@ function showSettings() {
   void refreshVoiceModelStatus();
   void refreshStorageStatus();
   setTimeout(() => {
-    if (aiSettings.provider === "ollama") ollamaBaseUrlInput.focus();
-    else if (aiSettings.provider === "codex") codexLoginButton.focus();
+    if (aiSettings.provider === "codex") codexLoginButton.focus();
     else apiKeyInput.focus();
   }, 0);
 }
@@ -3029,7 +3028,7 @@ function setSettingsBusy(busy) {
     codexLoginButton,
     codexLogoutButton,
     codexTestButton,
-  ].forEach((button) => {
+  ].filter(Boolean).forEach((button) => {
     button.disabled = busy;
   });
 }
@@ -3088,11 +3087,11 @@ function renderProviderSettings() {
   const provider = aiSettings.provider;
   providerSelect.value = provider;
   providerDescription.textContent = AI_PROVIDERS[provider].description;
-  ollamaSettings.classList.toggle("hidden", provider !== "ollama");
-  ollamaStatusRow.classList.toggle("hidden", provider !== "ollama");
+  ollamaSettings?.classList.toggle("hidden", provider !== "ollama");
+  ollamaStatusRow?.classList.toggle("hidden", provider !== "ollama");
   codexStatusRow.classList.toggle("hidden", provider !== "codex");
   apiKeySection.classList.toggle("hidden", provider === "ollama" || provider === "codex");
-  ollamaBaseUrlInput.value = aiSettings.ollamaBaseUrl;
+  if (ollamaBaseUrlInput) ollamaBaseUrlInput.value = aiSettings.ollamaBaseUrl;
   if (provider !== "ollama" && provider !== "codex") {
     const label = AI_PROVIDERS[provider].name;
     apiKeyLabel.textContent = `${label} API Key`;
@@ -4084,20 +4083,20 @@ aiModelSelect.addEventListener("change", () => {
   updateActiveModelBadge();
 });
 
-ollamaBaseUrlInput.addEventListener("change", async () => {
+ollamaBaseUrlInput?.addEventListener("change", async () => {
   aiSettings.ollamaBaseUrl = ollamaBaseUrlInput.value.trim().slice(0, 200);
   saveAiSettings();
   providerReady = false;
   await refreshOllamaModels(false);
 });
 
-refreshOllamaButton.addEventListener("click", async () => {
+refreshOllamaButton?.addEventListener("click", async () => {
   aiSettings.ollamaBaseUrl = ollamaBaseUrlInput.value.trim().slice(0, 200);
   saveAiSettings();
   await refreshOllamaModels();
 });
 
-testOllamaButton.addEventListener("click", async () => {
+testOllamaButton?.addEventListener("click", async () => {
   const ai = currentAiConfig();
   if (!ai.model) {
     setOllamaStatus("请先刷新并选择一个本机模型。", "error");
