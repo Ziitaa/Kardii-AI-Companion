@@ -36,7 +36,7 @@ use storage::{
     storage_bootstrap, storage_clear, storage_create_snapshot, storage_remove,
     storage_restore_snapshot, storage_set, storage_status, StorageState,
 };
-use trading::{get_market_snapshot, scan_market_opportunities};
+use trading::{get_market_snapshot, get_symbol_research, scan_market_opportunities};
 use wecom::{
     cancel_wecom_qr_authorization, delete_wecom_bot_secret, disconnect_wecom_documents,
     has_wecom_bot_secret, read_wecom_document, reply_wecom_media, reply_wecom_message,
@@ -6032,6 +6032,7 @@ pub fn run() {
             test_ai_connection,
             run_business_research,
             get_market_snapshot,
+            get_symbol_research,
             scan_market_opportunities,
             create_agent_plan,
             decide_agent_action,

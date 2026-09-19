@@ -1,6 +1,12 @@
 use chrono::Utc;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::time::Duration;
+
+const SPOT_BASES: &[&str] = &[
+    "https://api.binance.com",
+    "https://data-api.binance.vision",
+    "https://api1.binance.com",
+];
 
 const SPOT_24H_ENDPOINTS: &[&str] = &[
     "https://api.binance.com/api/v3/ticker/24hr",
@@ -62,6 +68,158 @@ pub struct OpportunityScan {
     fetched_at: String,
     methodology: String,
     candidates: Vec<OpportunityCandidate>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct BinanceDepth {
+    bids: Vec<[String; 2]>,
+    asks: Vec<[String; 2]>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SymbolResearch {
+    symbol: String,
+    fetched_at: String,
+    sources: Vec<String>,
+    last_price: f64,
+    spread_bps: f64,
+    bid_depth_notional: f64,
+    ask_depth_notional: f64,
+    order_book_imbalance: f64,
+    return_1h_percent: f64,
+    return_4h_percent: f64,
+    realized_volatility_5m_percent: f64,
+    volume_acceleration: f64,
+    evidence: Vec<String>,
+    limitations: Vec<String>,
+}
+
+async fn fetch_public_json<T: DeserializeOwned>(
+    client: &reqwest::Client,
+    path_and_query: &str,
+) -> Result<(String, T), String> {
+    let mut errors = Vec::new();
+    for base in SPOT_BASES {
+        let url = format!("{base}{path_and_query}");
+        match client.get(&url).send().await {
+            Ok(response) if response.status().is_success() => {
+                match response.json::<T>().await {
+                    Ok(value) => return Ok((url, value)),
+                    Err(error) => errors.push(format!("{url}: 数据解析失败 {error}")),
+                }
+            }
+            Ok(response) => errors.push(format!("{url}: HTTP {}", response.status())),
+            Err(error) => errors.push(format!("{url}: {error}")),
+        }
+    }
+    Err(format!("公开市场数据暂不可用：{}", errors.join("；")))
+}
+
+fn percent_change(from: f64, to: f64) -> f64 {
+    if from <= 0.0 { 0.0 } else { ((to - from) / from) * 100.0 }
+}
+
+fn stddev(values: &[f64]) -> f64 {
+    if values.len() < 2 { return 0.0; }
+    let mean = values.iter().sum::<f64>() / values.len() as f64;
+    let variance = values.iter().map(|value| (value - mean).powi(2)).sum::<f64>() / values.len() as f64;
+    variance.sqrt()
+}
+
+fn depth_notional(levels: &[[String; 2]]) -> f64 {
+    levels.iter().map(|level| parse_number(&level[0]) * parse_number(&level[1])).sum()
+}
+
+fn kline_number(row: &[serde_json::Value], index: usize) -> f64 {
+    row.get(index)
+        .and_then(|value| value.as_str())
+        .and_then(|value| value.parse::<f64>().ok())
+        .unwrap_or(0.0)
+}
+
+#[tauri::command]
+pub async fn get_symbol_research(symbol: String) -> Result<SymbolResearch, String> {
+    let symbol = symbol.trim().to_uppercase();
+    if !tradable_usdt_symbol(&symbol) || symbol.len() > 24 {
+        return Err("只支持有效的 USDT 现货交易对。".to_string());
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(12))
+        .build()
+        .map_err(|error| format!("无法初始化市场研究客户端：{error}"))?;
+
+    let depth_path = format!("/api/v3/depth?symbol={symbol}&limit=100");
+    let klines_path = format!("/api/v3/klines?symbol={symbol}&interval=5m&limit=120");
+    let ticker_path = format!("/api/v3/ticker/24hr?symbol={symbol}");
+
+    let ((depth_source, depth), (klines_source, klines), (ticker_source, ticker)) =
+        tokio::try_join!(
+            fetch_public_json::<BinanceDepth>(&client, &depth_path),
+            fetch_public_json::<Vec<Vec<serde_json::Value>>>(&client, &klines_path),
+            fetch_public_json::<BinanceTicker>(&client, &ticker_path),
+        )?;
+
+    if klines.len() < 49 {
+        return Err("K 线样本不足，暂不生成研究摘要。".to_string());
+    }
+
+    let best_bid = depth.bids.first().map(|x| parse_number(&x[0])).unwrap_or(0.0);
+    let best_ask = depth.asks.first().map(|x| parse_number(&x[0])).unwrap_or(0.0);
+    let mid = if best_bid > 0.0 && best_ask > 0.0 { (best_bid + best_ask) / 2.0 } else { 0.0 };
+    let spread_bps = if mid > 0.0 { ((best_ask - best_bid) / mid) * 10_000.0 } else { 0.0 };
+
+    let bid_depth = depth_notional(&depth.bids);
+    let ask_depth = depth_notional(&depth.asks);
+    let depth_total = bid_depth + ask_depth;
+    let imbalance = if depth_total > 0.0 { (bid_depth - ask_depth) / depth_total } else { 0.0 };
+
+    let closes: Vec<f64> = klines.iter().map(|row| kline_number(row, 4)).filter(|x| *x > 0.0).collect();
+    let volumes: Vec<f64> = klines.iter().map(|row| kline_number(row, 5)).collect();
+    let last_price = closes.last().copied().unwrap_or_else(|| parse_number(&ticker.last_price));
+
+    let close_1h = closes.get(closes.len().saturating_sub(13)).copied().unwrap_or(last_price);
+    let close_4h = closes.get(closes.len().saturating_sub(49)).copied().unwrap_or(last_price);
+    let return_1h = percent_change(close_1h, last_price);
+    let return_4h = percent_change(close_4h, last_price);
+
+    let log_returns: Vec<f64> = closes.windows(2).filter_map(|pair| {
+        if pair[0] > 0.0 && pair[1] > 0.0 { Some((pair[1] / pair[0]).ln() * 100.0) } else { None }
+    }).collect();
+    let realized_volatility = stddev(&log_returns);
+
+    let recent_volume: f64 = volumes.iter().rev().take(12).sum();
+    let previous_volume: f64 = volumes.iter().rev().skip(12).take(12).sum();
+    let volume_acceleration = if previous_volume > 0.0 { recent_volume / previous_volume } else { 0.0 };
+
+    let mut evidence = Vec::new();
+    evidence.push(format!("盘口价差约 {:.2} bps。", spread_bps));
+    evidence.push(format!("前 100 档买卖盘不平衡值 {:.3}（正值偏买盘，负值偏卖盘）。", imbalance));
+    evidence.push(format!("近 1 小时价格变化 {:.2}%，近 4 小时 {:.2}%。", return_1h, return_4h));
+    evidence.push(format!("5 分钟收益波动率约 {:.3}%，近 1 小时成交量相对前 1 小时为 {:.2}x。", realized_volatility, volume_acceleration));
+    evidence.push(format!("24h 成交额约 {:.0} USDT，成交笔数 {}。", parse_number(&ticker.quote_volume), ticker.count));
+
+    Ok(SymbolResearch {
+        symbol,
+        fetched_at: Utc::now().to_rfc3339(),
+        sources: vec![ticker_source, depth_source, klines_source],
+        last_price,
+        spread_bps: (spread_bps * 100.0).round() / 100.0,
+        bid_depth_notional: bid_depth,
+        ask_depth_notional: ask_depth,
+        order_book_imbalance: (imbalance * 1000.0).round() / 1000.0,
+        return_1h_percent: (return_1h * 100.0).round() / 100.0,
+        return_4h_percent: (return_4h * 100.0).round() / 100.0,
+        realized_volatility_5m_percent: (realized_volatility * 1000.0).round() / 1000.0,
+        volume_acceleration: (volume_acceleration * 100.0).round() / 100.0,
+        evidence,
+        limitations: vec![
+            "这些是公开现货市场数据，不包含账户、持仓或任何私人数据。".to_string(),
+            "盘口是抓取瞬间的快照，不能单独证明未来方向。".to_string(),
+            "该研究层只生成可复核证据，不产生买卖指令。".to_string(),
+        ],
+    })
 }
 
 fn parse_number(value: &str) -> f64 {
@@ -261,5 +419,19 @@ mod tests {
         let candidate = candidate_from(&sample("ABCUSDT", "9", "120000000", 25000)).unwrap();
         assert!(candidate.attention_score > 0.0);
         assert_eq!(candidate.signal, "high-momentum");
+    }
+
+    #[test]
+    fn percentage_change_is_deterministic() {
+        assert_eq!((percent_change(100.0, 105.0) * 100.0).round() / 100.0, 5.0);
+    }
+
+    #[test]
+    fn order_book_notional_uses_price_times_quantity() {
+        let levels = vec![
+            ["100".to_string(), "2".to_string()],
+            ["99".to_string(), "1".to_string()],
+        ];
+        assert_eq!(depth_notional(&levels), 299.0);
     }
 }
