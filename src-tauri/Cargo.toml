@@ -43,6 +43,7 @@ native-tls = "0.2"
 chrono = "0.4"
 rand = "0.8"
 sha2 = "0.10"
+hmac = "0.12"
 rusqlite = { version = "0.40.2", features = ["bundled", "backup"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]

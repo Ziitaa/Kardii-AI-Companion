@@ -36,7 +36,7 @@ use storage::{
     storage_bootstrap, storage_clear, storage_create_snapshot, storage_remove,
     storage_restore_snapshot, storage_set, storage_status, StorageState,
 };
-use trading::{evaluate_trade_risk, get_market_snapshot, get_symbol_research, get_trading_runtime_status, refresh_trading_runtime, scan_market_opportunities, TradingRuntimeState};
+use trading::{delete_binance_readonly_credentials, evaluate_trade_risk, get_binance_readonly_status, get_market_snapshot, get_symbol_research, get_trading_runtime_status, refresh_trading_runtime, save_binance_readonly_credentials, scan_market_opportunities, TradingRuntimeState};
 use wecom::{
     cancel_wecom_qr_authorization, delete_wecom_bot_secret, disconnect_wecom_documents,
     has_wecom_bot_secret, read_wecom_document, reply_wecom_media, reply_wecom_message,
@@ -6044,6 +6044,9 @@ pub fn run() {
             test_ai_connection,
             run_business_research,
             evaluate_trade_risk,
+            save_binance_readonly_credentials,
+            get_binance_readonly_status,
+            delete_binance_readonly_credentials,
             get_market_snapshot,
             get_symbol_research,
             get_trading_runtime_status,

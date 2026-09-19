@@ -1,6 +1,8 @@
 use chrono::Utc;
+use hmac::{Hmac, Mac};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use sha2::Sha256;
 use std::{path::Path, sync::{Arc, Mutex}, time::Duration};
 use tokio::sync::RwLock;
 
@@ -15,6 +17,302 @@ const SPOT_24H_ENDPOINTS: &[&str] = &[
     "https://data-api.binance.vision/api/v3/ticker/24hr",
     "https://api1.binance.com/api/v3/ticker/24hr",
 ];
+
+
+const BINANCE_PRIVATE_BASES: &[&str] = &[
+    "https://api.binance.com",
+    "https://api1.binance.com",
+];
+const TRADING_KEYRING_SERVICE: &str = "Kardii Trading Runtime";
+const BINANCE_API_KEY_ACCOUNT: &str = "binance-readonly-api-key";
+const BINANCE_API_SECRET_ACCOUNT: &str = "binance-readonly-api-secret";
+
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct BinanceApiRestrictions {
+    #[serde(default)]
+    ip_restrict: bool,
+    #[serde(default)]
+    enable_reading: bool,
+    #[serde(default)]
+    enable_withdrawals: bool,
+    #[serde(default)]
+    enable_internal_transfer: bool,
+    #[serde(default)]
+    enable_margin: bool,
+    #[serde(default)]
+    enable_futures: bool,
+    #[serde(default)]
+    enable_vanilla_options: bool,
+    #[serde(default)]
+    enable_spot_and_margin_trading: bool,
+    #[serde(default)]
+    enable_portfolio_margin_trading: bool,
+    #[serde(default)]
+    enable_fix_api_trade: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BinanceBalance {
+    asset: String,
+    free: String,
+    locked: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BinanceAccountInfo {
+    #[serde(default)]
+    can_trade: bool,
+    #[serde(default)]
+    can_withdraw: bool,
+    #[serde(default)]
+    can_deposit: bool,
+    #[serde(default)]
+    account_type: String,
+    #[serde(default)]
+    update_time: i64,
+    #[serde(default)]
+    balances: Vec<BinanceBalance>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BinanceReadOnlyStatus {
+    configured: bool,
+    verified: bool,
+    safe_read_only: bool,
+    account_type: String,
+    can_deposit: bool,
+    nonzero_balances: Vec<BinanceBalance>,
+    permissions: Option<BinanceApiRestrictions>,
+    checked_at: String,
+    error: String,
+}
+
+fn hex_lower(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn sign_binance_query(secret: &str, query: &str) -> Result<String, String> {
+    let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes())
+        .map_err(|_| "Binance API Secret 无效。".to_string())?;
+    mac.update(query.as_bytes());
+    Ok(hex_lower(&mac.finalize().into_bytes()))
+}
+
+async fn binance_signed_json<T: DeserializeOwned>(
+    api_key: &str,
+    api_secret: &str,
+    path: &str,
+    extra_query: &str,
+) -> Result<T, String> {
+    let timestamp = Utc::now().timestamp_millis();
+    let prefix = if extra_query.trim().is_empty() {
+        String::new()
+    } else {
+        format!("{}&", extra_query.trim().trim_start_matches('?'))
+    };
+    let query = format!("{prefix}recvWindow=5000&timestamp={timestamp}");
+    let signature = sign_binance_query(api_secret, &query)?;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(12))
+        .build()
+        .map_err(|error| format!("无法初始化 Binance 账户客户端：{error}"))?;
+    let mut errors = Vec::new();
+
+    for base in BINANCE_PRIVATE_BASES {
+        let url = format!("{base}{path}?{query}&signature={signature}");
+        match client
+            .get(&url)
+            .header("X-MBX-APIKEY", api_key)
+            .send()
+            .await
+        {
+            Ok(response) if response.status().is_success() => {
+                return response
+                    .json::<T>()
+                    .await
+                    .map_err(|error| format!("Binance 账户数据解析失败：{error}"));
+            }
+            Ok(response) => {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                errors.push(format!("{base}: HTTP {status} {}", body.chars().take(220).collect::<String>()));
+            }
+            Err(error) => errors.push(format!("{base}: {error}")),
+        }
+    }
+    Err(format!("Binance 账户读取失败：{}", errors.join("；")))
+}
+
+fn readonly_permissions_are_safe(value: &BinanceApiRestrictions) -> bool {
+    value.enable_reading
+        && !value.enable_withdrawals
+        && !value.enable_spot_and_margin_trading
+        && !value.enable_margin
+        && !value.enable_futures
+        && !value.enable_vanilla_options
+        && !value.enable_portfolio_margin_trading
+        && !value.enable_fix_api_trade
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn save_binance_credentials_to_keyring(api_key: &str, api_secret: &str) -> Result<(), String> {
+    keyring::Entry::new(TRADING_KEYRING_SERVICE, BINANCE_API_KEY_ACCOUNT)
+        .map_err(|error| format!("无法打开系统凭据库：{error}"))?
+        .set_password(api_key)
+        .map_err(|error| format!("无法保存 Binance API Key：{error}"))?;
+    keyring::Entry::new(TRADING_KEYRING_SERVICE, BINANCE_API_SECRET_ACCOUNT)
+        .map_err(|error| format!("无法打开系统凭据库：{error}"))?
+        .set_password(api_secret)
+        .map_err(|error| format!("无法保存 Binance API Secret：{error}"))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn save_binance_credentials_to_keyring(_api_key: &str, _api_secret: &str) -> Result<(), String> {
+    Err("当前平台暂不支持系统凭据库。".to_string())
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn load_binance_credentials_from_keyring() -> Result<Option<(String, String)>, String> {
+    let key_entry = keyring::Entry::new(TRADING_KEYRING_SERVICE, BINANCE_API_KEY_ACCOUNT)
+        .map_err(|error| format!("无法打开系统凭据库：{error}"))?;
+    let secret_entry = keyring::Entry::new(TRADING_KEYRING_SERVICE, BINANCE_API_SECRET_ACCOUNT)
+        .map_err(|error| format!("无法打开系统凭据库：{error}"))?;
+    let api_key = match key_entry.get_password() {
+        Ok(value) => value,
+        Err(keyring::Error::NoEntry) => return Ok(None),
+        Err(error) => return Err(format!("无法读取 Binance API Key：{error}")),
+    };
+    let api_secret = match secret_entry.get_password() {
+        Ok(value) => value,
+        Err(keyring::Error::NoEntry) => return Ok(None),
+        Err(error) => return Err(format!("无法读取 Binance API Secret：{error}")),
+    };
+    Ok(Some((api_key, api_secret)))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn load_binance_credentials_from_keyring() -> Result<Option<(String, String)>, String> {
+    Ok(None)
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn delete_binance_credentials_from_keyring() -> Result<(), String> {
+    for account in [BINANCE_API_KEY_ACCOUNT, BINANCE_API_SECRET_ACCOUNT] {
+        let entry = keyring::Entry::new(TRADING_KEYRING_SERVICE, account)
+            .map_err(|error| format!("无法打开系统凭据库：{error}"))?;
+        match entry.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => {}
+            Err(error) => return Err(format!("无法删除 Binance 只读凭据：{error}")),
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn delete_binance_credentials_from_keyring() -> Result<(), String> {
+    Ok(())
+}
+
+async fn inspect_binance_readonly(
+    api_key: &str,
+    api_secret: &str,
+) -> Result<BinanceReadOnlyStatus, String> {
+    let permissions = binance_signed_json::<BinanceApiRestrictions>(
+        api_key,
+        api_secret,
+        "/sapi/v1/account/apiRestrictions",
+        "",
+    )
+    .await?;
+    let safe = readonly_permissions_are_safe(&permissions);
+    if !safe {
+        return Ok(BinanceReadOnlyStatus {
+            configured: true,
+            verified: true,
+            safe_read_only: false,
+            account_type: String::new(),
+            can_deposit: false,
+            nonzero_balances: Vec::new(),
+            permissions: Some(permissions),
+            checked_at: Utc::now().to_rfc3339(),
+            error: "这个 API Key 不是严格只读权限。Kardii 不会保存带交易、提现、保证金、期货、期权或组合保证金权限的 Key。".to_string(),
+        });
+    }
+
+    let account = binance_signed_json::<BinanceAccountInfo>(
+        api_key,
+        api_secret,
+        "/api/v3/account",
+        "omitZeroBalances=true",
+    )
+    .await?;
+    let balances = account
+        .balances
+        .into_iter()
+        .filter(|item| parse_number(&item.free) != 0.0 || parse_number(&item.locked) != 0.0)
+        .collect::<Vec<_>>();
+
+    Ok(BinanceReadOnlyStatus {
+        configured: true,
+        verified: true,
+        safe_read_only: !account.can_trade && !account.can_withdraw,
+        account_type: account.account_type,
+        can_deposit: account.can_deposit,
+        nonzero_balances: balances,
+        permissions: Some(permissions),
+        checked_at: Utc::now().to_rfc3339(),
+        error: if account.can_trade || account.can_withdraw {
+            "账户返回的权限状态仍包含交易或提现能力，因此 Kardii 将其视为不安全。".to_string()
+        } else {
+            String::new()
+        },
+    })
+}
+
+#[tauri::command]
+pub async fn save_binance_readonly_credentials(
+    api_key: String,
+    api_secret: String,
+) -> Result<BinanceReadOnlyStatus, String> {
+    let api_key = api_key.trim();
+    let api_secret = api_secret.trim();
+    if api_key.len() < 16 || api_key.len() > 200 || api_secret.len() < 16 || api_secret.len() > 200 {
+        return Err("Binance API Key / Secret 格式不完整。".to_string());
+    }
+    let status = inspect_binance_readonly(api_key, api_secret).await?;
+    if !status.safe_read_only || !status.error.is_empty() {
+        return Err(status.error);
+    }
+    save_binance_credentials_to_keyring(api_key, api_secret)?;
+    Ok(status)
+}
+
+#[tauri::command]
+pub async fn get_binance_readonly_status() -> Result<BinanceReadOnlyStatus, String> {
+    let Some((api_key, api_secret)) = load_binance_credentials_from_keyring()? else {
+        return Ok(BinanceReadOnlyStatus {
+            configured: false,
+            verified: false,
+            safe_read_only: false,
+            account_type: String::new(),
+            can_deposit: false,
+            nonzero_balances: Vec::new(),
+            permissions: None,
+            checked_at: Utc::now().to_rfc3339(),
+            error: String::new(),
+        });
+    };
+    inspect_binance_readonly(&api_key, &api_secret).await
+}
+
+#[tauri::command]
+pub fn delete_binance_readonly_credentials() -> Result<(), String> {
+    delete_binance_credentials_from_keyring()
+}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
