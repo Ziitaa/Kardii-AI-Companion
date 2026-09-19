@@ -314,6 +314,49 @@ pub fn delete_binance_readonly_credentials() -> Result<(), String> {
     delete_binance_credentials_from_keyring()
 }
 
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BinanceDepositRecord {
+    #[serde(default)]
+    id: String,
+    #[serde(default)]
+    amount: String,
+    #[serde(default)]
+    coin: String,
+    #[serde(default)]
+    network: String,
+    #[serde(default)]
+    status: i64,
+    #[serde(default)]
+    tx_id: String,
+    #[serde(default)]
+    insert_time: i64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BinanceWithdrawRecord {
+    #[serde(default)]
+    id: String,
+    #[serde(default)]
+    amount: String,
+    #[serde(default)]
+    transaction_fee: String,
+    #[serde(default)]
+    coin: String,
+    #[serde(default)]
+    network: String,
+    #[serde(default)]
+    status: i64,
+    #[serde(default)]
+    tx_id: String,
+    #[serde(default)]
+    apply_time: String,
+    #[serde(default)]
+    withdraw_order_id: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct BinanceTicker {
@@ -1094,6 +1137,145 @@ impl TradingRuntimeState {
         })
     }
 
+
+    async fn sync_binance_cash_events(
+        &self,
+        api_key: &str,
+        api_secret: &str,
+    ) -> Result<(usize, usize, usize), String> {
+        let (deposits, withdrawals) = tokio::try_join!(
+            binance_signed_json::<Vec<BinanceDepositRecord>>(
+                api_key,
+                api_secret,
+                "/sapi/v1/capital/deposit/hisrec",
+                "",
+            ),
+            binance_signed_json::<Vec<BinanceWithdrawRecord>>(
+                api_key,
+                api_secret,
+                "/sapi/v1/capital/withdraw/history",
+                "",
+            ),
+        )?;
+
+        self.with_database_mut(|connection| {
+            let transaction = connection
+                .transaction()
+                .map_err(|error| format!("无法开始同步 Binance 真实资金事件：{error}"))?;
+            let created_at = Utc::now().to_rfc3339();
+            let mut inserted_deposits = 0usize;
+            let mut inserted_withdrawals = 0usize;
+            let mut inserted_fees = 0usize;
+
+            for item in deposits.iter().filter(|item| item.status == 1) {
+                let external_id = if item.id.trim().is_empty() {
+                    item.tx_id.trim().to_string()
+                } else {
+                    item.id.trim().to_string()
+                };
+                if external_id.is_empty() || item.coin.trim().is_empty() {
+                    continue;
+                }
+                let raw = serde_json::json!({
+                    "id": item.id,
+                    "txId": item.tx_id,
+                    "network": item.network,
+                    "status": item.status
+                }).to_string();
+                let changed = transaction.execute(
+                    "INSERT OR IGNORE INTO real_ledger_events(
+                       event_key, venue, event_type, asset, amount, occurred_at,
+                       external_id, source, raw_json, created_at
+                     ) VALUES(?1, 'binance', 'deposit', ?2, ?3, ?4, ?5, 'binance-deposit-history', ?6, ?7)",
+                    params![
+                        format!("binance:deposit:{external_id}"),
+                        item.coin.trim().to_uppercase(),
+                        parse_number(&item.amount),
+                        item.insert_time.to_string(),
+                        external_id,
+                        raw,
+                        created_at,
+                    ],
+                ).map_err(|error| format!("无法写入 Binance 充值事件：{error}"))?;
+                inserted_deposits += changed;
+            }
+
+            for item in withdrawals.iter().filter(|item| item.status == 6) {
+                let external_id = if item.id.trim().is_empty() {
+                    item.tx_id.trim().to_string()
+                } else {
+                    item.id.trim().to_string()
+                };
+                if external_id.is_empty() || item.coin.trim().is_empty() {
+                    continue;
+                }
+                let occurred_at = chrono::NaiveDateTime::parse_from_str(
+                    item.apply_time.trim(),
+                    "%Y-%m-%d %H:%M:%S",
+                ).map(|value| value.and_utc().timestamp_millis().to_string())
+                 .unwrap_or_else(|_| item.apply_time.clone());
+                let raw = serde_json::json!({
+                    "id": item.id,
+                    "txId": item.tx_id,
+                    "network": item.network,
+                    "status": item.status,
+                    "withdrawOrderId": item.withdraw_order_id
+                }).to_string();
+
+                let changed = transaction.execute(
+                    "INSERT OR IGNORE INTO real_ledger_events(
+                       event_key, venue, event_type, asset, amount, occurred_at,
+                       external_id, source, raw_json, created_at
+                     ) VALUES(?1, 'binance', 'withdrawal', ?2, ?3, ?4, ?5, 'binance-withdraw-history', ?6, ?7)",
+                    params![
+                        format!("binance:withdrawal:{external_id}"),
+                        item.coin.trim().to_uppercase(),
+                        -parse_number(&item.amount).abs(),
+                        occurred_at,
+                        external_id,
+                        raw,
+                        created_at,
+                    ],
+                ).map_err(|error| format!("无法写入 Binance 提现事件：{error}"))?;
+                inserted_withdrawals += changed;
+
+                let fee = parse_number(&item.transaction_fee).abs();
+                if fee > 0.0 {
+                    let changed = transaction.execute(
+                        "INSERT OR IGNORE INTO real_ledger_events(
+                           event_key, venue, event_type, asset, amount, occurred_at,
+                           external_id, source, raw_json, created_at
+                         ) VALUES(?1, 'binance', 'fee', ?2, ?3, ?4, ?5, 'binance-withdraw-history', ?6, ?7)",
+                        params![
+                            format!("binance:withdrawal-fee:{external_id}"),
+                            item.coin.trim().to_uppercase(),
+                            -fee,
+                            item.apply_time.clone(),
+                            external_id,
+                            raw,
+                            created_at,
+                        ],
+                    ).map_err(|error| format!("无法写入 Binance 提现手续费：{error}"))?;
+                    inserted_fees += changed;
+                }
+            }
+
+            transaction.execute(
+                "UPDATE ledger_reconciliation
+                 SET checked_at = ?1, status = 'partial', detail = ?2
+                 WHERE venue = 'binance'",
+                params![
+                    Utc::now().to_rfc3339(),
+                    "已同步真实余额快照、成功充值、已完成提现和提现手续费；现货成交与成交手续费仍待按交易对增量同步。"
+                ],
+            ).map_err(|error| format!("无法更新 Binance 对账阶段：{error}"))?;
+
+            transaction.commit()
+                .map_err(|error| format!("无法提交 Binance 真实资金事件：{error}"))?;
+            Ok((inserted_deposits, inserted_withdrawals, inserted_fees))
+        })
+    }
+
     pub async fn sync_binance_readonly_snapshot(&self) -> Result<RealLedgerStatus, String> {
         let Some((api_key, api_secret)) = load_binance_credentials_from_keyring()? else {
             return self.load_real_ledger_status();
@@ -1103,6 +1285,7 @@ impl TradingRuntimeState {
             return Err(if status.error.is_empty() { "Binance API Key 不满足只读安全要求。".to_string() } else { status.error });
         }
         self.persist_binance_balance_snapshot(&status)?;
+        let _ = self.sync_binance_cash_events(&api_key, &api_secret).await?;
         self.load_real_ledger_status()
     }
 
