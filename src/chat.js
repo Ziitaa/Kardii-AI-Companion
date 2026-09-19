@@ -986,7 +986,7 @@ function loadAiSettings() {
   try {
     const saved = JSON.parse(localStorage.getItem(AI_SETTINGS_KEY) || "{}");
     return {
-      provider: Object.hasOwn(AI_PROVIDERS, saved.provider) ? saved.provider : "deepseek",
+      provider: "codex",
       geminiModel: AI_PROVIDERS.gemini.models.some((item) => item.value === saved.geminiModel)
         ? saved.geminiModel
         : "gemini-3.1-flash-lite",
@@ -997,7 +997,7 @@ function loadAiSettings() {
     };
   } catch {
     return {
-      provider: "deepseek",
+      provider: "codex",
       geminiModel: "gemini-3.1-flash-lite",
       ollamaBaseUrl: "http://127.0.0.1:11434",
       ollamaModel: "",
