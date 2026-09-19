@@ -2227,7 +2227,7 @@ function addLocalExchange(userText, replyText) {
 
 async function handleTradingRuntimeQuestion(text) {
   const question=String(text||"").trim();
-  const looksRelevant=/(?:现在在(?:干嘛|做什么)|最近在(?:干嘛|做什么|研究什么)|运行状态|市场扫描|机会扫描|候选|盯着什么|研究了什么|赚了多少|赚多少钱|真实账本|账本怎么样)/.test(question);
+  const looksRelevant=/(?:现在在(?:干嘛|做什么)|最近在(?:干嘛|做什么|研究什么)|运行状态|市场扫描|机会扫描|候选|盯着什么|为什么盯|为什么看|研究了什么|研究历史|策略实验|风险规则|赚了多少|赚多少钱|真实账本|账本怎么样)/.test(question);
   if(!looksRelevant)return false;
   try{
     const runtime=await invoke("get_trading_runtime_status");
@@ -2237,12 +2237,17 @@ async function handleTradingRuntimeQuestion(text) {
     const realized=rows.filter(x=>x.type==="realized_pnl").reduce((sum,x)=>sum+(Number(x.amount)||0),0);
     const top=Array.isArray(runtime.candidates)?runtime.candidates.slice(0,3):[];
     const research=Array.isArray(runtime.research)?runtime.research.slice(0,3):[];
+    const history=Array.isArray(runtime.recentHistory)?runtime.recentHistory.slice(0,5):[];
+    const experiments=Array.isArray(runtime.strategyExperiments)?runtime.strategyExperiments.filter(x=>x.status==="observing").slice(0,5):[];
     const lines=[
       "当前模式："+(runtime.mode==="research-only"?"只读研究":"运行中"),
       runtime.refreshing?"市场正在刷新。":runtime.lastScanAt?("最近扫描："+new Date(runtime.lastScanAt).toLocaleString("zh-CN")):"还没有完成第一次市场扫描。",
       runtime.lastError?("数据状态："+runtime.lastError):("当前候选："+(runtime.candidateCount||0)+" 个。"),
       top.length?("优先研究："+top.map(x=>x.symbol+"（"+Number(x.attentionScore||0).toFixed(1)+"）").join("、")):"暂时没有候选。",
-      research.length?("已经补充盘口/K线证据："+research.map(x=>x.symbol).join("、")):"",
+      research.length?("当前证据已补充："+research.map(x=>x.symbol).join("、")):"",
+      experiments.length?("正在观察的策略实验："+experiments.map(x=>x.symbol+"（已观察 "+x.observationCount+" 次）").join("、")):"当前没有持续观察实验。",
+      history.length?("最近研究历史："+history.map(x=>x.symbol+" "+new Date(x.scannedAt).toLocaleTimeString("zh-CN",{hour:"2-digit",minute:"2-digit"})).join("、")):"",
+      runtime.persistenceError?("本地研究库状态："+runtime.persistenceError):"研究历史已写入本机持久化数据库。",
       "真实账本："+rows.length+" 条；已记录已实现损益合计 "+realized.toFixed(4)+"（仅统计真实账本中的 realized_pnl 记录）。",
       runtime.riskPolicy?.note||""
     ].filter(Boolean);

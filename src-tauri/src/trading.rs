@@ -1,6 +1,7 @@
 use chrono::Utc;
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::{sync::Arc, time::Duration};
+use std::{path::Path, sync::{Arc, Mutex}, time::Duration};
 use tokio::sync::RwLock;
 
 const SPOT_BASES: &[&str] = &[
@@ -438,14 +439,60 @@ mod tests {
 }
 
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeRiskPolicy {
     mode: String,
     real_execution_enabled: bool,
     withdrawal_enabled: bool,
     leverage_enabled: bool,
+    max_order_notional_usdt: f64,
+    max_daily_loss_usdt: f64,
+    max_open_positions: u32,
     note: String,
+}
+
+fn default_risk_policy() -> RuntimeRiskPolicy {
+    RuntimeRiskPolicy {
+        mode: "research-only".to_string(),
+        real_execution_enabled: false,
+        withdrawal_enabled: false,
+        leverage_enabled: false,
+        max_order_notional_usdt: 0.0,
+        max_daily_loss_usdt: 0.0,
+        max_open_positions: 0,
+        note: "当前只做公开市场研究；真实交易、提现和杠杆均未启用。".to_string(),
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResearchHistoryItem {
+    id: i64,
+    scanned_at: String,
+    symbol: String,
+    attention_score: f64,
+    signal: String,
+    last_price: f64,
+    spread_bps: f64,
+    return_1h_percent: f64,
+    return_4h_percent: f64,
+    volume_acceleration: f64,
+    evidence: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StrategyExperiment {
+    symbol: String,
+    status: String,
+    created_at: String,
+    updated_at: String,
+    observation_count: u32,
+    miss_count: u32,
+    best_attention_score: f64,
+    hypothesis: String,
+    invalidation_rule: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -456,16 +503,37 @@ pub struct TradingRuntimeSnapshot {
     started_at: String,
     last_scan_at: String,
     last_error: String,
+    persistence_error: String,
     market_source: String,
     candidate_count: usize,
     candidates: Vec<OpportunityCandidate>,
     research: Vec<SymbolResearch>,
+    recent_history: Vec<ResearchHistoryItem>,
+    strategy_experiments: Vec<StrategyExperiment>,
     risk_policy: RuntimeRiskPolicy,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TradeRiskRequest {
+    symbol: String,
+    side: String,
+    notional_usdt: f64,
+    leverage: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RiskDecision {
+    allowed: bool,
+    reasons: Vec<String>,
+    policy: RuntimeRiskPolicy,
 }
 
 #[derive(Clone)]
 pub struct TradingRuntimeState {
     inner: Arc<RwLock<TradingRuntimeSnapshot>>,
+    database: Arc<Mutex<Option<Connection>>>,
 }
 
 impl Default for TradingRuntimeState {
@@ -477,39 +545,289 @@ impl Default for TradingRuntimeState {
                 started_at: Utc::now().to_rfc3339(),
                 last_scan_at: String::new(),
                 last_error: String::new(),
+                persistence_error: String::new(),
                 market_source: String::new(),
                 candidate_count: 0,
                 candidates: Vec::new(),
                 research: Vec::new(),
-                risk_policy: RuntimeRiskPolicy {
-                    mode: "research-only".to_string(),
-                    real_execution_enabled: false,
-                    withdrawal_enabled: false,
-                    leverage_enabled: false,
-                    note: "当前只做公开市场研究；真实交易、提现和杠杆均未启用。".to_string(),
-                },
+                recent_history: Vec::new(),
+                strategy_experiments: Vec::new(),
+                risk_policy: default_risk_policy(),
             })),
+            database: Arc::new(Mutex::new(None)),
         }
     }
 }
 
+fn strategy_hypothesis(signal: &str) -> String {
+    match signal {
+        "high-momentum" => "观察高成交额与价格动量是否能在后续扫描持续，而不是一次性尖峰。".to_string(),
+        "high-volatility" => "观察高波动是否伴随持续流动性与成交活跃，而不是短暂失真。".to_string(),
+        "liquidity-leader" => "观察高流动性标的是否出现新的方向性结构与成交量加速。".to_string(),
+        _ => "观察当前异常活动是否能在多次扫描中重复出现并得到更多证据支持。".to_string(),
+    }
+}
+
 impl TradingRuntimeState {
+    pub fn initialize_persistence(&self, app_data_dir: &Path) -> Result<(), String> {
+        let path = app_data_dir.join("kardii-trading.sqlite3");
+        let connection = Connection::open(path)
+            .map_err(|error| format!("无法打开 Kardii 交易研究数据库：{error}"))?;
+        connection.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA synchronous = NORMAL;
+             CREATE TABLE IF NOT EXISTS research_history (
+               id INTEGER PRIMARY KEY AUTOINCREMENT,
+               scanned_at TEXT NOT NULL,
+               symbol TEXT NOT NULL,
+               attention_score REAL NOT NULL,
+               signal TEXT NOT NULL,
+               last_price REAL NOT NULL,
+               spread_bps REAL NOT NULL,
+               return_1h_percent REAL NOT NULL,
+               return_4h_percent REAL NOT NULL,
+               volume_acceleration REAL NOT NULL,
+               evidence_json TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS research_history_symbol_time
+               ON research_history(symbol, id DESC);
+             CREATE TABLE IF NOT EXISTS strategy_experiments (
+               symbol TEXT PRIMARY KEY NOT NULL,
+               status TEXT NOT NULL,
+               created_at TEXT NOT NULL,
+               updated_at TEXT NOT NULL,
+               observation_count INTEGER NOT NULL,
+               miss_count INTEGER NOT NULL,
+               best_attention_score REAL NOT NULL,
+               hypothesis TEXT NOT NULL,
+               invalidation_rule TEXT NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS risk_policy (
+               id INTEGER PRIMARY KEY CHECK(id = 1),
+               mode TEXT NOT NULL,
+               real_execution_enabled INTEGER NOT NULL,
+               withdrawal_enabled INTEGER NOT NULL,
+               leverage_enabled INTEGER NOT NULL,
+               max_order_notional_usdt REAL NOT NULL,
+               max_daily_loss_usdt REAL NOT NULL,
+               max_open_positions INTEGER NOT NULL,
+               note TEXT NOT NULL
+             );"
+        ).map_err(|error| format!("无法初始化 Kardii 交易研究数据库：{error}"))?;
+
+        let policy = default_risk_policy();
+        connection.execute(
+            "INSERT OR IGNORE INTO risk_policy(
+               id, mode, real_execution_enabled, withdrawal_enabled, leverage_enabled,
+               max_order_notional_usdt, max_daily_loss_usdt, max_open_positions, note
+             ) VALUES(1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                policy.mode,
+                policy.real_execution_enabled as i64,
+                policy.withdrawal_enabled as i64,
+                policy.leverage_enabled as i64,
+                policy.max_order_notional_usdt,
+                policy.max_daily_loss_usdt,
+                policy.max_open_positions as i64,
+                policy.note,
+            ],
+        ).map_err(|error| format!("无法初始化风险策略：{error}"))?;
+
+        let mut guard = self.database.lock()
+            .map_err(|_| "Kardii 交易研究数据库暂时不可用。".to_string())?;
+        *guard = Some(connection);
+        Ok(())
+    }
+
+    fn with_database<T>(&self, action: impl FnOnce(&Connection) -> Result<T, String>) -> Result<T, String> {
+        let guard = self.database.lock()
+            .map_err(|_| "Kardii 交易研究数据库暂时不可用。".to_string())?;
+        let connection = guard.as_ref()
+            .ok_or_else(|| "Kardii 交易研究数据库尚未初始化。".to_string())?;
+        action(connection)
+    }
+
+    fn with_database_mut<T>(&self, action: impl FnOnce(&mut Connection) -> Result<T, String>) -> Result<T, String> {
+        let mut guard = self.database.lock()
+            .map_err(|_| "Kardii 交易研究数据库暂时不可用。".to_string())?;
+        let connection = guard.as_mut()
+            .ok_or_else(|| "Kardii 交易研究数据库尚未初始化。".to_string())?;
+        action(connection)
+    }
+
+    fn load_risk_policy(&self) -> Result<RuntimeRiskPolicy, String> {
+        self.with_database(|connection| {
+            connection.query_row(
+                "SELECT mode, real_execution_enabled, withdrawal_enabled, leverage_enabled,
+                        max_order_notional_usdt, max_daily_loss_usdt, max_open_positions, note
+                 FROM risk_policy WHERE id = 1",
+                [],
+                |row| Ok(RuntimeRiskPolicy {
+                    mode: row.get(0)?,
+                    real_execution_enabled: row.get::<_, i64>(1)? != 0,
+                    withdrawal_enabled: row.get::<_, i64>(2)? != 0,
+                    leverage_enabled: row.get::<_, i64>(3)? != 0,
+                    max_order_notional_usdt: row.get(4)?,
+                    max_daily_loss_usdt: row.get(5)?,
+                    max_open_positions: row.get::<_, i64>(6)?.max(0) as u32,
+                    note: row.get(7)?,
+                }),
+            ).optional()
+             .map_err(|error| format!("无法读取风险策略：{error}"))
+             .map(|value| value.unwrap_or_else(default_risk_policy))
+        })
+    }
+
+    fn load_recent_history(&self, limit: usize) -> Result<Vec<ResearchHistoryItem>, String> {
+        self.with_database(|connection| {
+            let mut statement = connection.prepare(
+                "SELECT id, scanned_at, symbol, attention_score, signal, last_price, spread_bps,
+                        return_1h_percent, return_4h_percent, volume_acceleration, evidence_json
+                 FROM research_history ORDER BY id DESC LIMIT ?1"
+            ).map_err(|error| format!("无法读取研究历史：{error}"))?;
+            let rows = statement.query_map([limit.clamp(1, 100) as i64], |row| {
+                let evidence_json: String = row.get(10)?;
+                Ok(ResearchHistoryItem {
+                    id: row.get(0)?,
+                    scanned_at: row.get(1)?,
+                    symbol: row.get(2)?,
+                    attention_score: row.get(3)?,
+                    signal: row.get(4)?,
+                    last_price: row.get(5)?,
+                    spread_bps: row.get(6)?,
+                    return_1h_percent: row.get(7)?,
+                    return_4h_percent: row.get(8)?,
+                    volume_acceleration: row.get(9)?,
+                    evidence: serde_json::from_str(&evidence_json).unwrap_or_default(),
+                })
+            }).map_err(|error| format!("无法读取研究历史：{error}"))?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(|error| format!("无法整理研究历史：{error}"))
+        })
+    }
+
+    fn load_strategy_experiments(&self) -> Result<Vec<StrategyExperiment>, String> {
+        self.with_database(|connection| {
+            let mut statement = connection.prepare(
+                "SELECT symbol, status, created_at, updated_at, observation_count, miss_count,
+                        best_attention_score, hypothesis, invalidation_rule
+                 FROM strategy_experiments
+                 ORDER BY CASE status WHEN 'observing' THEN 0 ELSE 1 END, updated_at DESC
+                 LIMIT 50"
+            ).map_err(|error| format!("无法读取策略实验：{error}"))?;
+            let rows = statement.query_map([], |row| Ok(StrategyExperiment {
+                symbol: row.get(0)?,
+                status: row.get(1)?,
+                created_at: row.get(2)?,
+                updated_at: row.get(3)?,
+                observation_count: row.get::<_, i64>(4)?.max(0) as u32,
+                miss_count: row.get::<_, i64>(5)?.max(0) as u32,
+                best_attention_score: row.get(6)?,
+                hypothesis: row.get(7)?,
+                invalidation_rule: row.get(8)?,
+            })).map_err(|error| format!("无法读取策略实验：{error}"))?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(|error| format!("无法整理策略实验：{error}"))
+        })
+    }
+
+    fn persist_refresh(&self, scan: &OpportunityScan, research: &[SymbolResearch]) -> Result<(), String> {
+        self.with_database_mut(|connection| {
+            let transaction = connection.transaction()
+                .map_err(|error| format!("无法开始保存交易研究：{error}"))?;
+
+            transaction.execute(
+                "UPDATE strategy_experiments SET miss_count = miss_count + 1 WHERE status = 'observing'",
+                []
+            ).map_err(|error| format!("无法更新策略实验状态：{error}"))?;
+
+            for item in research {
+                let Some(candidate) = scan.candidates.iter().find(|value| value.symbol == item.symbol) else {
+                    continue;
+                };
+                let evidence_json = serde_json::to_string(&item.evidence)
+                    .map_err(|error| format!("无法序列化研究证据：{error}"))?;
+                transaction.execute(
+                    "INSERT INTO research_history(
+                       scanned_at, symbol, attention_score, signal, last_price, spread_bps,
+                       return_1h_percent, return_4h_percent, volume_acceleration, evidence_json
+                     ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                    params![
+                        scan.fetched_at, item.symbol, candidate.attention_score, candidate.signal,
+                        item.last_price, item.spread_bps, item.return_1h_percent,
+                        item.return_4h_percent, item.volume_acceleration, evidence_json,
+                    ],
+                ).map_err(|error| format!("无法保存研究历史：{error}"))?;
+
+                transaction.execute(
+                    "INSERT INTO strategy_experiments(
+                       symbol, status, created_at, updated_at, observation_count, miss_count,
+                       best_attention_score, hypothesis, invalidation_rule
+                     ) VALUES(?1, 'observing', ?2, ?2, 1, 0, ?3, ?4, ?5)
+                     ON CONFLICT(symbol) DO UPDATE SET
+                       status = 'observing',
+                       updated_at = excluded.updated_at,
+                       observation_count = strategy_experiments.observation_count + 1,
+                       miss_count = 0,
+                       best_attention_score = MAX(strategy_experiments.best_attention_score, excluded.best_attention_score),
+                       hypothesis = excluded.hypothesis",
+                    params![
+                        item.symbol, scan.fetched_at, candidate.attention_score,
+                        strategy_hypothesis(&candidate.signal),
+                        "若连续 3 次扫描不再进入优先研究集合，则本轮实验转为 cooldown；重新出现时可恢复观察。",
+                    ],
+                ).map_err(|error| format!("无法保存策略实验：{error}"))?;
+            }
+
+            transaction.execute(
+                "UPDATE strategy_experiments
+                 SET status = 'cooldown', updated_at = ?1
+                 WHERE status = 'observing' AND miss_count >= 3",
+                [&scan.fetched_at],
+            ).map_err(|error| format!("无法收敛策略实验：{error}"))?;
+
+            transaction.execute(
+                "DELETE FROM research_history WHERE id NOT IN (
+                   SELECT id FROM research_history ORDER BY id DESC LIMIT 20000
+                 )",
+                [],
+            ).map_err(|error| format!("无法整理研究历史：{error}"))?;
+
+            transaction.commit()
+                .map_err(|error| format!("无法提交交易研究记录：{error}"))
+        })
+    }
+
     pub async fn snapshot(&self) -> TradingRuntimeSnapshot {
-        self.inner.read().await.clone()
+        let mut snapshot = self.inner.read().await.clone();
+        match self.load_recent_history(20) {
+            Ok(value) => snapshot.recent_history = value,
+            Err(error) => snapshot.persistence_error = error,
+        }
+        match self.load_strategy_experiments() {
+            Ok(value) => snapshot.strategy_experiments = value,
+            Err(error) => snapshot.persistence_error = error,
+        }
+        match self.load_risk_policy() {
+            Ok(value) => snapshot.risk_policy = value,
+            Err(error) => snapshot.persistence_error = error,
+        }
+        snapshot
     }
 
     pub async fn refresh(&self) -> Result<TradingRuntimeSnapshot, String> {
         {
             let mut inner = self.inner.write().await;
             if inner.refreshing {
-                return Ok(inner.clone());
+                drop(inner);
+                return Ok(self.snapshot().await);
             }
             inner.refreshing = true;
             inner.last_error.clear();
+            inner.persistence_error.clear();
         }
 
-        let scan_result = scan_market_opportunities(Some(12)).await;
-        let final_result = match scan_result {
+        match scan_market_opportunities(Some(12)).await {
             Ok(scan) => {
                 let mut research = Vec::new();
                 for candidate in scan.candidates.iter().take(3) {
@@ -517,24 +835,66 @@ impl TradingRuntimeState {
                         research.push(item);
                     }
                 }
-                let mut inner = self.inner.write().await;
-                inner.refreshing = false;
-                inner.last_scan_at = scan.fetched_at.clone();
-                inner.market_source = scan.source.clone();
-                inner.candidate_count = scan.candidates.len();
-                inner.candidates = scan.candidates;
-                inner.research = research;
-                inner.last_error.clear();
-                Ok(inner.clone())
+                let persistence_error = self.persist_refresh(&scan, &research).err().unwrap_or_default();
+                {
+                    let mut inner = self.inner.write().await;
+                    inner.refreshing = false;
+                    inner.last_scan_at = scan.fetched_at.clone();
+                    inner.market_source = scan.source.clone();
+                    inner.candidate_count = scan.candidates.len();
+                    inner.candidates = scan.candidates;
+                    inner.research = research;
+                    inner.last_error.clear();
+                    inner.persistence_error = persistence_error;
+                }
+                Ok(self.snapshot().await)
             }
             Err(error) => {
                 let mut inner = self.inner.write().await;
                 inner.refreshing = false;
                 inner.last_error = error.clone();
+                drop(inner);
                 Err(error)
             }
-        };
-        final_result
+        }
+    }
+
+    pub fn evaluate_risk(&self, request: &TradeRiskRequest) -> Result<RiskDecision, String> {
+        let policy = self.load_risk_policy().unwrap_or_else(|_| default_risk_policy());
+        let mut reasons = Vec::new();
+        let symbol = request.symbol.trim().to_uppercase();
+        let side = request.side.trim().to_lowercase();
+
+        if !tradable_usdt_symbol(&symbol) {
+            reasons.push("交易对不是允许的 USDT 现货格式。".to_string());
+        }
+        if !matches!(side.as_str(), "buy" | "sell") {
+            reasons.push("交易方向必须是 buy 或 sell。".to_string());
+        }
+        if !request.notional_usdt.is_finite() || request.notional_usdt <= 0.0 {
+            reasons.push("订单名义金额必须大于 0。".to_string());
+        }
+        if !policy.real_execution_enabled {
+            reasons.push("真实交易总开关未启用。".to_string());
+        }
+        if request.leverage > 1.0 && !policy.leverage_enabled {
+            reasons.push("杠杆未启用。".to_string());
+        }
+        if policy.real_execution_enabled {
+            if policy.max_order_notional_usdt <= 0.0 {
+                reasons.push("单笔订单上限尚未配置。".to_string());
+            } else if request.notional_usdt > policy.max_order_notional_usdt {
+                reasons.push(format!("订单金额超过 {:.2} USDT 的确定性上限。", policy.max_order_notional_usdt));
+            }
+            if policy.max_daily_loss_usdt <= 0.0 {
+                reasons.push("每日最大亏损阈值尚未配置。".to_string());
+            }
+            if policy.max_open_positions == 0 {
+                reasons.push("最大同时持仓数尚未配置。".to_string());
+            }
+        }
+
+        Ok(RiskDecision { allowed: reasons.is_empty(), reasons, policy })
     }
 }
 
@@ -550,4 +910,31 @@ pub async fn refresh_trading_runtime(
     state: tauri::State<'_, TradingRuntimeState>,
 ) -> Result<TradingRuntimeSnapshot, String> {
     state.refresh().await
+}
+
+#[tauri::command]
+pub fn evaluate_trade_risk(
+    request: TradeRiskRequest,
+    state: tauri::State<'_, TradingRuntimeState>,
+) -> Result<RiskDecision, String> {
+    state.evaluate_risk(&request)
+}
+
+#[cfg(test)]
+mod runtime_tests {
+    use super::*;
+
+    #[test]
+    fn default_policy_blocks_real_execution() {
+        let policy = default_risk_policy();
+        assert!(!policy.real_execution_enabled);
+        assert!(!policy.withdrawal_enabled);
+        assert!(!policy.leverage_enabled);
+    }
+
+    #[test]
+    fn strategy_hypothesis_depends_on_signal() {
+        assert!(strategy_hypothesis("high-momentum").contains("价格动量"));
+        assert!(strategy_hypothesis("high-volatility").contains("高波动"));
+    }
 }

@@ -36,7 +36,7 @@ use storage::{
     storage_bootstrap, storage_clear, storage_create_snapshot, storage_remove,
     storage_restore_snapshot, storage_set, storage_status, StorageState,
 };
-use trading::{get_market_snapshot, get_symbol_research, get_trading_runtime_status, refresh_trading_runtime, scan_market_opportunities, TradingRuntimeState};
+use trading::{evaluate_trade_risk, get_market_snapshot, get_symbol_research, get_trading_runtime_status, refresh_trading_runtime, scan_market_opportunities, TradingRuntimeState};
 use wecom::{
     cancel_wecom_qr_authorization, delete_wecom_bot_secret, disconnect_wecom_documents,
     has_wecom_bot_secret, read_wecom_document, reply_wecom_media, reply_wecom_message,
@@ -5929,12 +5929,14 @@ pub fn run() {
                 .map_err(|error| format!("无法打开 Kardii 数据文件夹：{error}"))?;
             let storage_state = StorageState::new(&app_data_dir)
                 .map_err(|error| format!("无法初始化 Kardii 本机数据库：{error}"))?;
+            let trading_runtime = app.state::<TradingRuntimeState>().inner().clone();
+            trading_runtime
+                .initialize_persistence(&app_data_dir)
+                .map_err(|error| format!("无法初始化 Kardii 交易运行层：{error}"))?;
             let voice_state = VoiceState::new(app_data_dir);
             voice_state.initialize_if_installed();
             app.manage(storage_state);
             app.manage(voice_state);
-
-            let trading_runtime = app.state::<TradingRuntimeState>().inner().clone();
             tauri::async_runtime::spawn(async move {
                 let _ = trading_runtime.refresh().await;
                 loop {
@@ -6041,6 +6043,7 @@ pub fn run() {
             stop_ai_message,
             test_ai_connection,
             run_business_research,
+            evaluate_trade_risk,
             get_market_snapshot,
             get_symbol_research,
             get_trading_runtime_status,
