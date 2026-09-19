@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Niko",
+        "title": "Kardii",
         "width": 205,
         "height": 180,
         "minWidth": 170,
@@ -32,10 +32,10 @@
         "label": "chat",
         "title": "和 Kardii 聊天",
         "url": "chat.html",
-        "width": 380,
-        "height": 320,
-        "minWidth": 320,
-        "minHeight": 260,
+        "width": 620,
+        "height": 680,
+        "minWidth": 480,
+        "minHeight": 520,
         "resizable": true,
         "fullscreen": false,
         "decorations": false,
@@ -44,11 +44,12 @@
         "alwaysOnTop": false,
         "skipTaskbar": true,
         "shadow": true,
-        "visible": false
+        "visible": false,
+        "center": true
       },
       {
         "label": "workbench",
-        "title": "Kardii Workspace",
+        "title": "Kardii 运行台",
         "url": "workbench.html",
         "width": 1080,
         "height": 720,
