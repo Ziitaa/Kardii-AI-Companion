@@ -209,12 +209,7 @@ const CHAT_IMAGE_TYPES = new Set(["png", "jpg", "jpeg", "webp"]);
 const CHAT_VISUAL_DOCUMENT_TYPES = new Set(["pdf", "docx", "pptx", "xlsx"]);
 const RESPONSE_LENGTH_VALUES = new Set(["auto", "1200", "4000", "8000"]);
 const PERSONALITIES = {
-  healing: "耐心温暖，擅长安慰，也会温和地给出实用建议。",
-  clingy: "喜欢陪着你，会撒娇和轻微吃醋，但不会影响正常回答。",
-  sunshine: "充满活力，喜欢鼓励你立刻迈出简单的第一步。",
-  tsundere: "嘴上轻微嫌弃、偶尔逗你，实际上非常关心你。",
-  sarcastic: "会吐槽摸鱼和拖延，但不攻击外貌、身份或真实弱点。",
-  butler: "冷静克制、简洁可靠，偶尔带一点不伤人的冷幽默。",
+  healing: "Niko：独立、务实、主动执行。优先创造真实价值，用证据更新判断；不会为了显得忙而制造工作。",
 };
 const AI_PROVIDERS = {
   deepseek: {
@@ -275,7 +270,7 @@ let chatDraftSaveTimer = null;
 let chatAttachmentProcessing = false;
 let chatDragDepth = 0;
 let browserContextLoading = false;
-let appVersion = window.KardiiCapabilities?.version || "2.1.0";
+let appVersion = window.KardiiCapabilities?.version || "2.2.0";
 let onboardingScheduled = false;
 let tourStepIndex = 0;
 let activeTourTarget = null;
@@ -301,7 +296,7 @@ const TOUR_STEPS = Object.freeze([
   {
     selector: "#messageInput",
     title: "先像平常一样聊天",
-    description: "直接提问、写内容或分析资料。明确说“开始执行”时，Kardii 还能自动把后续交给 Agent。",
+    description: "直接提问、写内容或分析资料。明确说“开始执行”时，Niko 还能自动把后续交给 Agent。",
   },
   {
     selector: "#chatSessionsButton",
@@ -320,7 +315,7 @@ const TOUR_STEPS = Object.freeze([
   },
   {
     selector: "#awarenessButton",
-    title: "让 Kardii 看一个窗口",
+    title: "让 Niko 看一个窗口",
     description: "你亲自选择窗口并检查预览后，截图才会附到下一条消息；不会持续监控桌面。",
   },
   {
