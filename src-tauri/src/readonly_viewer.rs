@@ -319,3 +319,20 @@ fn write_html(stream: &mut TcpStream, body: String) {
 fn viewer_html() -> String {
     r#"<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Kardii Read Only</title><style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:40px;max-width:760px;background:#f7f7f8;color:#171719}pre{white-space:pre-wrap;background:white;padding:18px;border-radius:16px;border:1px solid #ddd}small{color:#666}</style></head><body><h2>Kardii · Read Only</h2><small>本页面只读取运行状态，不提供下单、提现或修改账户的能力。</small><pre id="out">需要配对凭据。</pre><script>const token=location.hash.slice(1);if(token){location.hash="";const out=document.getElementById("out");async function load(){try{const r=await fetch("/status",{headers:{Authorization:"Bearer "+token},cache:"no-store"});out.textContent=JSON.stringify(await r.json(),null,2)}catch(e){out.textContent=String(e)}}load();setInterval(load,10000)}</script></body></html>"#.to_string()
 }
+
+
+#[tauri::command]
+pub fn open_readonly_viewer() -> Result<ReadOnlyViewerStatus, String> {
+    let (status, token) = {
+        let guard = state()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        (guard.status(), guard.token.clone())
+    };
+    if !status.running {
+        return Err("Kardii 只读状态服务尚未启动。".to_string());
+    }
+    let url = format!("{}#{}", status.local_url, token);
+    open::that(&url).map_err(|error| format!("无法打开 Kardii 只读状态页：{error}"))?;
+    Ok(status)
+}

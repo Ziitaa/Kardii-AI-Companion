@@ -2227,6 +2227,15 @@ function addLocalExchange(userText, replyText) {
 
 async function handleTradingRuntimeQuestion(text) {
   const question=String(text||"").trim();
+  if(/(?:只读查看|远程查看|打开只读状态|查看只读状态)/.test(question)){
+    try{
+      const viewer=await invoke("open_readonly_viewer");
+      addLocalExchange(question,"已经打开 Kardii 只读查看页。当前只绑定本机 "+viewer.bindAddress+":"+viewer.port+"，不会暴露到公网。");
+    }catch(error){
+      addLocalExchange(question,"只读查看页暂时打不开："+String(error));
+    }
+    return true;
+  }
   const looksRelevant=/(?:现在在(?:干嘛|做什么)|最近在(?:干嘛|做什么|研究什么)|运行状态|市场扫描|机会扫描|候选|盯着什么|为什么盯|为什么看|研究了什么|研究历史|策略实验|风险规则|支持市场|美股|港股|Binance|币安|账户|余额|API|赚了多少|赚多少钱|真实账本|账本怎么样)/i.test(question);
   if(!looksRelevant)return false;
   try{
