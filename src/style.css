@@ -24,34 +24,19 @@ body {
   background: transparent;
 }
 
-body.menu-open #pet {
-  width: calc(100% - 316px);
-}
-
-body.menu-side-left #pet {
-  right: 0;
-  left: auto;
-}
-
-body.menu-side-right #pet {
-  right: auto;
-  left: 0;
-}
-
 #pet:active {
   cursor: grabbing;
 }
 
 #petImage {
   display: block;
-  width: min(100%, 420px);
-  height: min(100%, 340px);
+  width: 100%;
+  height: 100%;
+  max-width: 290px;
+  max-height: 250px;
   object-fit: contain;
   object-position: center bottom;
   pointer-events: none;
-  transform: scale(var(--pet-scale, 1));
-  transform-origin: center bottom;
-  transition: transform 150ms ease;
 }
 
 .agent-notice {
@@ -96,24 +81,16 @@ body.menu-side-right #pet {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 3px;
-  width: min(300px, calc(100vw - 16px));
+  width: min(284px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  overflow: auto;
   padding: 8px;
   color: #fff;
-  background: rgba(28, 28, 32, 0.92);
+  background: rgba(28, 28, 32, 0.94);
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 14px;
   box-shadow: 0 10px 32px rgba(0, 0, 0, 0.3);
   backdrop-filter: blur(18px);
-}
-
-body.menu-side-left .menu {
-  right: auto;
-  left: 8px;
-}
-
-body.menu-side-right .menu {
-  right: 8px;
-  left: auto;
 }
 
 .menu.hidden {
