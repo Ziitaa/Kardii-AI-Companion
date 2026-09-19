@@ -1,45 +1,39 @@
 <!doctype html>
 <html lang="zh-CN">
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Kardii</title>
-    <link rel="stylesheet" href="./style.css">
-  </head>
-  <body>
-    <main id="pet" aria-label="Kardii 桌宠" title="单击聊天，拖动移动，双击切换动作">
-      <img id="petImage" src="./assets/pet/idle.webp" alt="Kardii">
-    </main>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Niko</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <main id="pet" aria-label="Niko" title="单击聊天，右键打开菜单">
+    <img id="petImage" src="./assets/pet/idle.webp" alt="Niko">
+  </main>
 
-    <button id="agentNotice" class="agent-notice hidden" type="button" aria-live="polite">
-      <span id="agentNoticeBadge">AGENT</span>
-      <strong id="agentNoticeTitle">Agent 有新进展</strong>
-      <small id="agentNoticeMessage">点击查看任务</small>
-    </button>
+  <button id="agentNotice" class="agent-notice hidden" type="button" aria-live="polite">
+    <span id="agentNoticeBadge">NIKO</span>
+    <strong id="agentNoticeTitle">Niko 有新进展</strong>
+    <small id="agentNoticeMessage">点击查看</small>
+  </button>
 
-    <nav id="menu" class="menu hidden" aria-label="Kardii 菜单">
-      <button type="button" data-action="workbench">▦ 商务工作台</button>
-      <button type="button" data-action="chat">✦ 问问 Kardii</button>
-      <button type="button" data-action="agent">A Agent 任务</button>
-      <hr>
-      <button type="button" data-state="idle">🐾 待机</button>
-      <button type="button" data-state="thinking">🤔 思考</button>
-      <button type="button" data-state="talking">🎤 说话</button>
-      <button type="button" data-state="happy">🏆 开心</button>
-      <button type="button" data-state="loading">⏳ 加载</button>
-      <button type="button" data-state="sleep">💤 睡觉</button>
-      <button type="button" data-state="error">❌ 报错</button>
-      <hr>
-      <button type="button" data-action="smaller">－ 缩小</button>
-      <button type="button" data-action="larger">＋ 放大</button>
-      <button type="button" data-action="reset">↺ 恢复大小</button>
-      <hr>
-      <button type="button" data-action="hide">隐藏 Kardii</button>
-      <button type="button" data-action="quit">退出 Kardii</button>
-    </nav>
+  <nav id="menu" class="menu hidden" aria-label="Niko 菜单">
+    <button type="button" data-action="workbench">▦ Niko Workbench</button>
+    <button type="button" data-action="chat">✦ 和 Niko 聊天</button>
+    <button type="button" data-action="agent">A Agent 任务</button>
+    <hr>
+    <button type="button" data-state="idle">🐾 待机</button>
+    <button type="button" data-state="thinking">🤔 思考</button>
+    <button type="button" data-state="talking">🎤 说话</button>
+    <button type="button" data-state="happy">🏆 开心</button>
+    <button type="button" data-state="loading">⏳ 工作中</button>
+    <button type="button" data-state="sleep">💤 睡觉</button>
+    <button type="button" data-state="error">❌ 报错</button>
+    <hr>
+    <button type="button" data-action="hide">隐藏 Niko</button>
+    <button type="button" data-action="quit">退出 Niko</button>
+  </nav>
 
-    <script src="./kardii-capabilities.js"></script>
-    <script src="./kardii-wecom-remote.js"></script>
-    <script src="./kardii-storage.js" data-main="./main.js"></script>
-  </body>
+  <script src="./kardii-storage.js" data-main="./main.js"></script>
+</body>
 </html>
