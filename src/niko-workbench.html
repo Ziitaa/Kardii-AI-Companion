@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Niko Workbench</title><link rel="stylesheet" href="./niko-workbench.css"></head>
+<body><div class="shell"><aside><div class="brand"><div class="mark">N</div><div><strong>Niko</strong><span>WORKBENCH</span></div></div><nav>
+<button class="active" data-view="today">今日</button><button data-view="businesses">Businesses</button><button data-view="experiments">Experiments</button><button data-view="activity">Activity</button><button data-view="memory">Memory</button><button data-view="skills">Skills</button><button data-view="treasury">Treasury</button>
+</nav><div class="footer"><span class="dot"></span><span>Codex / ChatGPT OAuth</span></div></aside>
+<main><header data-tauri-drag-region><div><small>NIKO WORKBENCH</small><h1 id="title">今天</h1></div><div class="actions"><button id="openChat">和 Niko 聊天</button><button id="openAgent">新任务</button><button id="minimize">—</button><button id="close">×</button></div></header>
+<section id="today" class="view active"><div class="hero"><p id="date"></p><h2>先推进最有价值的一步。</h2><p>Niko 会把目标、实验、收入、成本和需要你批准的动作集中在这里。</p></div>
+<div class="metrics"><article><span>Current Goal</span><strong id="goal">建立可持续的自主工作循环</strong></article><article><span>Active Experiments</span><strong id="experimentCount">0</strong></article><article><span>Revenue</span><strong id="revenue">$0.00</strong></article><article><span>Treasury</span><strong id="treasury">$0.00</strong></article></div>
+<div class="grid"><article class="panel"><span>NOW</span><h3>正在做</h3><div id="now">等待第一个真实任务。</div></article><article class="panel"><span>NEXT</span><h3>下一步</h3><div id="next">连接 Niko 的治理状态与 Agent 执行记录。</div></article><article class="panel wide"><span>NEEDS YOUR APPROVAL</span><h3>需要你批准</h3><div id="approval">暂无。涉及付款、身份、合同和不可逆操作时会出现在这里。</div></article></div></section>
+<section id="placeholder" class="view placeholder"><h2 id="placeholderTitle"></h2><p>这个区域会接入 Niko 的真实持久化数据，不再复用旧企业工作台的数据结构。</p></section></main></div><script src="./niko-workbench.js"></script></body></html>
