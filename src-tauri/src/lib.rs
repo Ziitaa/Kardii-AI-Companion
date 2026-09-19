@@ -3,6 +3,7 @@ mod mcp;
 mod storage;
 mod voice;
 mod oauth;
+mod trading;
 mod wecom;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use image::{DynamicImage, ImageFormat};
@@ -35,6 +36,7 @@ use storage::{
     storage_bootstrap, storage_clear, storage_create_snapshot, storage_remove,
     storage_restore_snapshot, storage_set, storage_status, StorageState,
 };
+use trading::{get_market_snapshot, scan_market_opportunities};
 use wecom::{
     cancel_wecom_qr_authorization, delete_wecom_bot_secret, disconnect_wecom_documents,
     has_wecom_bot_secret, read_wecom_document, reply_wecom_media, reply_wecom_message,
@@ -6029,6 +6031,8 @@ pub fn run() {
             stop_ai_message,
             test_ai_connection,
             run_business_research,
+            get_market_snapshot,
+            scan_market_opportunities,
             create_agent_plan,
             decide_agent_action,
             prepare_agent_attachment,
