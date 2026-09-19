@@ -2666,39 +2666,29 @@ dependencies = [
 ]
 
 [[package]]
-name = "kardii-ai-companion"
-version = "2.1.0"
+name = "niko-workbench"
+version = "2.2.0"
 dependencies = [
- "aes",
  "arboard",
  "base64 0.22.1",
  "bzip2",
- "cbc",
- "chrono",
  "cpal",
  "futures-util",
  "image",
- "imap",
  "keyring",
- "mailparse",
- "md-5",
- "native-tls",
  "open",
  "pdf-extract",
- "rand 0.8.7",
  "reqwest 0.12.28",
  "rfd",
  "rusqlite",
  "serde",
  "serde_json",
- "sha2",
  "sherpa-onnx",
  "tar",
  "tauri",
  "tauri-build",
  "tauri-plugin-updater",
  "tokio",
- "tokio-tungstenite",
  "xcap",
  "zip 8.6.0",
 ]
