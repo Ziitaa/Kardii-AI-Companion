@@ -1,4 +1,4 @@
-name: Release Kardii with Auto Update
+name: Release Niko Workbench with Auto Update
 
 on:
   workflow_dispatch:
@@ -45,15 +45,15 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: v__VERSION__
-          releaseName: "Kardii AI Companion v__VERSION__"
+          releaseName: "Niko Workbench v__VERSION__"
           releaseBody: |
-            Kardii AI Companion 新版本。
+            Niko Workbench 新版本。
 
-            - 新增企微手机远程 Agent：本人绑定、任务二次确认与安全只读白名单
-            - 企业微信机器人支持即时反馈、同消息流式更新、专用模型和快速/完整模式
-            - 新增企业微信文档扫码连接、搜索、读取与受控写入
-            - 新增企业微信 API 模式智能机器人聊天通道
-            - 新增最多 3 个隔离 Agent 与托盘后台自动化
+            - Codex / ChatGPT OAuth 作为默认模型入口
+            - Niko 专属 Workbench：Businesses、Experiments、Activity、Memory、Skills、Treasury
+            - 多 Agent、后台自动化、Browser、MCP、Terminal 与本地文件工具
+            - SQLite 持久化 Niko 状态
+            - 已移除旧企业微信、企业邮箱和企业云办公模块
             - 支持 Windows、Intel Mac 和 Apple 芯片 Mac
           releaseDraft: true
           prerelease: false
