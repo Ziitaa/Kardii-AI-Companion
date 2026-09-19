@@ -1,7 +1,7 @@
 use reqwest::{header, Client, Response, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{collections::HashMap, sync::{Mutex, OnceLock}, time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const MCP_PROTOCOL_VERSION: &str = "2025-11-25";
 const MAX_MCP_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
