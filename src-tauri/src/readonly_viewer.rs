@@ -29,15 +29,6 @@ pub struct ReadOnlyViewerStatus {
     pub remote_enabled: bool,
 }
 
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReadOnlyViewerLink {
-    pub url: String,
-    pub remote_enabled: bool,
-    pub warning: String,
-}
-
 struct ViewerRuntime {
     running: bool,
     token: String,
@@ -140,21 +131,6 @@ pub fn readonly_viewer_status() -> ReadOnlyViewerStatus {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .status()
-}
-
-
-#[tauri::command]
-pub fn readonly_viewer_pairing_link() -> ReadOnlyViewerLink {
-    let token = state()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .token
-        .clone();
-    ReadOnlyViewerLink {
-        url: format!("http://127.0.0.1:{VIEWER_PORT}/#{token}"),
-        remote_enabled: false,
-        warning: "当前链接只在运行 Kardii 的这台 Mac 上可用；远程访问尚未启用。".to_string(),
-    }
 }
 
 struct Request {
