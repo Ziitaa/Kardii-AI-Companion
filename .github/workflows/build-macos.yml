@@ -2,6 +2,8 @@ name: Build Kardii macOS Universal App
 
 on:
   workflow_dispatch:
+  push:
+    branches: ["agent/niko-workbench-v0"]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

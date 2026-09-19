@@ -36,7 +36,7 @@ use storage::{
     storage_bootstrap, storage_clear, storage_create_snapshot, storage_remove,
     storage_restore_snapshot, storage_set, storage_status, StorageState,
 };
-use trading::{get_market_snapshot, get_symbol_research, scan_market_opportunities};
+use trading::{get_market_snapshot, get_symbol_research, get_trading_runtime_status, refresh_trading_runtime, scan_market_opportunities, TradingRuntimeState};
 use wecom::{
     cancel_wecom_qr_authorization, delete_wecom_bot_secret, disconnect_wecom_documents,
     has_wecom_bot_secret, read_wecom_document, reply_wecom_media, reply_wecom_message,
@@ -5921,6 +5921,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(StreamState::default())
         .manage(WecomState::default())
+        .manage(TradingRuntimeState::default())
         .setup(|app| {
             let app_data_dir = app
                 .path()
@@ -5932,6 +5933,15 @@ pub fn run() {
             voice_state.initialize_if_installed();
             app.manage(storage_state);
             app.manage(voice_state);
+
+            let trading_runtime = app.state::<TradingRuntimeState>().inner().clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = trading_runtime.refresh().await;
+                loop {
+                    tokio::time::sleep(Duration::from_secs(300)).await;
+                    let _ = trading_runtime.refresh().await;
+                }
+            });
 
             let background_scheduler = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -6033,6 +6043,8 @@ pub fn run() {
             run_business_research,
             get_market_snapshot,
             get_symbol_research,
+            get_trading_runtime_status,
+            refresh_trading_runtime,
             scan_market_opportunities,
             create_agent_plan,
             decide_agent_action,

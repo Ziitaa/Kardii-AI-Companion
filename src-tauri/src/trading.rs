@@ -1,6 +1,7 @@
 use chrono::Utc;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
+use tokio::sync::RwLock;
 
 const SPOT_BASES: &[&str] = &[
     "https://api.binance.com",
@@ -434,4 +435,119 @@ mod tests {
         ];
         assert_eq!(depth_notional(&levels), 299.0);
     }
+}
+
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeRiskPolicy {
+    mode: String,
+    real_execution_enabled: bool,
+    withdrawal_enabled: bool,
+    leverage_enabled: bool,
+    note: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TradingRuntimeSnapshot {
+    mode: String,
+    refreshing: bool,
+    started_at: String,
+    last_scan_at: String,
+    last_error: String,
+    market_source: String,
+    candidate_count: usize,
+    candidates: Vec<OpportunityCandidate>,
+    research: Vec<SymbolResearch>,
+    risk_policy: RuntimeRiskPolicy,
+}
+
+#[derive(Clone)]
+pub struct TradingRuntimeState {
+    inner: Arc<RwLock<TradingRuntimeSnapshot>>,
+}
+
+impl Default for TradingRuntimeState {
+    fn default() -> Self {
+        Self {
+            inner: Arc::new(RwLock::new(TradingRuntimeSnapshot {
+                mode: "research-only".to_string(),
+                refreshing: false,
+                started_at: Utc::now().to_rfc3339(),
+                last_scan_at: String::new(),
+                last_error: String::new(),
+                market_source: String::new(),
+                candidate_count: 0,
+                candidates: Vec::new(),
+                research: Vec::new(),
+                risk_policy: RuntimeRiskPolicy {
+                    mode: "research-only".to_string(),
+                    real_execution_enabled: false,
+                    withdrawal_enabled: false,
+                    leverage_enabled: false,
+                    note: "当前只做公开市场研究；真实交易、提现和杠杆均未启用。".to_string(),
+                },
+            })),
+        }
+    }
+}
+
+impl TradingRuntimeState {
+    pub async fn snapshot(&self) -> TradingRuntimeSnapshot {
+        self.inner.read().await.clone()
+    }
+
+    pub async fn refresh(&self) -> Result<TradingRuntimeSnapshot, String> {
+        {
+            let mut inner = self.inner.write().await;
+            if inner.refreshing {
+                return Ok(inner.clone());
+            }
+            inner.refreshing = true;
+            inner.last_error.clear();
+        }
+
+        let scan_result = scan_market_opportunities(Some(12)).await;
+        let final_result = match scan_result {
+            Ok(scan) => {
+                let mut research = Vec::new();
+                for candidate in scan.candidates.iter().take(3) {
+                    if let Ok(item) = get_symbol_research(candidate.symbol.clone()).await {
+                        research.push(item);
+                    }
+                }
+                let mut inner = self.inner.write().await;
+                inner.refreshing = false;
+                inner.last_scan_at = scan.fetched_at.clone();
+                inner.market_source = scan.source.clone();
+                inner.candidate_count = scan.candidates.len();
+                inner.candidates = scan.candidates;
+                inner.research = research;
+                inner.last_error.clear();
+                Ok(inner.clone())
+            }
+            Err(error) => {
+                let mut inner = self.inner.write().await;
+                inner.refreshing = false;
+                inner.last_error = error.clone();
+                Err(error)
+            }
+        };
+        final_result
+    }
+}
+
+#[tauri::command]
+pub async fn get_trading_runtime_status(
+    state: tauri::State<'_, TradingRuntimeState>,
+) -> Result<TradingRuntimeSnapshot, String> {
+    Ok(state.snapshot().await)
+}
+
+#[tauri::command]
+pub async fn refresh_trading_runtime(
+    state: tauri::State<'_, TradingRuntimeState>,
+) -> Result<TradingRuntimeSnapshot, String> {
+    state.refresh().await
 }

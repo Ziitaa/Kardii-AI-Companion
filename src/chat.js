@@ -2225,6 +2225,35 @@ function addLocalExchange(userText, replyText) {
   updateReplyActions();
 }
 
+async function handleTradingRuntimeQuestion(text) {
+  const question=String(text||"").trim();
+  const looksRelevant=/(?:现在在(?:干嘛|做什么)|最近在(?:干嘛|做什么|研究什么)|运行状态|市场扫描|机会扫描|候选|盯着什么|研究了什么|赚了多少|赚多少钱|真实账本|账本怎么样)/.test(question);
+  if(!looksRelevant)return false;
+  try{
+    const runtime=await invoke("get_trading_runtime_status");
+    let ledger={ledger:[]};
+    try{ledger=JSON.parse(localStorage.getItem("kardii-trading-state-v1")||"{}")||{};}catch{}
+    const rows=Array.isArray(ledger.ledger)?ledger.ledger:[];
+    const realized=rows.filter(x=>x.type==="realized_pnl").reduce((sum,x)=>sum+(Number(x.amount)||0),0);
+    const top=Array.isArray(runtime.candidates)?runtime.candidates.slice(0,3):[];
+    const research=Array.isArray(runtime.research)?runtime.research.slice(0,3):[];
+    const lines=[
+      "当前模式："+(runtime.mode==="research-only"?"只读研究":"运行中"),
+      runtime.refreshing?"市场正在刷新。":runtime.lastScanAt?("最近扫描："+new Date(runtime.lastScanAt).toLocaleString("zh-CN")):"还没有完成第一次市场扫描。",
+      runtime.lastError?("数据状态："+runtime.lastError):("当前候选："+(runtime.candidateCount||0)+" 个。"),
+      top.length?("优先研究："+top.map(x=>x.symbol+"（"+Number(x.attentionScore||0).toFixed(1)+"）").join("、")):"暂时没有候选。",
+      research.length?("已经补充盘口/K线证据："+research.map(x=>x.symbol).join("、")):"",
+      "真实账本："+rows.length+" 条；已记录已实现损益合计 "+realized.toFixed(4)+"（仅统计真实账本中的 realized_pnl 记录）。",
+      runtime.riskPolicy?.note||""
+    ].filter(Boolean);
+    addLocalExchange(question,lines.join("\n"));
+    return true;
+  }catch(error){
+    addLocalExchange(question,"Kardii 的交易运行状态暂时读取失败："+String(error));
+    return true;
+  }
+}
+
 function handleMemoryCommand(text) {
   const rememberMatch = text.match(/^记住\s*[：:]\s*(.+)$/s);
   if (rememberMatch) {
@@ -3837,6 +3866,13 @@ form.addEventListener("submit", async (event) => {
   if ((!text && !attachments.length) || sending || chatAttachmentProcessing) return;
   const question = text || "请分析这些附件。";
   if (!attachments.length && handleMemoryCommand(question)) {
+    input.value = "";
+    activeChatSession().draft = "";
+    persistChatSessionStore();
+    resizeInput();
+    return;
+  }
+  if (!attachments.length && await handleTradingRuntimeQuestion(question)) {
     input.value = "";
     activeChatSession().draft = "";
     persistChatSessionStore();

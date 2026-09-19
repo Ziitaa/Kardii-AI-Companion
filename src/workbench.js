@@ -1,29 +1,32 @@
 const {getCurrentWindow}=window.__TAURI__.window;const appWindow=getCurrentWindow();const STATE_KEY="kardii-trading-state-v1",AGENT_KEY="kardii-agent-tasks-v1";const state=loadState();function loadState(){try{const x=JSON.parse(localStorage.getItem(STATE_KEY)||"null");if(x&&x.version===1)return x}catch{}return{version:1,market:{connected:false},scanner:{running:false},opportunities:[],strategies:[],riskRules:{configured:false},ledger:[],research:[]}}function saveState(){localStorage.setItem(STATE_KEY,JSON.stringify(state))}const titles={overview:"运行状态",ledger:"真实账本",research:"研究日志"};document.querySelectorAll(".nav").forEach(b=>b.onclick=()=>{document.querySelectorAll(".nav").forEach(x=>x.classList.toggle("active",x===b));document.querySelectorAll(".view").forEach(x=>x.classList.toggle("active",x.dataset.panel===b.dataset.view));document.getElementById("title").textContent=titles[b.dataset.view];render()});document.getElementById("minBtn").onclick=()=>appWindow.minimize();document.getElementById("closeBtn").onclick=()=>appWindow.hide();document.getElementById("workbenchDragHeader").addEventListener("mousedown",e=>{if(e.button===0&&!e.target.closest("button"))void appWindow.startDragging()});const modal=document.getElementById("modal"),form=document.getElementById("modalForm"),fields=document.getElementById("modalFields");
 const modalEyebrow=document.getElementById("modalEyebrow"),modalTitle=document.getElementById("modalTitle"),modalClose=document.getElementById("modalClose"),modalCancel=document.getElementById("modalCancel");
 const addLedgerBtn=document.getElementById("addLedgerBtn"),addResearchBtn=document.getElementById("addResearchBtn"),agentCount=document.getElementById("agentCount"),agentDetail=document.getElementById("agentDetail"),approvalCount=document.getElementById("approvalCount"),marketStatus=document.getElementById("marketStatus"),scanStatus=document.getElementById("scanStatus"),ledgerCount=document.getElementById("ledgerCount"),ledgerLatest=document.getElementById("ledgerLatest"),ledgerList=document.getElementById("ledgerList"),researchList=document.getElementById("researchList");let mode="";function openModal(m){mode=m;modal.classList.remove("hidden");if(m==="ledger"){modalEyebrow.textContent="REAL LEDGER";modalTitle.textContent="记录真实资金变动";fields.innerHTML='<div class="field"><label>类型</label><select name="type"><option value="deposit">转入</option><option value="withdrawal">转出</option><option value="trade">真实成交</option><option value="fee">手续费</option><option value="realized_pnl">已实现损益</option><option value="adjustment">其他真实调整</option></select></div><div class="field"><label>资产</label><input name="asset" required placeholder="USDT"></div><div class="field"><label>数量</label><input name="amount" type="number" step="any" required></div><div class="field"><label>平台 / 钱包</label><input name="venue" placeholder="例如 Binance"></div><div class="field full"><label>真实凭证 / 备注</label><textarea name="note" placeholder="只记录真实发生的资金或成交；模拟结果不要填这里"></textarea></div>'}else{modalEyebrow.textContent="RESEARCH LOG";modalTitle.textContent="记录研究";fields.innerHTML='<div class="field full"><label>主题</label><input name="title" required></div><div class="field full"><label>来源 / 证据</label><textarea name="sources"></textarea></div><div class="field full"><label>结论 / 下一步</label><textarea name="conclusion" required></textarea></div>'}}function closeModal(){modal.classList.add("hidden");form.reset();mode=""}modalClose.onclick=closeModal;modalCancel.onclick=closeModal;addLedgerBtn.onclick=()=>openModal("ledger");addResearchBtn.onclick=()=>openModal("research");form.onsubmit=e=>{e.preventDefault();const d=new FormData(form),now=new Date().toISOString();if(mode==="ledger")state.ledger.unshift({id:crypto.randomUUID(),type:String(d.get("type")),asset:String(d.get("asset")).trim().toUpperCase(),amount:Number(d.get("amount")),venue:String(d.get("venue")).trim(),note:String(d.get("note")).trim(),createdAt:now});else state.research.unshift({id:crypto.randomUUID(),title:String(d.get("title")).trim(),sources:String(d.get("sources")).trim(),conclusion:String(d.get("conclusion")).trim(),createdAt:now});saveState();closeModal();render()};function tasks(){try{return JSON.parse(localStorage.getItem(AGENT_KEY)||"[]")}catch{return[]}}function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}function typeLabel(t){return({deposit:"转入",withdrawal:"转出",trade:"真实成交",fee:"手续费",realized_pnl:"已实现损益",adjustment:"其他调整"})[t]||t}function render(){const t=tasks(),running=t.filter(x=>["running","queued"].includes(x.status)),approvals=t.filter(x=>["waiting_permission","waiting_input"].includes(x.status));agentCount.textContent=running.length;agentDetail.textContent=running.length?running.slice(0,2).map(x=>x.title||x.goal||"Agent 任务").join(" · "):"没有运行中的任务";approvalCount.textContent=approvals.length;marketStatus.textContent=state.market.connected?"已接入":"未接入";scanStatus.textContent=state.scanner.running?"运行中":"未运行";ledgerCount.textContent=state.ledger.length;ledgerLatest.textContent=state.ledger[0]?new Date(state.ledger[0].createdAt).toLocaleString("zh-CN"):"—";ledgerList.innerHTML=state.ledger.length?state.ledger.map(x=>'<div class="row"><strong>'+esc(typeLabel(x.type))+'</strong><span>'+esc(x.asset)+'</span><div><span class="amount">'+esc(x.amount)+'</span><small>'+esc(x.venue||"")+(x.note?" · "+esc(x.note):"")+'</small></div><small>'+new Date(x.createdAt).toLocaleString("zh-CN")+'</small></div>').join(""):'<div class="empty">还没有真实资金记录。模拟交易不会出现在这里。</div>';researchList.innerHTML=state.research.length?state.research.map(x=>'<div class="row"><strong>'+esc(x.title)+'</strong><span>研究</span><div><span>'+esc(x.conclusion)+'</span><small>'+esc(x.sources||"")+'</small></div><small>'+new Date(x.createdAt).toLocaleString("zh-CN")+'</small></div>').join(""):'<div class="empty">还没有研究日志。</div>'}render();
-async function refreshPublicMarketData(){
+async function syncRuntimeStatus(){
   const invoke=window.__TAURI__?.core?.invoke;
   if(!invoke)return;
-  marketStatus.textContent="读取中";
-  scanStatus.textContent="扫描中";
   try{
-    const [snapshot,scan]=await Promise.all([
-      invoke("get_market_snapshot",{limit:12}),
-      invoke("scan_market_opportunities",{limit:12})
-    ]);
-    state.market={connected:true,lastUpdated:snapshot.fetchedAt,source:snapshot.source,symbolCount:snapshot.symbolCount};
-    state.scanner={running:false,lastRun:scan.fetchedAt,candidateCount:scan.candidates.length};
-    state.opportunities=scan.candidates;
+    const runtime=await invoke("get_trading_runtime_status");
+    state.market={
+      connected:Boolean(runtime.lastScanAt) && !runtime.lastError,
+      lastUpdated:runtime.lastScanAt,
+      source:runtime.marketSource,
+      symbolCount:runtime.candidateCount
+    };
+    state.scanner={
+      running:Boolean(runtime.refreshing),
+      lastRun:runtime.lastScanAt,
+      candidateCount:runtime.candidateCount,
+      lastError:runtime.lastError||""
+    };
+    state.opportunities=Array.isArray(runtime.candidates)?runtime.candidates:[];
+    state.runtimeResearch=Array.isArray(runtime.research)?runtime.research:[];
     saveState();
-    marketStatus.textContent="已连接 · "+snapshot.symbolCount;
-    scanStatus.textContent=scan.candidates.length+" 个候选";
+    marketStatus.textContent=runtime.refreshing?"读取中":runtime.lastError?"暂不可用":runtime.lastScanAt?"已连接":"等待首次扫描";
+    scanStatus.textContent=runtime.refreshing?"扫描中":runtime.lastError?"等待数据":runtime.candidateCount+" 个候选";
   }catch(error){
-    state.market={...state.market,connected:false,lastError:String(error)};
-    state.scanner={...state.scanner,running:false,lastError:String(error)};
-    saveState();
     marketStatus.textContent="暂不可用";
     scanStatus.textContent="等待数据";
   }
 }
-void refreshPublicMarketData();
-setInterval(()=>void refreshPublicMarketData(),5*60*1000);
+void syncRuntimeStatus();
+setInterval(()=>void syncRuntimeStatus(),30*1000);
