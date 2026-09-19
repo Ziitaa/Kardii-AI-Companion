@@ -94,5 +94,21 @@
     },
   ];
 
-  window.KardiiCapabilities = { version: VERSION, features: FEATURES };
+  function knowledgeText(status = {}) {
+    const runtime = [
+      status.codexAuthenticated ? "Codex / ChatGPT 已登录。" : "Codex / ChatGPT 登录状态未确认。",
+      status.browserRunning ? "Browser bridge 已运行。" : "Browser bridge 当前未运行。",
+      status.storageReady ? "SQLite 持久化已就绪。" : "SQLite 持久化状态未确认。",
+      `长期记忆：${Number(status.memoryCount || 0)} 条。`,
+    ].join(" ");
+    return [
+      "Niko Workbench 当前能力：",
+      ...FEATURES.map((feature) => `- ${feature.title}：${feature.promptFact}`),
+      "",
+      "当前运行状态：",
+      runtime,
+    ].join("\n");
+  }
+
+  window.KardiiCapabilities = { version: VERSION, features: FEATURES, knowledgeText };
 })();
