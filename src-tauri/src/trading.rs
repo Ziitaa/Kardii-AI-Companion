@@ -497,6 +497,50 @@ pub struct StrategyExperiment {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct MarketDomainStatus {
+    id: String,
+    label: String,
+    status: String,
+    market_data: bool,
+    account_read: bool,
+    execution: bool,
+    note: String,
+}
+
+fn market_domains() -> Vec<MarketDomainStatus> {
+    vec![
+        MarketDomainStatus {
+            id: "crypto".to_string(),
+            label: "Crypto".to_string(),
+            status: "active".to_string(),
+            market_data: true,
+            account_read: false,
+            execution: false,
+            note: "当前使用公开加密市场数据做研究；账户读取和真实执行尚未接入。".to_string(),
+        },
+        MarketDomainStatus {
+            id: "us-equities".to_string(),
+            label: "美股".to_string(),
+            status: "planned".to_string(),
+            market_data: false,
+            account_read: false,
+            execution: false,
+            note: "后续通过独立券商/行情适配器接入，不复用加密交易所凭据。".to_string(),
+        },
+        MarketDomainStatus {
+            id: "hk-equities".to_string(),
+            label: "港股".to_string(),
+            status: "planned".to_string(),
+            market_data: false,
+            account_read: false,
+            execution: false,
+            note: "后续通过独立券商/行情适配器接入，并使用单独风险规则。".to_string(),
+        },
+    ]
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TradingRuntimeSnapshot {
     mode: String,
     refreshing: bool,
@@ -510,6 +554,7 @@ pub struct TradingRuntimeSnapshot {
     research: Vec<SymbolResearch>,
     recent_history: Vec<ResearchHistoryItem>,
     strategy_experiments: Vec<StrategyExperiment>,
+    markets: Vec<MarketDomainStatus>,
     risk_policy: RuntimeRiskPolicy,
 }
 
@@ -552,6 +597,7 @@ impl Default for TradingRuntimeState {
                 research: Vec::new(),
                 recent_history: Vec::new(),
                 strategy_experiments: Vec::new(),
+                markets: market_domains(),
                 risk_policy: default_risk_policy(),
             })),
             database: Arc::new(Mutex::new(None)),

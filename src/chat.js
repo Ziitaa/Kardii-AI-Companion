@@ -2227,7 +2227,7 @@ function addLocalExchange(userText, replyText) {
 
 async function handleTradingRuntimeQuestion(text) {
   const question=String(text||"").trim();
-  const looksRelevant=/(?:现在在(?:干嘛|做什么)|最近在(?:干嘛|做什么|研究什么)|运行状态|市场扫描|机会扫描|候选|盯着什么|为什么盯|为什么看|研究了什么|研究历史|策略实验|风险规则|赚了多少|赚多少钱|真实账本|账本怎么样)/.test(question);
+  const looksRelevant=/(?:现在在(?:干嘛|做什么)|最近在(?:干嘛|做什么|研究什么)|运行状态|市场扫描|机会扫描|候选|盯着什么|为什么盯|为什么看|研究了什么|研究历史|策略实验|风险规则|支持市场|美股|港股|赚了多少|赚多少钱|真实账本|账本怎么样)/.test(question);
   if(!looksRelevant)return false;
   try{
     const runtime=await invoke("get_trading_runtime_status");
@@ -2249,6 +2249,7 @@ async function handleTradingRuntimeQuestion(text) {
       history.length?("最近研究历史："+history.map(x=>x.symbol+" "+new Date(x.scannedAt).toLocaleTimeString("zh-CN",{hour:"2-digit",minute:"2-digit"})).join("、")):"",
       runtime.persistenceError?("本地研究库状态："+runtime.persistenceError):"研究历史已写入本机持久化数据库。",
       "真实账本："+rows.length+" 条；已记录已实现损益合计 "+realized.toFixed(4)+"（仅统计真实账本中的 realized_pnl 记录）。",
+      Array.isArray(runtime.markets)?("支持市场："+runtime.markets.map(x=>x.label+"["+(x.status==="active"?"运行中":"计划中")+"]").join("、")):"",
       runtime.riskPolicy?.note||""
     ].filter(Boolean);
     addLocalExchange(question,lines.join("\n"));
