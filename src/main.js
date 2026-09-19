@@ -84,11 +84,11 @@ document.addEventListener("click",async(event)=>{
 
 listen("kardii-agent-notice",({payload={}})=>{
   agentNoticeTaskId=String(payload.taskId||"");
-  agentNoticeTitle.textContent=String(payload.title||"Niko 有新进展").slice(0,120);
+  agentNoticeTitle.textContent=String(payload.title||"Kardii 有新进展").slice(0,120);
   agentNoticeMessage.textContent=String(payload.message||"点击查看任务").slice(0,180);
   agentNotice.classList.remove("hidden");
 });
 agentNotice.addEventListener("click",()=>void openAgent(agentNoticeTaskId));
-petImage.src="./assets/pet/idle.webp";
-petImage.alt="Niko";
+petImage.src="./assets/pet/frames/idle/00.png";
+petImage.alt="Kardii";
 void setScale(scale);
