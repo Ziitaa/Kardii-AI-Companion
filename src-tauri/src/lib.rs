@@ -4,6 +4,7 @@ mod storage;
 mod voice;
 mod oauth;
 mod trading;
+mod readonly_viewer;
 mod wecom;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use image::{DynamicImage, ImageFormat};
@@ -36,6 +37,7 @@ use storage::{
     storage_bootstrap, storage_clear, storage_create_snapshot, storage_remove,
     storage_restore_snapshot, storage_set, storage_status, StorageState,
 };
+use readonly_viewer::{initialize_readonly_viewer, readonly_viewer_pairing_link, readonly_viewer_status};
 use trading::{delete_binance_readonly_credentials, evaluate_trade_risk, get_binance_readonly_status, get_market_snapshot, get_real_ledger_status, get_symbol_research, get_trading_runtime_status, refresh_trading_runtime, save_binance_readonly_credentials, scan_market_opportunities, sync_binance_readonly_ledger, TradingRuntimeState};
 use wecom::{
     cancel_wecom_qr_authorization, delete_wecom_bot_secret, disconnect_wecom_documents,
@@ -5933,6 +5935,7 @@ pub fn run() {
             trading_runtime
                 .initialize_persistence(&app_data_dir)
                 .map_err(|error| format!("无法初始化 Kardii 交易运行层：{error}"))?;
+            let _ = initialize_readonly_viewer(&app_data_dir);
             let voice_state = VoiceState::new(app_data_dir);
             voice_state.initialize_if_installed();
             app.manage(storage_state);
@@ -6050,6 +6053,8 @@ pub fn run() {
             get_binance_readonly_status,
             delete_binance_readonly_credentials,
             get_real_ledger_status,
+            readonly_viewer_status,
+            readonly_viewer_pairing_link,
             sync_binance_readonly_ledger,
             get_market_snapshot,
             get_symbol_research,
