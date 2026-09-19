@@ -1,8 +1,30 @@
-const { getCurrentWindow, getAllWindows } = window.__TAURI__.window;
+const { getCurrentWindow, getAllWindows, PhysicalSize, PhysicalPosition } = window.__TAURI__.window;
 const { emitTo } = window.__TAURI__.event;
 const { invoke, Channel } = window.__TAURI__.core;
 
 const chatWindow = getCurrentWindow();
+const CHAT_BOUNDS_KEY = "kardii-chat-window-bounds-v1";
+const chatDragHeader = document.getElementById("chatDragHeader");
+
+async function restoreChatBounds() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(CHAT_BOUNDS_KEY) || "null");
+    if (!saved) return;
+    await chatWindow.setSize(new PhysicalSize(Math.max(480, Number(saved.width)||620), Math.max(520, Number(saved.height)||680)));
+    if (Number.isFinite(saved.x) && Number.isFinite(saved.y)) await chatWindow.setPosition(new PhysicalPosition(saved.x, saved.y));
+  } catch {}
+}
+async function saveChatBounds() {
+  try {
+    const [size, position] = await Promise.all([chatWindow.outerSize(), chatWindow.outerPosition()]);
+    localStorage.setItem(CHAT_BOUNDS_KEY, JSON.stringify({width:size.width,height:size.height,x:position.x,y:position.y}));
+  } catch {}
+}
+chatDragHeader?.addEventListener("mousedown",(event)=>{
+  if(event.button!==0 || event.target.closest("button,input,select,textarea,a")) return;
+  void chatWindow.startDragging();
+});
+void restoreChatBounds();
 const form = document.getElementById("chatForm");
 const input = document.getElementById("messageInput");
 const messagesElement = document.getElementById("messages");
@@ -3641,6 +3663,7 @@ async function closeChat() {
   if (voiceRecordingPhase === "recording") {
     await invoke("stop_voice_recording").catch(() => {});
   }
+  await saveChatBounds();
   await chatWindow.hide();
 }
 
@@ -4677,9 +4700,15 @@ window.addEventListener("keydown", (event) => {
   else void closeChat();
 });
 
+let saveBoundsTimer=0;
 window.addEventListener("resize", () => {
   if (!tourOverlay.classList.contains("hidden")) updateTourStep();
+  clearTimeout(saveBoundsTimer);
+  saveBoundsTimer=setTimeout(()=>void saveChatBounds(),250);
 });
+if(typeof chatWindow.onMoved==="function"){
+  void chatWindow.onMoved(()=>{clearTimeout(saveBoundsTimer);saveBoundsTimer=setTimeout(()=>void saveChatBounds(),250);});
+}
 
 window.addEventListener("focus", () => {
   consumeChatSessionTarget();
