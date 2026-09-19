@@ -1952,3 +1952,17 @@ textarea {
   .header-actions .icon-button.is-active { transform: none; }
   .chat-quick-start button:hover { transform: none; }
 }
+
+/* 2026-09 Kardii usability pass */
+.business-capture-notice{display:none!important}
+.chat-card{font-size:14px}
+header{min-height:64px;padding:14px 16px 12px}
+.chat-identity{max-width:240px}
+.chat-context-line{font-size:10px}
+.messages{gap:11px;padding:16px}
+.message{max-width:82%;padding:11px 14px;font-size:15px;line-height:1.58}
+textarea{font-size:15px;line-height:1.45;max-height:120px}
+form{margin:0 14px;padding:9px 9px 9px 13px}
+#sendButton,#stopButton,#micButton,#agentModeButton{width:38px;height:38px}
+.hint{font-size:10px}
+@media (min-width:700px){.message{font-size:16px}textarea{font-size:16px}}
