@@ -386,6 +386,11 @@ struct BinanceTradeRecord {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+struct BinancePriceTicker {
+    price: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct BinanceTicker {
     symbol: String,
@@ -941,6 +946,18 @@ pub struct TradingRuntimeSnapshot {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ShadowExperimentStatus {
+    open_count: i64,
+    closed_count: i64,
+    positive_count: i64,
+    negative_count: i64,
+    average_return_percent: f64,
+    latest_closed_at: String,
+    horizon_minutes: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ExecutionGuardStatus {
     latched: bool,
     reason: String,
@@ -1122,6 +1139,21 @@ impl TradingRuntimeState {
                status TEXT NOT NULL,
                detail TEXT NOT NULL
              );
+             CREATE TABLE IF NOT EXISTS shadow_strategy_trials (
+               id INTEGER PRIMARY KEY AUTOINCREMENT,
+               symbol TEXT NOT NULL,
+               signal TEXT NOT NULL,
+               opened_at_ms INTEGER NOT NULL,
+               entry_price REAL NOT NULL,
+               horizon_minutes INTEGER NOT NULL,
+               attention_score REAL NOT NULL,
+               status TEXT NOT NULL,
+               closed_at_ms INTEGER,
+               exit_price REAL,
+               return_percent REAL
+             );
+             CREATE INDEX IF NOT EXISTS shadow_strategy_trials_status
+               ON shadow_strategy_trials(status, opened_at_ms);
              CREATE TABLE IF NOT EXISTS execution_guard (
                id INTEGER PRIMARY KEY CHECK(id = 1),
                latched INTEGER NOT NULL,
@@ -1702,6 +1734,124 @@ impl TradingRuntimeState {
         })
     }
 
+    fn create_shadow_trials(&self, scan: &OpportunityScan) -> Result<(), String> {
+        self.with_database_mut(|connection| {
+            let transaction = connection.transaction()
+                .map_err(|error| format!("无法开始 Shadow 策略实验：{error}"))?;
+            let now_ms = Utc::now().timestamp_millis();
+            for candidate in scan.candidates.iter().take(3) {
+                let exists: i64 = transaction.query_row(
+                    "SELECT COUNT(*) FROM shadow_strategy_trials WHERE symbol = ?1 AND status = 'open'",
+                    [&candidate.symbol],
+                    |row| row.get(0),
+                ).map_err(|error| format!("无法检查 Shadow 实验：{error}"))?;
+                if exists > 0 { continue; }
+                transaction.execute(
+                    "INSERT INTO shadow_strategy_trials(
+                       symbol, signal, opened_at_ms, entry_price, horizon_minutes, attention_score, status
+                     ) VALUES(?1, ?2, ?3, ?4, 60, ?5, 'open')",
+                    params![
+                        candidate.symbol,
+                        candidate.signal,
+                        now_ms,
+                        candidate.last_price,
+                        candidate.attention_score,
+                    ],
+                ).map_err(|error| format!("无法建立 Shadow 实验：{error}"))?;
+            }
+            transaction.commit()
+                .map_err(|error| format!("无法提交 Shadow 实验：{error}"))
+        })
+    }
+
+    fn due_shadow_trials(&self) -> Result<Vec<(i64, String, f64, i64)>, String> {
+        let now_ms = Utc::now().timestamp_millis();
+        self.with_database(|connection| {
+            let mut statement = connection.prepare(
+                "SELECT id, symbol, entry_price, horizon_minutes
+                 FROM shadow_strategy_trials
+                 WHERE status = 'open'
+                   AND opened_at_ms + horizon_minutes * 60000 <= ?1
+                 ORDER BY opened_at_ms ASC
+                 LIMIT 12"
+            ).map_err(|error| format!("无法读取待结算 Shadow 实验：{error}"))?;
+            let rows = statement.query_map([now_ms], |row| Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, f64>(2)?,
+                row.get::<_, i64>(3)?,
+            ))).map_err(|error| format!("无法读取待结算 Shadow 实验：{error}"))?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(|error| format!("无法整理待结算 Shadow 实验：{error}"))
+        })
+    }
+
+    fn close_shadow_trial(&self, id: i64, entry_price: f64, exit_price: f64) -> Result<(), String> {
+        let return_percent = if entry_price > 0.0 {
+            ((exit_price - entry_price) / entry_price) * 100.0
+        } else { 0.0 };
+        self.with_database(|connection| {
+            connection.execute(
+                "UPDATE shadow_strategy_trials
+                 SET status = 'closed', closed_at_ms = ?1, exit_price = ?2, return_percent = ?3
+                 WHERE id = ?4 AND status = 'open'",
+                params![Utc::now().timestamp_millis(), exit_price, return_percent, id],
+            ).map_err(|error| format!("无法结算 Shadow 实验：{error}"))?;
+            Ok(())
+        })
+    }
+
+    async fn update_shadow_trials(&self, scan: &OpportunityScan) -> Result<(), String> {
+        self.create_shadow_trials(scan)?;
+        let due = self.due_shadow_trials()?;
+        if due.is_empty() { return Ok(()); }
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .build()
+            .map_err(|error| format!("无法初始化 Shadow 行情客户端：{error}"))?;
+        for (id, symbol, entry_price, _horizon) in due {
+            let path = format!("/api/v3/ticker/price?symbol={symbol}");
+            if let Ok((_source, ticker)) = fetch_public_json::<BinancePriceTicker>(&client, &path).await {
+                let exit_price = parse_number(&ticker.price);
+                if exit_price > 0.0 {
+                    let _ = self.close_shadow_trial(id, entry_price, exit_price);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn shadow_experiment_status(&self) -> Result<ShadowExperimentStatus, String> {
+        self.with_database(|connection| {
+            let open_count: i64 = connection.query_row(
+                "SELECT COUNT(*) FROM shadow_strategy_trials WHERE status = 'open'",
+                [], |row| row.get(0)
+            ).map_err(|error| format!("无法统计 Shadow 实验：{error}"))?;
+            let (closed_count, positive_count, negative_count, average_return, latest_closed_ms): (i64, i64, i64, f64, i64) = connection.query_row(
+                "SELECT COUNT(*),
+                        COALESCE(SUM(CASE WHEN return_percent > 0 THEN 1 ELSE 0 END), 0),
+                        COALESCE(SUM(CASE WHEN return_percent < 0 THEN 1 ELSE 0 END), 0),
+                        COALESCE(AVG(return_percent), 0),
+                        COALESCE(MAX(closed_at_ms), 0)
+                 FROM shadow_strategy_trials WHERE status = 'closed'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            ).map_err(|error| format!("无法统计 Shadow 实验结果：{error}"))?;
+            let latest_closed_at = chrono::DateTime::<Utc>::from_timestamp_millis(latest_closed_ms)
+                .map(|value| value.to_rfc3339())
+                .unwrap_or_default();
+            Ok(ShadowExperimentStatus {
+                open_count,
+                closed_count,
+                positive_count,
+                negative_count,
+                average_return_percent: (average_return * 1000.0).round() / 1000.0,
+                latest_closed_at,
+                horizon_minutes: 60,
+            })
+        })
+    }
+
     fn persist_refresh(&self, scan: &OpportunityScan, research: &[SymbolResearch]) -> Result<(), String> {
         self.with_database_mut(|connection| {
             let transaction = connection.transaction()
@@ -1807,6 +1957,7 @@ impl TradingRuntimeState {
                     }
                 }
                 let persistence_error = self.persist_refresh(&scan, &research).err().unwrap_or_default();
+                let shadow_error = self.update_shadow_trials(&scan).await.err().unwrap_or_default();
                 {
                     let mut inner = self.inner.write().await;
                     inner.refreshing = false;
@@ -1816,7 +1967,7 @@ impl TradingRuntimeState {
                     inner.candidates = scan.candidates;
                     inner.research = research;
                     inner.last_error.clear();
-                    inner.persistence_error = persistence_error;
+                    inner.persistence_error = [persistence_error, shadow_error].into_iter().filter(|value| !value.is_empty()).collect::<Vec<_>>().join("；");
                 }
                 Ok(self.snapshot().await)
             }
@@ -2019,6 +2170,13 @@ impl TradingRuntimeState {
 
         Ok(RiskDecision { allowed: reasons.is_empty(), reasons, policy })
     }
+}
+
+#[tauri::command]
+pub fn get_shadow_experiment_status(
+    state: tauri::State<'_, TradingRuntimeState>,
+) -> Result<ShadowExperimentStatus, String> {
+    state.shadow_experiment_status()
 }
 
 #[tauri::command]

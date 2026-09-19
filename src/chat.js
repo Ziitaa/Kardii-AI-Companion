@@ -2247,6 +2247,8 @@ async function handleTradingRuntimeQuestion(text) {
     }
     let coreLedger=null;
     try{coreLedger=await invoke("get_real_ledger_status");}catch{}
+    let shadowStatus=null;
+    try{shadowStatus=await invoke("get_shadow_experiment_status");}catch{}
     const wantsAccount=/(?:Binance|币安|账户|余额|API)/i.test(question);
     let binanceAccount=null;
     if(wantsAccount){
@@ -2267,6 +2269,7 @@ async function handleTradingRuntimeQuestion(text) {
       top.length?("优先研究："+top.map(x=>x.symbol+"（"+Number(x.attentionScore||0).toFixed(1)+"）").join("、")):"暂时没有候选。",
       research.length?("当前证据已补充："+research.map(x=>x.symbol).join("、")):"",
       experiments.length?("正在观察的策略实验："+experiments.map(x=>x.symbol+"（已观察 "+x.observationCount+" 次）").join("、")):"当前没有持续观察实验。",
+      shadowStatus?("Shadow 1小时实验：进行中 "+shadowStatus.openCount+" 个，已结算 "+shadowStatus.closedCount+" 个，平均结果 "+Number(shadowStatus.averageReturnPercent||0).toFixed(3)+"%。"):"",
       history.length?("最近研究历史："+history.map(x=>x.symbol+" "+new Date(x.scannedAt).toLocaleTimeString("zh-CN",{hour:"2-digit",minute:"2-digit"})).join("、")):"",
       runtime.persistenceError?("本地研究库状态："+runtime.persistenceError):"研究历史已写入本机持久化数据库。",
       coreLedger?("核心真实账本："+coreLedger.eventCount+" 条真实事件；余额快照 "+coreLedger.snapshotCount+" 条；对账状态 "+coreLedger.reconciliationStatus+"。"):"",

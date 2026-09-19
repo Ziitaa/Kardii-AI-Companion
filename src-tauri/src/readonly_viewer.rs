@@ -249,6 +249,12 @@ fn read_status(path: &Path) -> Result<serde_json::Value, String> {
     let snapshot_count: i64 = connection
         .query_row("SELECT COUNT(*) FROM account_balance_snapshots", [], |row| row.get(0))
         .unwrap_or(0);
+    let shadow_open: i64 = connection
+        .query_row("SELECT COUNT(*) FROM shadow_strategy_trials WHERE status = 'open'", [], |row| row.get(0))
+        .unwrap_or(0);
+    let (shadow_closed, shadow_avg): (i64, f64) = connection
+        .query_row("SELECT COUNT(*), COALESCE(AVG(return_percent), 0) FROM shadow_strategy_trials WHERE status = 'closed'", [], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap_or((0, 0.0));
 
     let risk_gate = connection.query_row(
         "SELECT real_execution_enabled, max_order_notional_usdt, max_daily_loss_usdt, max_open_positions FROM risk_policy WHERE id = 1",
@@ -308,6 +314,11 @@ fn read_status(path: &Path) -> Result<serde_json::Value, String> {
         "observingExperimentCount": observing_count,
         "realLedgerEventCount": ledger_count,
         "balanceSnapshotCount": snapshot_count,
+        "shadowExperiments": {
+            "open": shadow_open,
+            "closed": shadow_closed,
+            "averageReturnPercent": (shadow_avg * 1000.0).round() / 1000.0
+        },
         "reconciliation": reconciliation.map(|value| serde_json::json!({
             "status": value.0,
             "detail": value.1,
