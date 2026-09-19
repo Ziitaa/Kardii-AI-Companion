@@ -13,7 +13,7 @@
         <div class="avatar">K</div>
         <div class="chat-identity">
           <strong>Niko</strong>
-          <span class="chat-context-line"><span id="chatSessionTitle">新对话</span><span aria-hidden="true">·</span><span id="activeModelBadge" class="active-model-badge">DeepSeek</span></span>
+          <span class="chat-context-line"><span id="chatSessionTitle">新对话</span><span aria-hidden="true">·</span><span id="activeModelBadge" class="active-model-badge">ChatGPT</span></span>
         </div>
         <div class="header-actions" aria-label="Niko 快捷功能">
           <button id="chatSessionsButton" class="icon-button chat-sessions-button" type="button" aria-label="聊天会话" title="聊天会话">▤</button>
@@ -86,7 +86,7 @@
           </div>
           <div class="settings-section-title ai-section-title">
             <strong>聊天模型</strong>
-            <span data-current-version>v2.1.0</span>
+            <span data-current-version>v2.2.0</span>
           </div>
           <label for="providerSelect">Niko 模型</label>
           <select id="providerSelect" class="settings-input">
@@ -96,15 +96,6 @@
 
           <label for="aiModelSelect">模型</label>
           <select id="aiModelSelect" class="settings-input"></select>
-
-          <div id="ollamaSettings" class="ollama-settings hidden">
-            <label for="ollamaBaseUrlInput">Ollama 本机地址</label>
-            <div class="ollama-address-row">
-              <input id="ollamaBaseUrlInput" class="settings-input" value="http://127.0.0.1:11434" autocomplete="off">
-              <button id="refreshOllamaButton" class="secondary-button" type="button">刷新模型</button>
-            </div>
-            <p class="ollama-note">需要先安装并运行 Ollama，再在 Ollama 中下载至少一个模型。Niko 只连接这台电脑。</p>
-          </div>
 
           <label for="responseLengthSelect">回答长度</label>
           <select id="responseLengthSelect">
@@ -152,7 +143,7 @@
           <button id="reopenOnboardingButton" class="guide-settings-button" type="button">重新查看新手引导与本次更新</button>
           <div class="settings-section-title">
             <strong>应用更新</strong>
-            <span data-current-version>v2.1.0</span>
+            <span data-current-version>v2.2.0</span>
           </div>
 
           <div class="update-card">
@@ -170,7 +161,7 @@
 
           <div class="settings-section-title">
             <strong>本机数据</strong>
-            <span data-current-version>v2.1.0</span>
+            <span data-current-version>v2.2.0</span>
           </div>
           <div class="update-card storage-card">
             <div class="update-information">
@@ -187,7 +178,7 @@
 
           <div class="settings-section-title">
             <strong>离线语音</strong>
-            <span data-current-version>v2.1.0</span>
+            <span data-current-version>v2.2.0</span>
           </div>
           <p class="voice-privacy">录音只在这台电脑上识别，不会上传。第一次需要联网下载约 160 MB，安装后占用约 230 MB。</p>
           <div class="voice-model-card">
