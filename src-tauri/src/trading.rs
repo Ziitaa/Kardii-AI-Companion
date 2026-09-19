@@ -1877,6 +1877,20 @@ impl TradingRuntimeState {
             reasons.push("杠杆未启用。".to_string());
         }
         if policy.real_execution_enabled {
+            let reconciliation_ready = self.with_database(|connection| {
+                let status = connection
+                    .query_row(
+                        "SELECT status FROM ledger_reconciliation WHERE venue = 'binance'",
+                        [],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .optional()
+                    .map_err(|error| format!("无法读取真实账本对账状态：{error}"))?;
+                Ok(matches!(status.as_deref(), Some("complete") | Some("ok")))
+            }).unwrap_or(false);
+            if !reconciliation_ready {
+                reasons.push("真实账本与账户对账尚未达到完整状态，执行层保持锁定。".to_string());
+            }
             if policy.max_order_notional_usdt <= 0.0 {
                 reasons.push("单笔订单上限尚未配置。".to_string());
             } else if request.notional_usdt > policy.max_order_notional_usdt {
