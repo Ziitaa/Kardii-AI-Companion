@@ -574,7 +574,7 @@
 
   const HIDDEN_FEATURE_IDS = new Set(["wecom", "enterprise-analysis", "mcp"]);
   const ACTIVE_FEATURES = FEATURES.filter((feature) => !HIDDEN_FEATURE_IDS.has(feature.id)).map((feature) => {
-    if (feature.id === "workbench") return {...feature,title:"Niko 控制台",summary:"集中查看策略实验、市场研究、研究资料与执行任务。",steps:["打开工作台进入 Niko 控制台。","用“策略与实验”保存验证计划与复盘。","用“市场研究”和“研究资料”保留来源与证据。"],example:"打开 Niko 控制台，告诉我当前有哪些策略实验、研究资料和待执行任务。",promptFact:"Niko 控制台前台保留策略与实验、市场研究、研究资料和外部资料入口；旧的关系库、企业联合分析、企业微信与 MCP 配置不再作为前台功能。"};
+    if (feature.id === "workbench") return {...feature,title:"Kardii 运行台",summary:"查看 Kardii 的运行状态、真实账本与研究日志。市场数据、机会扫描、策略实验与风险规则可留在内部。 ",steps:["打开工作台进入 Kardii 运行台。","策略实验、机会扫描和风险规则由 Kardii 内部保存，必要时再显示。","真实资金、真实成交、费用和资金变动进入真实账本；模拟结果绝不混入。"],example:"打开 Kardii 运行台，告诉我现在在做什么、账本有没有变化、最近研究了什么。",promptFact:"Kardii 运行台前台只保留运行状态、真实账本和研究日志；市场数据、机会扫描、策略实验和风险规则可以作为内部状态保存，不要求用户手动管理。"};
     if (feature.id === "connections") return {...feature,title:"连接研究资料来源",summary:"可保留邮箱、浏览器当前页以及 Google / Microsoft 的只读资料入口。",steps:["打开工作台的“外部连接”。","按需要连接邮箱、浏览器或云端资料。","同步或发送资料后再交给 Niko 研究、归档或执行。"],promptFact:"前台外部连接保留 IMAP 邮箱、Google/Microsoft 只读概览与 Chrome/Edge 当前网页；企业微信和 MCP 配置已从前台移除。"};
     return feature;
   });
