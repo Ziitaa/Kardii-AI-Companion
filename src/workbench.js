@@ -456,10 +456,21 @@ function renderRemoteSnapshot(snapshot) {
   ).join("") : '<div class="empty">暂无交易意图。</div>';
 
   const decisionShadow = snapshot.decisionShadow || {};
+  const benchmarks = Array.isArray(decisionShadow.providerBenchmarks) ? decisionShadow.providerBenchmarks : [];
   const decisions = Array.isArray(decisionShadow.recent) ? decisionShadow.recent : [];
-  remoteDecisionShadowList.innerHTML = decisions.length ? decisions.map(x =>
+  const benchmarkRows = benchmarks.map(x =>
+    '<div class="row"><strong>'+esc(x.provider)+'</strong><span>benchmark</span><div><span>'+
+    (x.settledCount ? ('direction '+esc(Number(x.directionAccuracyPercent||0).toFixed(1))+'%') : 'awaiting outcomes')+
+    '</span><small>settled '+esc(x.settledCount||0)+' · enter '+esc(x.settledEnterCount||0)+
+    (x.settledEnterCount ? (' · positive '+esc(Number(x.enterPositiveRatePercent||0).toFixed(1))+'% · avg1h '+esc(Number(x.averageEnterReturn1hPercent||0).toFixed(3))+'%') : '')+
+    '</small></div><small>'+esc(Number(x.averageLatencyMs||0).toFixed(1))+'ms</small></div>'
+  );
+  const decisionRows = decisions.map(x =>
     '<div class="row"><strong>'+esc(x.symbol)+'</strong><span>'+esc(x.provider)+'</span><div><span>'+esc(String(x.direction||"").toUpperCase())+' · '+esc(String(x.action||"").toUpperCase())+'</span><small>'+esc(x.marketRegime||"")+' · risk '+esc(x.riskState||"")+' · conf '+esc(Number(x.confidence||0).toFixed(2))+' · '+esc(x.status||"")+(x.actualOutcome?' · actual '+esc(x.actualOutcome):'')+'</small></div><small>'+esc(x.latencyMs||0)+'ms</small></div>'
-  ).join("") : '<div class="empty">暂无 Decision Shadow 判断。</div>';
+  );
+  remoteDecisionShadowList.innerHTML = (benchmarkRows.length || decisionRows.length)
+    ? benchmarkRows.concat(decisionRows).join("")
+    : '<div class="empty">暂无 Decision Shadow 判断。</div>';
 }
 
 renderRemoteSnapshot(null);
@@ -476,10 +487,19 @@ async function refreshDecisionShadowStatus() {
     const latest = status.latestSymbol
       ? "最近 " + status.latestSymbol + " · " + String(status.latestDirection || "").toUpperCase() + " / " + String(status.latestAction || "").toUpperCase()
       : "等待首次市场样本";
+    const benchmarks = Array.isArray(status.providerBenchmarks) ? status.providerBenchmarks : [];
+    const benchmarkText = benchmarks.length
+      ? " · " + benchmarks.map(item =>
+          item.provider + " " +
+          (item.settledCount ? ("accuracy " + Number(item.directionAccuracyPercent || 0).toFixed(1) + "%") : "awaiting outcomes") +
+          " · " + Number(item.averageLatencyMs || 0).toFixed(1) + "ms"
+        ).join(" | ")
+      : "";
     decisionShadowDetail.textContent =
       latest + " · predictions " + status.predictionCount +
       " · settled " + status.settledOutcomes +
       " · providers " + status.providersSeen +
+      benchmarkText +
       " · external provider " + (status.externalProviderConfigured ? "connected" : "not configured");
   } catch (error) {
     decisionShadowStatus.textContent = "Shadow 暂不可用";

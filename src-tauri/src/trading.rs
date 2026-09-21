@@ -1289,6 +1289,24 @@ pub struct ShadowExperimentStatus {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DecisionProviderBenchmark {
+    provider: String,
+    provider_version: String,
+    prediction_count: i64,
+    settled_count: i64,
+    correct_direction_count: i64,
+    direction_accuracy_percent: f64,
+    enter_count: i64,
+    settled_enter_count: i64,
+    positive_enter_count: i64,
+    enter_positive_rate_percent: f64,
+    average_enter_return_1h_percent: f64,
+    average_latency_ms: f64,
+    estimated_cost_usd: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DecisionShadowStatus {
     mode: String,
     sample_count: i64,
@@ -1298,6 +1316,7 @@ pub struct DecisionShadowStatus {
     providers_seen: i64,
     effective_predictions: i64,
     average_latency_ms: f64,
+    provider_benchmarks: Vec<DecisionProviderBenchmark>,
     latest_decision_at: String,
     latest_provider: String,
     latest_symbol: String,
@@ -2464,6 +2483,80 @@ impl TradingRuntimeState {
                     |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
                 ).map_err(|error| format!("无法统计 Decision Shadow 判断：{error}"))?;
 
+            let mut provider_benchmarks = Vec::new();
+            let mut benchmark_statement = connection.prepare(
+                "SELECT p.provider,
+                        p.provider_version,
+                        COUNT(*),
+                        COALESCE(SUM(CASE WHEN s.status = 'settled' THEN 1 ELSE 0 END), 0),
+                        COALESCE(SUM(CASE WHEN s.status = 'settled' AND p.direction = s.actual_outcome THEN 1 ELSE 0 END), 0),
+                        COALESCE(SUM(CASE WHEN p.action = 'enter' THEN 1 ELSE 0 END), 0),
+                        COALESCE(SUM(CASE WHEN p.action = 'enter' AND s.status = 'settled' THEN 1 ELSE 0 END), 0),
+                        COALESCE(SUM(CASE WHEN p.action = 'enter' AND s.status = 'settled' AND s.return_1h > 0 THEN 1 ELSE 0 END), 0),
+                        COALESCE(AVG(CASE WHEN p.action = 'enter' AND s.status = 'settled' THEN s.return_1h END), 0),
+                        COALESCE(AVG(p.latency_ms), 0),
+                        COALESCE(SUM(p.estimated_cost_usd), 0)
+                 FROM decision_shadow_predictions p
+                 JOIN decision_shadow_samples s ON s.sample_id = p.sample_id
+                 GROUP BY p.provider, p.provider_version
+                 ORDER BY p.provider ASC, p.provider_version ASC"
+            ).map_err(|error| format!("无法准备 Decision Provider benchmark：{error}"))?;
+            let benchmark_rows = benchmark_statement.query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, i64>(6)?,
+                    row.get::<_, i64>(7)?,
+                    row.get::<_, f64>(8)?,
+                    row.get::<_, f64>(9)?,
+                    row.get::<_, f64>(10)?,
+                ))
+            }).map_err(|error| format!("无法统计 Decision Provider benchmark：{error}"))?;
+            for row in benchmark_rows {
+                let (
+                    provider,
+                    provider_version,
+                    provider_prediction_count,
+                    provider_settled_count,
+                    correct_direction_count,
+                    enter_count,
+                    settled_enter_count,
+                    positive_enter_count,
+                    average_enter_return_1h_percent,
+                    provider_average_latency_ms,
+                    estimated_cost_usd,
+                ) = row.map_err(|error| format!("无法读取 Decision Provider benchmark：{error}"))?;
+                let direction_accuracy_percent = if provider_settled_count > 0 {
+                    correct_direction_count as f64 / provider_settled_count as f64 * 100.0
+                } else {
+                    0.0
+                };
+                let enter_positive_rate_percent = if settled_enter_count > 0 {
+                    positive_enter_count as f64 / settled_enter_count as f64 * 100.0
+                } else {
+                    0.0
+                };
+                provider_benchmarks.push(DecisionProviderBenchmark {
+                    provider,
+                    provider_version,
+                    prediction_count: provider_prediction_count,
+                    settled_count: provider_settled_count,
+                    correct_direction_count,
+                    direction_accuracy_percent: (direction_accuracy_percent * 100.0).round() / 100.0,
+                    enter_count,
+                    settled_enter_count,
+                    positive_enter_count,
+                    enter_positive_rate_percent: (enter_positive_rate_percent * 100.0).round() / 100.0,
+                    average_enter_return_1h_percent: (average_enter_return_1h_percent * 1000.0).round() / 1000.0,
+                    average_latency_ms: (provider_average_latency_ms * 100.0).round() / 100.0,
+                    estimated_cost_usd: (estimated_cost_usd * 1_000_000.0).round() / 1_000_000.0,
+                });
+            }
+
             let latest = connection.query_row(
                 "SELECT p.created_at, p.provider, s.symbol, p.direction, p.action
                  FROM decision_shadow_predictions p
@@ -2491,6 +2584,7 @@ impl TradingRuntimeState {
                 providers_seen,
                 effective_predictions,
                 average_latency_ms: (average_latency_ms * 100.0).round() / 100.0,
+                provider_benchmarks,
                 latest_decision_at,
                 latest_provider,
                 latest_symbol,

@@ -565,6 +565,61 @@ fn read_status(path: &Path) -> Result<serde_json::Value, String> {
     }
 
 
+    let mut decision_provider_benchmarks = Vec::new();
+    if let Ok(mut statement) = connection.prepare(
+        "SELECT p.provider,
+                p.provider_version,
+                COUNT(*),
+                COALESCE(SUM(CASE WHEN s.status = 'settled' THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN s.status = 'settled' AND p.direction = s.actual_outcome THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN p.action = 'enter' THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN p.action = 'enter' AND s.status = 'settled' THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN p.action = 'enter' AND s.status = 'settled' AND s.return_1h > 0 THEN 1 ELSE 0 END), 0),
+                COALESCE(AVG(CASE WHEN p.action = 'enter' AND s.status = 'settled' THEN s.return_1h END), 0),
+                COALESCE(AVG(p.latency_ms), 0),
+                COALESCE(SUM(p.estimated_cost_usd), 0)
+         FROM decision_shadow_predictions p
+         JOIN decision_shadow_samples s ON s.sample_id = p.sample_id
+         GROUP BY p.provider, p.provider_version
+         ORDER BY p.provider ASC, p.provider_version ASC"
+    ) {
+        if let Ok(rows) = statement.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, i64>(5)?,
+                row.get::<_, i64>(6)?,
+                row.get::<_, i64>(7)?,
+                row.get::<_, f64>(8)?,
+                row.get::<_, f64>(9)?,
+                row.get::<_, f64>(10)?,
+            ))
+        }) {
+            for row in rows.flatten() {
+                let direction_accuracy = if row.3 > 0 { row.4 as f64 / row.3 as f64 * 100.0 } else { 0.0 };
+                let enter_positive_rate = if row.6 > 0 { row.7 as f64 / row.6 as f64 * 100.0 } else { 0.0 };
+                decision_provider_benchmarks.push(serde_json::json!({
+                    "provider": row.0,
+                    "providerVersion": row.1,
+                    "predictionCount": row.2,
+                    "settledCount": row.3,
+                    "correctDirectionCount": row.4,
+                    "directionAccuracyPercent": (direction_accuracy * 100.0).round() / 100.0,
+                    "enterCount": row.5,
+                    "settledEnterCount": row.6,
+                    "positiveEnterCount": row.7,
+                    "enterPositiveRatePercent": (enter_positive_rate * 100.0).round() / 100.0,
+                    "averageEnterReturn1hPercent": (row.8 * 1000.0).round() / 1000.0,
+                    "averageLatencyMs": (row.9 * 100.0).round() / 100.0,
+                    "estimatedCostUsd": (row.10 * 1_000_000.0).round() / 1_000_000.0
+                }));
+            }
+        }
+    }
+
     let mut decision_shadow_recent = Vec::new();
     if let Ok(mut statement) = connection.prepare(
         "SELECT p.provider, p.provider_version, s.symbol, p.direction, p.action,
@@ -626,6 +681,7 @@ fn read_status(path: &Path) -> Result<serde_json::Value, String> {
             "settledOutcomeCount": decision_settled_count,
             "externalProviderConfigured": false,
             "executionLinked": false,
+            "providerBenchmarks": decision_provider_benchmarks,
             "recent": decision_shadow_recent
         },
         "shadowExperiments": {
