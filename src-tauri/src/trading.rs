@@ -17,13 +17,37 @@ const MARKET_GATEWAY_BASE_ENV: &str = "KARDII_MARKET_GATEWAY_BASE";
 const MARKET_GATEWAY_TOKEN_ENV: &str = "KARDII_MARKET_GATEWAY_TOKEN";
 const MARKET_GATEWAY_TOKEN_HEADER: &str = "X-Kardii-Market-Token";
 
-fn configured_market_gateway_base() -> Option<String> {
-    let value = std::env::var(MARKET_GATEWAY_BASE_ENV).ok()?;
-    let value = value.trim().trim_end_matches('/').to_string();
-    if value.is_empty() || !(value.starts_with("https://") || value.starts_with("http://")) {
-        return None;
+fn normalize_market_gateway_base(value: &str) -> Result<String, String> {
+    let mut url = reqwest::Url::parse(value.trim())
+        .map_err(|_| "Market Data Gateway 地址格式不正确。".to_string())?;
+    if !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err("Market Data Gateway 地址不能包含账号、密码、查询参数或 fragment。".to_string());
     }
-    Some(value)
+    if !matches!(url.path(), "" | "/") {
+        return Err("Market Data Gateway 地址必须使用站点根路径。".to_string());
+    }
+    let host = url.host_str().unwrap_or_default();
+    let loopback = matches!(host, "127.0.0.1" | "localhost" | "::1");
+    if url.scheme() != "https" && !(url.scheme() == "http" && loopback) {
+        return Err("远程 Market Data Gateway 必须使用 HTTPS；只有 localhost 可以使用 HTTP。".to_string());
+    }
+    url.set_path("");
+    let mut normalized = url.to_string();
+    while normalized.ends_with('/') {
+        normalized.pop();
+    }
+    Ok(normalized)
+}
+
+fn configured_market_gateway_base() -> Result<Option<String>, String> {
+    match std::env::var(MARKET_GATEWAY_BASE_ENV) {
+        Ok(value) if !value.trim().is_empty() => normalize_market_gateway_base(&value).map(Some),
+        _ => Ok(None),
+    }
 }
 
 fn public_market_path_allowed(path_and_query: &str) -> bool {
@@ -39,7 +63,7 @@ fn public_market_targets(path_and_query: &str) -> Result<Vec<(String, bool)>, St
     if !path_and_query.starts_with('/') {
         return Err("公开市场数据路径无效。".to_string());
     }
-    if let Some(base) = configured_market_gateway_base() {
+    if let Some(base) = configured_market_gateway_base()? {
         if !public_market_path_allowed(path_and_query) {
             return Err("Market Data Gateway 拒绝非公开行情路径。".to_string());
         }
@@ -899,6 +923,19 @@ mod tests {
         assert!(public_market_path_allowed("/api/v3/klines?symbol=BTCUSDT&interval=1m"));
         assert!(!public_market_path_allowed("/api/v3/account"));
         assert!(!public_market_path_allowed("/sapi/v1/account/apiRestrictions"));
+    }
+
+    #[test]
+    fn market_gateway_requires_https_except_loopback() {
+        assert_eq!(
+            normalize_market_gateway_base("https://market.example/").unwrap(),
+            "https://market.example"
+        );
+        assert!(normalize_market_gateway_base("http://127.0.0.1:8787").is_ok());
+        assert!(normalize_market_gateway_base("http://localhost:8787").is_ok());
+        assert!(normalize_market_gateway_base("http://market.example").is_err());
+        assert!(normalize_market_gateway_base("https://market.example/private").is_err());
+        assert!(normalize_market_gateway_base("https://user@market.example").is_err());
     }
 
     #[test]

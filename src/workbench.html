@@ -42,9 +42,9 @@
           <div class="panel-head"><div><span class="eyebrow">REMOTE · FULL STATUS</span><h3>远程 Kardii 全状态镜像</h3></div></div>
           <div class="connection-row">
             <div><strong id="remoteViewerStatus">未连接</strong><span id="remoteViewerDetail">公司电脑只保存远程配对凭据，不保存交易所 API。</span></div>
-            <div class="connection-actions"><button id="remoteViewerConnectBtn" class="primary">连接</button><button id="remoteViewerDisconnectBtn" class="secondary hidden">断开</button></div>
+            <div class="connection-actions"><button id="remoteViewerPairingBtn" class="secondary">复制本机配对链接</button><button id="remoteViewerConnectBtn" class="primary">连接</button><button id="remoteViewerDisconnectBtn" class="secondary hidden">断开</button></div>
           </div>
-          <div class="connection-note">连接后显示完整运行状态：研究、策略实验、Shadow、余额快照、真实账本、Trade Intent、Risk Gate 与 Kill Switch。密钥不会进入镜像；远程控制与交易执行仍保持关闭。</div>
+          <div class="connection-note">连接后显示完整运行状态：研究、策略实验、Shadow、余额快照、真实账本、Trade Intent、Risk Gate 与 Kill Switch。跨设备使用时，本机只读服务仍绑定 127.0.0.1，由独立 HTTPS transport 暴露；密钥不会进入镜像，远程控制与交易执行仍保持关闭。</div>
         </section>
         <section class="panel"><div class="panel-head"><div><span class="eyebrow">INTERNAL</span><h3>内部状态</h3></div></div>
           <div class="internal-list">

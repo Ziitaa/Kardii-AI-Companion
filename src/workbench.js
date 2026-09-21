@@ -57,6 +57,7 @@ const binanceConnectionStatus = document.getElementById("binanceConnectionStatus
 const binanceConnectionDetail = document.getElementById("binanceConnectionDetail");
 const remoteViewerStatus = document.getElementById("remoteViewerStatus");
 const remoteViewerDetail = document.getElementById("remoteViewerDetail");
+const remoteViewerPairingBtn = document.getElementById("remoteViewerPairingBtn");
 const remoteViewerConnectBtn = document.getElementById("remoteViewerConnectBtn");
 const remoteViewerDisconnectBtn = document.getElementById("remoteViewerDisconnectBtn");
 const agentCount = document.getElementById("agentCount");
@@ -116,6 +117,30 @@ modalCancel.onclick = closeModal;
 addLedgerBtn.onclick = () => openModal("ledger");
 addResearchBtn.onclick = () => openModal("research");
 if (binanceConnectBtn) binanceConnectBtn.onclick = () => openModal("binance");
+
+if (remoteViewerPairingBtn) {
+  remoteViewerPairingBtn.onclick = async () => {
+    if (!invokeCore) return;
+    try {
+      const pairingLink = await invokeCore("readonly_viewer_pairing_link");
+      let copied = false;
+      try {
+        await navigator.clipboard.writeText(pairingLink);
+        copied = true;
+      } catch {}
+      const localOnly = pairingLink.startsWith("http://127.0.0.1") || pairingLink.startsWith("http://localhost");
+      window.alert(
+        (copied ? "配对链接已复制。" : "配对链接已生成，请手动复制。") +
+        (localOnly
+          ? "\n当前还是本机地址，跨设备前需要先配置 HTTPS remote transport。"
+          : "\n当前已使用配置的 HTTPS 远程入口。")
+      );
+      if (!copied) window.prompt("Kardii 配对链接（包含访问凭据，请勿公开）：", pairingLink);
+    } catch (error) {
+      window.alert(String(error));
+    }
+  };
+}
 
 if (remoteViewerConnectBtn) {
   remoteViewerConnectBtn.onclick = async () => {

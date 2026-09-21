@@ -40,16 +40,16 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url || "/", "http://localhost");
 
+    if (req.method !== "GET") {
+      return json(res, 405, { error: "method_not_allowed" });
+    }
+
     if (url.pathname === "/healthz") {
       return json(res, 200, {
         ok: true,
         service: "kardii-market-gateway",
         upstream: "binance-public-market-data",
       });
-    }
-
-    if (req.method !== "GET") {
-      return json(res, 405, { error: "method_not_allowed" });
     }
     if (!authorized(req)) {
       return json(res, 401, { error: "unauthorized" });

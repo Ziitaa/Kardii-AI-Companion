@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 
 const trading = fs.readFileSync("src-tauri/src/trading.rs", "utf8");
 const gateway = fs.readFileSync("infra/market-gateway/server.mjs", "utf8");
@@ -7,6 +8,8 @@ const gateway = fs.readFileSync("infra/market-gateway/server.mjs", "utf8");
 assert.match(trading, /KARDII_MARKET_GATEWAY_BASE/);
 assert.match(trading, /KARDII_MARKET_GATEWAY_TOKEN/);
 assert.match(trading, /public_market_path_allowed/);
+assert.match(trading, /normalize_market_gateway_base/);
+assert.match(trading, /远程 Market Data Gateway 必须使用 HTTPS/);
 assert.match(trading, /fetch_public_json::<Vec<BinanceTicker>>\(&client, "\/api\/v3\/ticker\/24hr"\)/);
 
 const allowlistStart = trading.indexOf("fn public_market_path_allowed");
@@ -22,5 +25,14 @@ assert.doesNotMatch(gateway, /api[-_ ]?key/i);
 assert.doesNotMatch(gateway, /secret/i);
 assert.doesNotMatch(gateway, /withdraw/i);
 assert.doesNotMatch(gateway, /order/i);
+
+const methodGuard = gateway.indexOf('if (req.method !== "GET")');
+const healthRoute = gateway.indexOf('if (url.pathname === "/healthz")');
+assert.ok(methodGuard >= 0 && healthRoute > methodGuard);
+
+const syntax = spawnSync(process.execPath, ["--check", "infra/market-gateway/server.mjs"], {
+  encoding: "utf8",
+});
+assert.equal(syntax.status, 0, syntax.stderr || syntax.stdout);
 
 console.log("Kardii v2.2 market gateway boundary checks passed.");

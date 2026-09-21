@@ -1,5 +1,6 @@
 
 use rand::RngCore;
+use reqwest::Url;
 use rusqlite::Connection;
 use serde::Serialize;
 use std::{
@@ -18,6 +19,7 @@ use std::{
 const VIEWER_PORT: u16 = 43_199;
 const KEYRING_SERVICE: &str = "Kardii Trading Runtime";
 const KEYRING_ACCOUNT: &str = "readonly-viewer-token-v1";
+const REMOTE_PUBLIC_BASE_ENV: &str = "KARDII_REMOTE_VIEWER_PUBLIC_BASE";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -26,6 +28,7 @@ pub struct ReadOnlyViewerStatus {
     pub port: u16,
     pub bind_address: String,
     pub local_url: String,
+    pub public_url: String,
     pub remote_enabled: bool,
 }
 
@@ -47,12 +50,14 @@ impl ViewerRuntime {
     }
 
     fn status(&self) -> ReadOnlyViewerStatus {
+        let public_url = configured_remote_public_base().unwrap_or_default();
         ReadOnlyViewerStatus {
             running: self.running,
             port: VIEWER_PORT,
             bind_address: "127.0.0.1".to_string(),
             local_url: format!("http://127.0.0.1:{VIEWER_PORT}/"),
-            remote_enabled: false,
+            remote_enabled: !public_url.is_empty(),
+            public_url,
         }
     }
 }
@@ -61,6 +66,39 @@ fn state() -> &'static Arc<Mutex<ViewerRuntime>> {
     static STATE: OnceLock<Arc<Mutex<ViewerRuntime>>> = OnceLock::new();
     STATE.get_or_init(|| Arc::new(Mutex::new(ViewerRuntime::new())))
 }
+
+fn normalize_remote_public_base(value: &str) -> Result<String, String> {
+    let mut url = Url::parse(value.trim())
+        .map_err(|_| "远程 Kardii HTTPS 地址格式不正确。".to_string())?;
+    if !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err("远程 Kardii 地址不能包含账号、密码、查询参数或 fragment。".to_string());
+    }
+    if !matches!(url.path(), "" | "/") {
+        return Err("远程 Kardii 地址必须使用站点根路径。".to_string());
+    }
+    let host = url.host_str().unwrap_or_default();
+    let loopback = matches!(host, "127.0.0.1" | "localhost" | "::1");
+    if url.scheme() != "https" && !(url.scheme() == "http" && loopback) {
+        return Err("远程 Kardii 必须使用 HTTPS；只有本机 localhost 可以使用 HTTP。".to_string());
+    }
+    url.set_path("");
+    let mut normalized = url.to_string();
+    while normalized.ends_with('/') {
+        normalized.pop();
+    }
+    Ok(normalized)
+}
+
+fn configured_remote_public_base() -> Option<String> {
+    std::env::var(REMOTE_PUBLIC_BASE_ENV)
+        .ok()
+        .and_then(|value| normalize_remote_public_base(&value).ok())
+}
+
 
 fn random_token() -> String {
     let mut bytes = [0u8; 32];
@@ -197,10 +235,15 @@ fn handle_request(mut stream: TcpStream, runtime: Arc<Mutex<ViewerRuntime>>) {
     }
 
     if request.path == "/health" {
+        let remote_enabled = runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .status()
+            .remote_enabled;
         write_json(&mut stream, "200 OK", serde_json::json!({
             "app": "Kardii",
             "service": "readonly-viewer",
-            "remoteEnabled": false
+            "remoteEnabled": remote_enabled
         }));
         return;
     }
@@ -607,7 +650,12 @@ pub fn readonly_viewer_pairing_link() -> Result<String, String> {
     if !status.running {
         return Err("Kardii 只读状态服务尚未启动。".to_string());
     }
-    Ok(format!("{}#{}", status.local_url, guard.token))
+    let base = if status.remote_enabled {
+        status.public_url.clone()
+    } else {
+        status.local_url.trim_end_matches('/').to_string()
+    };
+    Ok(format!("{base}/#{}", guard.token))
 }
 
 #[tauri::command]
@@ -624,4 +672,21 @@ pub fn open_readonly_viewer() -> Result<ReadOnlyViewerStatus, String> {
     let url = format!("{}#{}", status.local_url, token);
     open::that(&url).map_err(|error| format!("无法打开 Kardii 只读状态页：{error}"))?;
     Ok(status)
+}
+
+#[cfg(test)]
+mod remote_public_base_tests {
+    use super::*;
+
+    #[test]
+    fn remote_public_base_requires_https_except_loopback() {
+        assert_eq!(
+            normalize_remote_public_base("https://kardii.example/").unwrap(),
+            "https://kardii.example"
+        );
+        assert!(normalize_remote_public_base("http://127.0.0.1:43199").is_ok());
+        assert!(normalize_remote_public_base("http://kardii.example").is_err());
+        assert!(normalize_remote_public_base("https://kardii.example/status").is_err());
+        assert!(normalize_remote_public_base("https://user@kardii.example").is_err());
+    }
 }
