@@ -872,10 +872,15 @@ fn shadow_return(entry: f64, future: f64) -> f64 {
     }
 }
 
+const DECISION_BENCHMARK_POLICY_VERSION: &str = "direction-1h-v1";
+const DECISION_OUTCOME_HORIZON_MINUTES: i64 = 60;
+const DECISION_BULLISH_THRESHOLD_PERCENT: f64 = 0.30;
+const DECISION_BEARISH_THRESHOLD_PERCENT: f64 = -0.30;
+
 fn classify_shadow_outcome(return_1h_percent: f64) -> &'static str {
-    if return_1h_percent >= 0.30 {
+    if return_1h_percent >= DECISION_BULLISH_THRESHOLD_PERCENT {
         "bullish"
-    } else if return_1h_percent <= -0.30 {
+    } else if return_1h_percent <= DECISION_BEARISH_THRESHOLD_PERCENT {
         "bearish"
     } else {
         "neutral"
@@ -1399,6 +1404,10 @@ pub struct DecisionProviderBenchmark {
 #[serde(rename_all = "camelCase")]
 pub struct DecisionShadowStatus {
     mode: String,
+    benchmark_policy_version: String,
+    outcome_horizon_minutes: i64,
+    bullish_threshold_percent: f64,
+    bearish_threshold_percent: f64,
     sample_count: i64,
     prediction_count: i64,
     pending_outcomes: i64,
@@ -2667,6 +2676,10 @@ impl TradingRuntimeState {
 
             Ok(DecisionShadowStatus {
                 mode: "shadow-only".to_string(),
+                benchmark_policy_version: DECISION_BENCHMARK_POLICY_VERSION.to_string(),
+                outcome_horizon_minutes: DECISION_OUTCOME_HORIZON_MINUTES,
+                bullish_threshold_percent: DECISION_BULLISH_THRESHOLD_PERCENT,
+                bearish_threshold_percent: DECISION_BEARISH_THRESHOLD_PERCENT,
                 sample_count,
                 prediction_count,
                 pending_outcomes: pending,
@@ -3136,6 +3149,16 @@ pub fn evaluate_trade_risk(
 #[cfg(test)]
 mod runtime_tests {
     use super::*;
+
+    #[test]
+    fn decision_benchmark_policy_v1_is_frozen() {
+        assert_eq!(DECISION_BENCHMARK_POLICY_VERSION, "direction-1h-v1");
+        assert_eq!(DECISION_OUTCOME_HORIZON_MINUTES, 60);
+        assert_eq!(classify_shadow_outcome(0.30), "bullish");
+        assert_eq!(classify_shadow_outcome(0.299), "neutral");
+        assert_eq!(classify_shadow_outcome(-0.30), "bearish");
+        assert_eq!(classify_shadow_outcome(-0.299), "neutral");
+    }
 
     #[test]
     fn default_policy_blocks_real_execution() {

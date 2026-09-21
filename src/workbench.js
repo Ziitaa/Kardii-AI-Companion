@@ -459,6 +459,9 @@ function renderRemoteSnapshot(snapshot) {
   const decisionShadow = snapshot.decisionShadow || {};
   const benchmarks = Array.isArray(decisionShadow.providerBenchmarks) ? decisionShadow.providerBenchmarks : [];
   const decisions = Array.isArray(decisionShadow.recent) ? decisionShadow.recent : [];
+  const benchmarkPolicyRow = decisionShadow.benchmarkPolicyVersion
+    ? ['<div class="row"><strong>'+esc(decisionShadow.benchmarkPolicyVersion)+'</strong><span>policy</span><div><span>1h outcome</span><small>bullish ≥ '+esc(decisionShadow.bullishThresholdPercent)+'% · bearish ≤ '+esc(decisionShadow.bearishThresholdPercent)+'%</small></div><small>frozen</small></div>']
+    : [];
   const benchmarkRows = benchmarks.map(x =>
     '<div class="row"><strong>'+esc(x.provider)+'</strong><span>benchmark</span><div><span>'+
     (x.settledCount ? ('direction '+esc(Number(x.directionAccuracyPercent||0).toFixed(1))+'%') : 'awaiting outcomes')+
@@ -469,8 +472,8 @@ function renderRemoteSnapshot(snapshot) {
   const decisionRows = decisions.map(x =>
     '<div class="row"><strong>'+esc(x.symbol)+'</strong><span>'+esc(x.provider)+'</span><div><span>'+esc(String(x.direction||"").toUpperCase())+' · '+esc(String(x.action||"").toUpperCase())+'</span><small>'+esc(x.marketRegime||"")+' · risk '+esc(x.riskState||"")+' · conf '+esc(Number(x.confidence||0).toFixed(2))+' · '+esc(x.status||"")+(x.actualOutcome?' · actual '+esc(x.actualOutcome):'')+'</small></div><small>'+esc(x.latencyMs||0)+'ms</small></div>'
   );
-  remoteDecisionShadowList.innerHTML = (benchmarkRows.length || decisionRows.length)
-    ? benchmarkRows.concat(decisionRows).join("")
+  remoteDecisionShadowList.innerHTML = (benchmarkPolicyRow.length || benchmarkRows.length || decisionRows.length)
+    ? benchmarkPolicyRow.concat(benchmarkRows, decisionRows).join("")
     : '<div class="empty">暂无 Decision Shadow 判断。</div>';
 }
 
@@ -497,7 +500,8 @@ async function refreshDecisionShadowStatus() {
         ).join(" | ")
       : "";
     decisionShadowDetail.textContent =
-      latest + " · predictions " + status.predictionCount +
+      latest + " · policy " + (status.benchmarkPolicyVersion || "direction-1h-v1") +
+      " · predictions " + status.predictionCount +
       " · settled " + status.settledOutcomes +
       " · providers " + status.providersSeen +
       benchmarkText +

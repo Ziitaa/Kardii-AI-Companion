@@ -676,6 +676,10 @@ fn read_status(path: &Path) -> Result<serde_json::Value, String> {
         "balanceSnapshotCount": snapshot_count,
         "decisionShadow": {
             "mode": "shadow-only",
+            "benchmarkPolicyVersion": "direction-1h-v1",
+            "outcomeHorizonMinutes": 60,
+            "bullishThresholdPercent": 0.30,
+            "bearishThresholdPercent": -0.30,
             "sampleCount": decision_sample_count,
             "predictionCount": decision_prediction_count,
             "settledOutcomeCount": decision_settled_count,
