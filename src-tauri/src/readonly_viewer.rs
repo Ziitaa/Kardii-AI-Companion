@@ -368,6 +368,18 @@ fn viewer_html() -> String {
 
 
 #[tauri::command]
+pub fn readonly_viewer_pairing_link() -> Result<String, String> {
+    let guard = state()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let status = guard.status();
+    if !status.running {
+        return Err("Kardii 只读状态服务尚未启动。".to_string());
+    }
+    Ok(format!("{}#{}", status.local_url, guard.token))
+}
+
+#[tauri::command]
 pub fn open_readonly_viewer() -> Result<ReadOnlyViewerStatus, String> {
     let (status, token) = {
         let guard = state()
