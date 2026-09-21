@@ -16,6 +16,8 @@ const SPOT_BASES: &[&str] = &[
 const MARKET_GATEWAY_BASE_ENV: &str = "KARDII_MARKET_GATEWAY_BASE";
 const MARKET_GATEWAY_TOKEN_ENV: &str = "KARDII_MARKET_GATEWAY_TOKEN";
 const MARKET_GATEWAY_TOKEN_HEADER: &str = "X-Kardii-Market-Token";
+const MARKET_GATEWAY_BASE_ACCOUNT: &str = "market-gateway-base-v1";
+const MARKET_GATEWAY_TOKEN_ACCOUNT: &str = "market-gateway-token-v1";
 
 fn normalize_market_gateway_base(value: &str) -> Result<String, String> {
     let mut url = reqwest::Url::parse(value.trim())
@@ -43,11 +45,56 @@ fn normalize_market_gateway_base(value: &str) -> Result<String, String> {
     Ok(normalized)
 }
 
-fn configured_market_gateway_base() -> Result<Option<String>, String> {
-    match std::env::var(MARKET_GATEWAY_BASE_ENV) {
-        Ok(value) if !value.trim().is_empty() => normalize_market_gateway_base(&value).map(Some),
-        _ => Ok(None),
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn load_market_gateway_keyring() -> Result<Option<(String, String)>, String> {
+    let base_entry = keyring::Entry::new(TRADING_KEYRING_SERVICE, MARKET_GATEWAY_BASE_ACCOUNT)
+        .map_err(|error| format!("无法打开 Market Data Gateway 凭据库：{error}"))?;
+    let token_entry = keyring::Entry::new(TRADING_KEYRING_SERVICE, MARKET_GATEWAY_TOKEN_ACCOUNT)
+        .map_err(|error| format!("无法打开 Market Data Gateway 凭据库：{error}"))?;
+    let base = match base_entry.get_password() {
+        Ok(value) => value,
+        Err(keyring::Error::NoEntry) => return Ok(None),
+        Err(error) => return Err(format!("无法读取 Market Data Gateway 地址：{error}")),
+    };
+    let token = match token_entry.get_password() {
+        Ok(value) => value,
+        Err(keyring::Error::NoEntry) => return Ok(None),
+        Err(error) => return Err(format!("无法读取 Market Data Gateway Token：{error}")),
+    };
+    Ok(Some((normalize_market_gateway_base(&base)?, token)))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn load_market_gateway_keyring() -> Result<Option<(String, String)>, String> {
+    Ok(None)
+}
+
+fn validate_market_gateway_token(value: &str) -> Result<String, String> {
+    let token = value.trim();
+    if token.len() < 32
+        || token.len() > 256
+        || !token.chars().all(|character| character.is_ascii_graphic())
+    {
+        return Err("Market Data Gateway Token 必须是 32–256 位可见 ASCII 字符。".to_string());
     }
+    Ok(token.to_string())
+}
+
+fn configured_market_gateway() -> Result<Option<(String, String, &'static str)>, String> {
+    let env_base = std::env::var(MARKET_GATEWAY_BASE_ENV).ok().unwrap_or_default();
+    let env_token = std::env::var(MARKET_GATEWAY_TOKEN_ENV).ok().unwrap_or_default();
+    if !env_base.trim().is_empty() || !env_token.trim().is_empty() {
+        if env_base.trim().is_empty() || env_token.trim().is_empty() {
+            return Err("Market Data Gateway 环境配置不完整，必须同时设置地址与 Token。".to_string());
+        }
+        return Ok(Some((
+            normalize_market_gateway_base(&env_base)?,
+            validate_market_gateway_token(&env_token)?,
+            "environment",
+        )));
+    }
+    Ok(load_market_gateway_keyring()?
+        .map(|(base, token)| (base, token, "keyring")))
 }
 
 fn public_market_path_allowed(path_and_query: &str) -> bool {
@@ -59,37 +106,154 @@ fn public_market_path_allowed(path_and_query: &str) -> bool {
         || path == "/api/v3/exchangeInfo"
 }
 
-fn public_market_targets(path_and_query: &str) -> Result<Vec<(String, bool)>, String> {
+fn public_market_targets(path_and_query: &str) -> Result<Vec<(String, Option<String>)>, String> {
     if !path_and_query.starts_with('/') {
         return Err("公开市场数据路径无效。".to_string());
     }
-    if let Some(base) = configured_market_gateway_base()? {
+    if let Some((base, token, _)) = configured_market_gateway()? {
         if !public_market_path_allowed(path_and_query) {
             return Err("Market Data Gateway 拒绝非公开行情路径。".to_string());
         }
-        return Ok(vec![(format!("{base}{path_and_query}"), true)]);
+        return Ok(vec![(format!("{base}{path_and_query}"), Some(token))]);
     }
     Ok(SPOT_BASES
         .iter()
-        .map(|base| (format!("{base}{path_and_query}"), false))
+        .map(|base| (format!("{base}{path_and_query}"), None))
         .collect())
 }
 
 fn with_market_gateway_auth(
     request: reqwest::RequestBuilder,
-    via_gateway: bool,
+    token: Option<&str>,
 ) -> reqwest::RequestBuilder {
-    if !via_gateway {
-        return request;
-    }
-    match std::env::var(MARKET_GATEWAY_TOKEN_ENV) {
-        Ok(token) if !token.trim().is_empty() => {
-            request.header(MARKET_GATEWAY_TOKEN_HEADER, token.trim())
-        }
-        _ => request,
+    match token {
+        Some(value) => request.header(MARKET_GATEWAY_TOKEN_HEADER, value),
+        None => request,
     }
 }
 
+
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MarketGatewayConnectionStatus {
+    configured: bool,
+    base_url: String,
+    source: String,
+    reachable: bool,
+    error: String,
+}
+
+async fn probe_market_gateway(base_url: &str, token: &str) -> Result<(), String> {
+    let response = reqwest::Client::builder()
+        .timeout(Duration::from_secs(8))
+        .build()
+        .map_err(|error| format!("无法初始化 Market Data Gateway 检查：{error}"))?
+        .get(format!("{}/api/v3/ticker/price?symbol=BTCUSDT", base_url.trim_end_matches('/')))
+        .header(MARKET_GATEWAY_TOKEN_HEADER, token)
+        .header("Cache-Control", "no-store")
+        .send()
+        .await
+        .map_err(|error| format!("无法连接 Market Data Gateway：{error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Market Data Gateway 返回 HTTP {}", response.status()));
+    }
+    let payload: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|error| format!("Market Data Gateway 返回内容无法读取：{error}"))?;
+    if payload.get("price").and_then(|value| value.as_str()).is_none() {
+        return Err("Market Data Gateway 没有返回有效的 BTCUSDT 行情。".to_string());
+    }
+    Ok(())
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn save_market_gateway_keyring(base_url: &str, token: &str) -> Result<(), String> {
+    keyring::Entry::new(TRADING_KEYRING_SERVICE, MARKET_GATEWAY_BASE_ACCOUNT)
+        .map_err(|error| format!("无法打开 Market Data Gateway 凭据库：{error}"))?
+        .set_password(base_url)
+        .map_err(|error| format!("无法保存 Market Data Gateway 地址：{error}"))?;
+    keyring::Entry::new(TRADING_KEYRING_SERVICE, MARKET_GATEWAY_TOKEN_ACCOUNT)
+        .map_err(|error| format!("无法打开 Market Data Gateway 凭据库：{error}"))?
+        .set_password(token)
+        .map_err(|error| format!("无法保存 Market Data Gateway Token：{error}"))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn save_market_gateway_keyring(_base_url: &str, _token: &str) -> Result<(), String> {
+    Err("当前平台暂不支持安全保存 Market Data Gateway 配置。".to_string())
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn delete_market_gateway_keyring() -> Result<(), String> {
+    for account in [MARKET_GATEWAY_BASE_ACCOUNT, MARKET_GATEWAY_TOKEN_ACCOUNT] {
+        let entry = keyring::Entry::new(TRADING_KEYRING_SERVICE, account)
+            .map_err(|error| format!("无法打开 Market Data Gateway 凭据库：{error}"))?;
+        match entry.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => {}
+            Err(error) => return Err(format!("无法删除 Market Data Gateway 配置：{error}")),
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn delete_market_gateway_keyring() -> Result<(), String> {
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn save_market_gateway_connection(
+    base_url: String,
+    token: String,
+) -> Result<MarketGatewayConnectionStatus, String> {
+    let base_url = normalize_market_gateway_base(&base_url)?;
+    let token = validate_market_gateway_token(&token)?;
+    probe_market_gateway(&base_url, &token).await?;
+    save_market_gateway_keyring(&base_url, &token)?;
+    Ok(MarketGatewayConnectionStatus {
+        configured: true,
+        base_url,
+        source: "keyring".to_string(),
+        reachable: true,
+        error: String::new(),
+    })
+}
+
+#[tauri::command]
+pub async fn get_market_gateway_connection_status() -> Result<MarketGatewayConnectionStatus, String> {
+    let Some((base_url, token, source)) = configured_market_gateway()? else {
+        return Ok(MarketGatewayConnectionStatus {
+            configured: false,
+            base_url: String::new(),
+            source: String::new(),
+            reachable: false,
+            error: String::new(),
+        });
+    };
+    match probe_market_gateway(&base_url, &token).await {
+        Ok(()) => Ok(MarketGatewayConnectionStatus {
+            configured: true,
+            base_url,
+            source: source.to_string(),
+            reachable: true,
+            error: String::new(),
+        }),
+        Err(error) => Ok(MarketGatewayConnectionStatus {
+            configured: true,
+            base_url,
+            source: source.to_string(),
+            reachable: false,
+            error,
+        }),
+    }
+}
+
+#[tauri::command]
+pub fn delete_market_gateway_connection() -> Result<(), String> {
+    delete_market_gateway_keyring()
+}
 
 const BINANCE_PRIVATE_BASES: &[&str] = &[
     "https://api.binance.com",
@@ -548,8 +712,8 @@ async fn fetch_public_json<T: DeserializeOwned>(
     path_and_query: &str,
 ) -> Result<(String, T), String> {
     let mut errors = Vec::new();
-    for (url, via_gateway) in public_market_targets(path_and_query)? {
-        let request = with_market_gateway_auth(client.get(&url), via_gateway);
+    for (url, gateway_token) in public_market_targets(path_and_query)? {
+        let request = with_market_gateway_auth(client.get(&url), gateway_token.as_deref());
         match request.send().await {
             Ok(response) if response.status().is_success() => {
                 match response.json::<T>().await {
@@ -936,6 +1100,13 @@ mod tests {
         assert!(normalize_market_gateway_base("http://market.example").is_err());
         assert!(normalize_market_gateway_base("https://market.example/private").is_err());
         assert!(normalize_market_gateway_base("https://user@market.example").is_err());
+    }
+
+    #[test]
+    fn market_gateway_token_is_strict() {
+        assert!(validate_market_gateway_token("12345678901234567890123456789012").is_ok());
+        assert!(validate_market_gateway_token("short").is_err());
+        assert!(validate_market_gateway_token("bad token with spaces 12345678901234567890123456789012").is_err());
     }
 
     #[test]

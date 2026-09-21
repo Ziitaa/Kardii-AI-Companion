@@ -55,8 +55,14 @@ const binanceConnectBtn = document.getElementById("binanceConnectBtn");
 const binanceDisconnectBtn = document.getElementById("binanceDisconnectBtn");
 const binanceConnectionStatus = document.getElementById("binanceConnectionStatus");
 const binanceConnectionDetail = document.getElementById("binanceConnectionDetail");
+const marketGatewayStatus = document.getElementById("marketGatewayStatus");
+const marketGatewayDetail = document.getElementById("marketGatewayDetail");
+const marketGatewayConfigureBtn = document.getElementById("marketGatewayConfigureBtn");
+const marketGatewayDisconnectBtn = document.getElementById("marketGatewayDisconnectBtn");
 const remoteViewerStatus = document.getElementById("remoteViewerStatus");
 const remoteViewerDetail = document.getElementById("remoteViewerDetail");
+const remoteViewerPublicBaseBtn = document.getElementById("remoteViewerPublicBaseBtn");
+const remoteViewerPublicBaseClearBtn = document.getElementById("remoteViewerPublicBaseClearBtn");
 const remoteViewerPairingBtn = document.getElementById("remoteViewerPairingBtn");
 const remoteViewerConnectBtn = document.getElementById("remoteViewerConnectBtn");
 const remoteViewerDisconnectBtn = document.getElementById("remoteViewerDisconnectBtn");
@@ -98,7 +104,11 @@ function openModal(nextMode) {
   } else if (nextMode === "binance") {
     modalEyebrow.textContent = "READ ONLY";
     modalTitle.textContent = "连接 Binance 只读 API";
-    fields.innerHTML = '<div class="field full"><label>API Key</label><input name="apiKey" type="password" autocomplete="off" spellcheck="false" required></div><div class="field full"><label>API Secret</label><input name="apiSecret" type="password" autocomplete="off" spellcheck="false" required></div><div class="field full credential-warning">只允许严格只读权限。Kardii 会先在线验证权限，再保存到 macOS Keychain；不会写进聊天记录或 localStorage。</div>';
+    fields.innerHTML = '<div class="field full"><label>API Key</label><input name="apiKey" type="password" autocomplete="off" spellcheck="false" required></div><div class="field full"><label>API Secret</label><input name="apiSecret" type="password" autocomplete="off" spellcheck="false" required></div><div class="field full credential-warning">只允许严格只读权限。Kardii 会先在线验证权限，再保存到系统安全凭据库；不会写进聊天记录或 localStorage。</div>';
+  } else if (nextMode === "marketGateway") {
+    modalEyebrow.textContent = "PUBLIC MARKET DATA";
+    modalTitle.textContent = "配置 Market Data Gateway";
+    fields.innerHTML = '<div class="field full"><label>Gateway HTTPS 地址</label><input name="gatewayBaseUrl" autocomplete="off" spellcheck="false" placeholder="https://market.example.com" required></div><div class="field full"><label>Gateway Token</label><input name="gatewayToken" type="password" autocomplete="off" spellcheck="false" required></div><div class="field full credential-warning">只用于公开行情出口。Kardii 会验证 Gateway 能返回 BTCUSDT 公共价格后再保存到系统安全凭据库；不会通过它发送 Binance API Key / Secret。</div>';
   } else {
     modalEyebrow.textContent = "RESEARCH LOG";
     modalTitle.textContent = "记录研究";
@@ -117,6 +127,32 @@ modalCancel.onclick = closeModal;
 addLedgerBtn.onclick = () => openModal("ledger");
 addResearchBtn.onclick = () => openModal("research");
 if (binanceConnectBtn) binanceConnectBtn.onclick = () => openModal("binance");
+if (marketGatewayConfigureBtn) marketGatewayConfigureBtn.onclick = () => openModal("marketGateway");
+
+if (remoteViewerPublicBaseBtn) {
+  remoteViewerPublicBaseBtn.onclick = async () => {
+    if (!invokeCore) return;
+    const value = window.prompt("填写已经指向这台个人 Kardii 的 HTTPS 入口（只填站点根地址）：");
+    if (!value) return;
+    try {
+      await invokeCore("save_readonly_viewer_public_base", { publicBase: value.trim() });
+      await refreshLocalViewerTransport();
+    } catch (error) {
+      window.alert(String(error));
+    }
+  };
+}
+if (remoteViewerPublicBaseClearBtn) {
+  remoteViewerPublicBaseClearBtn.onclick = async () => {
+    if (!invokeCore) return;
+    try {
+      await invokeCore("delete_readonly_viewer_public_base");
+      await refreshLocalViewerTransport();
+    } catch (error) {
+      window.alert(String(error));
+    }
+  };
+}
 
 if (remoteViewerPairingBtn) {
   remoteViewerPairingBtn.onclick = async () => {
@@ -200,6 +236,21 @@ form.onsubmit = async (event) => {
     return;
   }
 
+  if (mode === "marketGateway") {
+    if (!invokeCore) return;
+    const baseUrl = String(data.get("gatewayBaseUrl") || "").trim();
+    const token = String(data.get("gatewayToken") || "").trim();
+    try {
+      await invokeCore("save_market_gateway_connection", { baseUrl, token });
+      closeModal();
+      await refreshMarketGatewayConnection();
+      await syncRuntimeStatus();
+    } catch (error) {
+      window.alert(String(error));
+    }
+    return;
+  }
+
   if (mode === "ledger") {
     state.ledger.unshift({
       id: crypto.randomUUID(),
@@ -253,6 +304,55 @@ async function refreshBinanceConnection() {
 }
 
 void refreshBinanceConnection();
+
+async function refreshMarketGatewayConnection() {
+  if (!invokeCore || !marketGatewayStatus || !marketGatewayDetail) return;
+  try {
+    const status = await invokeCore("get_market_gateway_connection_status");
+    if (!status.configured) {
+      marketGatewayStatus.textContent = "Direct";
+      marketGatewayDetail.textContent = "未配置 Gateway，公共行情使用桌面直连。";
+      marketGatewayConfigureBtn?.classList.remove("hidden");
+      marketGatewayDisconnectBtn?.classList.add("hidden");
+      return;
+    }
+    marketGatewayStatus.textContent = status.reachable ? "Gateway 已连接" : "Gateway 离线";
+    marketGatewayDetail.textContent = status.reachable
+      ? status.baseUrl + " · " + status.source
+      : (status.error || status.baseUrl);
+    marketGatewayConfigureBtn?.classList.toggle("hidden", status.reachable);
+    marketGatewayDisconnectBtn?.classList.toggle("hidden", status.source === "environment");
+  } catch (error) {
+    marketGatewayStatus.textContent = "Gateway 异常";
+    marketGatewayDetail.textContent = String(error);
+  }
+}
+if (marketGatewayDisconnectBtn) {
+  marketGatewayDisconnectBtn.onclick = async () => {
+    if (!invokeCore) return;
+    try {
+      await invokeCore("delete_market_gateway_connection");
+      await refreshMarketGatewayConnection();
+      await syncRuntimeStatus();
+    } catch (error) {
+      window.alert(String(error));
+    }
+  };
+}
+void refreshMarketGatewayConnection();
+setInterval(() => void refreshMarketGatewayConnection(), 60 * 1000);
+
+async function refreshLocalViewerTransport() {
+  if (!invokeCore || !remoteViewerDetail) return;
+  try {
+    const status = await invokeCore("readonly_viewer_status");
+    remoteViewerPublicBaseClearBtn?.classList.toggle("hidden", !status.remoteEnabled);
+    if (status.remoteEnabled && status.publicUrl) {
+      remoteViewerDetail.textContent = "本机 HTTPS 入口已配置 · " + status.publicUrl;
+    }
+  } catch {}
+}
+void refreshLocalViewerTransport();
 
 async function refreshRemoteViewerConnection() {
   if (!invokeCore || !remoteViewerStatus || !remoteViewerDetail) return;

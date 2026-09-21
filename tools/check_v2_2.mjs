@@ -4,6 +4,9 @@ import { spawnSync } from "node:child_process";
 
 const trading = fs.readFileSync("src-tauri/src/trading.rs", "utf8");
 const gateway = fs.readFileSync("infra/market-gateway/server.mjs", "utf8");
+const readonly = fs.readFileSync("src-tauri/src/readonly_viewer.rs", "utf8");
+const lib = fs.readFileSync("src-tauri/src/lib.rs", "utf8");
+const workbench = fs.readFileSync("src/workbench.html", "utf8");
 
 assert.match(trading, /KARDII_MARKET_GATEWAY_BASE/);
 assert.match(trading, /KARDII_MARKET_GATEWAY_TOKEN/);
@@ -34,5 +37,15 @@ const syntax = spawnSync(process.execPath, ["--check", "infra/market-gateway/ser
   encoding: "utf8",
 });
 assert.equal(syntax.status, 0, syntax.stderr || syntax.stdout);
+
+assert.match(trading, /save_market_gateway_connection/);
+assert.match(trading, /market-gateway-token-v1/);
+assert.match(trading, /validate_market_gateway_token/);
+assert.match(readonly, /readonly-viewer-public-base-v1/);
+assert.match(readonly, /save_readonly_viewer_public_base/);
+assert.match(lib, /save_market_gateway_connection/);
+assert.match(lib, /save_readonly_viewer_public_base/);
+assert.match(workbench, /MARKET DATA EGRESS/);
+assert.match(workbench, /设置 HTTPS 入口/);
 
 console.log("Kardii v2.2 market gateway boundary checks passed.");

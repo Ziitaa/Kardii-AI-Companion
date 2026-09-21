@@ -39,10 +39,18 @@
           <div class="connection-note">Kardii 只接受严格只读权限。检测到交易、提现、内部转账、Margin、Futures、Options 等权限会直接拒绝保存。</div>
         </section>
         <section class="panel connection-panel">
+          <div class="panel-head"><div><span class="eyebrow">MARKET DATA EGRESS</span><h3>公共行情 Gateway</h3></div></div>
+          <div class="connection-row">
+            <div><strong id="marketGatewayStatus">Direct</strong><span id="marketGatewayDetail">未配置 Gateway，公共行情使用桌面直连。</span></div>
+            <div class="connection-actions"><button id="marketGatewayConfigureBtn" class="primary">配置 Gateway</button><button id="marketGatewayDisconnectBtn" class="secondary hidden">清除</button></div>
+          </div>
+          <div class="connection-note">Gateway 只代理 ticker / klines / depth / exchangeInfo 等公开行情。账户、订单、转账、提现和任何私有 API 永远不会经过这里。</div>
+        </section>
+        <section class="panel connection-panel">
           <div class="panel-head"><div><span class="eyebrow">REMOTE · FULL STATUS</span><h3>远程 Kardii 全状态镜像</h3></div></div>
           <div class="connection-row">
             <div><strong id="remoteViewerStatus">未连接</strong><span id="remoteViewerDetail">公司电脑只保存远程配对凭据，不保存交易所 API。</span></div>
-            <div class="connection-actions"><button id="remoteViewerPairingBtn" class="secondary">复制本机配对链接</button><button id="remoteViewerConnectBtn" class="primary">连接</button><button id="remoteViewerDisconnectBtn" class="secondary hidden">断开</button></div>
+            <div class="connection-actions"><button id="remoteViewerPublicBaseBtn" class="secondary">设置 HTTPS 入口</button><button id="remoteViewerPublicBaseClearBtn" class="secondary hidden">清除入口</button><button id="remoteViewerPairingBtn" class="secondary">复制本机配对链接</button><button id="remoteViewerConnectBtn" class="primary">连接</button><button id="remoteViewerDisconnectBtn" class="secondary hidden">断开</button></div>
           </div>
           <div class="connection-note">连接后显示完整运行状态：研究、策略实验、Shadow、余额快照、真实账本、Trade Intent、Risk Gate 与 Kill Switch。跨设备使用时，本机只读服务仍绑定 127.0.0.1，由独立 HTTPS transport 暴露；密钥不会进入镜像，远程控制与交易执行仍保持关闭。</div>
         </section>

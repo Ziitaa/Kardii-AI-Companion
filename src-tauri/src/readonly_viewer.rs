@@ -20,6 +20,7 @@ const VIEWER_PORT: u16 = 43_199;
 const KEYRING_SERVICE: &str = "Kardii Trading Runtime";
 const KEYRING_ACCOUNT: &str = "readonly-viewer-token-v1";
 const REMOTE_PUBLIC_BASE_ENV: &str = "KARDII_REMOTE_VIEWER_PUBLIC_BASE";
+const REMOTE_PUBLIC_BASE_ACCOUNT: &str = "readonly-viewer-public-base-v1";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -93,10 +94,52 @@ fn normalize_remote_public_base(value: &str) -> Result<String, String> {
     Ok(normalized)
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn load_remote_public_base_keyring() -> Option<String> {
+    let entry = keyring::Entry::new(KEYRING_SERVICE, REMOTE_PUBLIC_BASE_ACCOUNT).ok()?;
+    let value = entry.get_password().ok()?;
+    normalize_remote_public_base(&value).ok()
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn load_remote_public_base_keyring() -> Option<String> {
+    None
+}
+
 fn configured_remote_public_base() -> Option<String> {
     std::env::var(REMOTE_PUBLIC_BASE_ENV)
         .ok()
+        .filter(|value| !value.trim().is_empty())
         .and_then(|value| normalize_remote_public_base(&value).ok())
+        .or_else(load_remote_public_base_keyring)
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn save_remote_public_base_keyring(value: &str) -> Result<(), String> {
+    keyring::Entry::new(KEYRING_SERVICE, REMOTE_PUBLIC_BASE_ACCOUNT)
+        .map_err(|error| format!("无法打开远程 HTTPS 配置：{error}"))?
+        .set_password(value)
+        .map_err(|error| format!("无法保存远程 HTTPS 地址：{error}"))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn save_remote_public_base_keyring(_value: &str) -> Result<(), String> {
+    Err("当前平台暂不支持安全保存远程 HTTPS 地址。".to_string())
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn delete_remote_public_base_keyring() -> Result<(), String> {
+    let entry = keyring::Entry::new(KEYRING_SERVICE, REMOTE_PUBLIC_BASE_ACCOUNT)
+        .map_err(|error| format!("无法打开远程 HTTPS 配置：{error}"))?;
+    match entry.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(error) => Err(format!("无法删除远程 HTTPS 地址：{error}")),
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn delete_remote_public_base_keyring() -> Result<(), String> {
+    Ok(())
 }
 
 
@@ -640,6 +683,25 @@ fn viewer_html() -> String {
     r#"<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Kardii Read Only</title><style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:40px;max-width:760px;background:#f7f7f8;color:#171719}pre{white-space:pre-wrap;background:white;padding:18px;border-radius:16px;border:1px solid #ddd}small{color:#666}</style></head><body><h2>Kardii · Read Only</h2><small>本页面只读取运行状态，不提供下单、提现或修改账户的能力。</small><pre id="out">需要配对凭据。</pre><script>const token=location.hash.slice(1);if(token){location.hash="";const out=document.getElementById("out");async function load(){try{const r=await fetch("/status",{headers:{Authorization:"Bearer "+token},cache:"no-store"});out.textContent=JSON.stringify(await r.json(),null,2)}catch(e){out.textContent=String(e)}}load();setInterval(load,10000)}</script></body></html>"#.to_string()
 }
 
+
+#[tauri::command]
+pub fn save_readonly_viewer_public_base(public_base: String) -> Result<ReadOnlyViewerStatus, String> {
+    let normalized = normalize_remote_public_base(&public_base)?;
+    save_remote_public_base_keyring(&normalized)?;
+    Ok(state()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .status())
+}
+
+#[tauri::command]
+pub fn delete_readonly_viewer_public_base() -> Result<ReadOnlyViewerStatus, String> {
+    delete_remote_public_base_keyring()?;
+    Ok(state()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .status())
+}
 
 #[tauri::command]
 pub fn readonly_viewer_pairing_link() -> Result<String, String> {
