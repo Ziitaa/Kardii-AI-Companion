@@ -946,11 +946,10 @@ fn summarize(ticker: &BinanceTicker) -> MarketTickerSummary {
     }
 }
 
-fn candidate_from(ticker: &BinanceTicker) -> Option<OpportunityCandidate> {
-    if !tradable_usdt_symbol(&ticker.symbol) {
+fn candidate_from(summary: &MarketTickerSummary) -> Option<OpportunityCandidate> {
+    if !tradable_usdt_symbol(&summary.symbol) {
         return None;
     }
-    let summary = summarize(ticker);
     if summary.quote_volume_24h < 3_000_000.0 || summary.trade_count_24h < 1_000 {
         return None;
     }
@@ -994,7 +993,7 @@ fn candidate_from(ticker: &BinanceTicker) -> Option<OpportunityCandidate> {
     };
 
     Some(OpportunityCandidate {
-        symbol: summary.symbol,
+        symbol: summary.symbol.clone(),
         last_price: summary.last_price,
         change_percent_24h: summary.change_percent_24h,
         quote_volume_24h: summary.quote_volume_24h,
@@ -1006,7 +1005,7 @@ fn candidate_from(ticker: &BinanceTicker) -> Option<OpportunityCandidate> {
     })
 }
 
-async fn fetch_spot_tickers() -> Result<(String, Vec<BinanceTicker>), String> {
+async fn fetch_spot_tickers() -> Result<(String, Vec<MarketTickerSummary>), String> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(12))
         .build()
@@ -1016,7 +1015,7 @@ async fn fetch_spot_tickers() -> Result<(String, Vec<BinanceTicker>), String> {
     if tickers.is_empty() {
         return Err("市场数据暂不可用：返回空数据".to_string());
     }
-    Ok((source, tickers))
+    Ok((source, tickers.iter().map(summarize).collect()))
 }
 
 #[tauri::command]
@@ -1024,9 +1023,8 @@ pub async fn get_market_snapshot(limit: Option<usize>) -> Result<MarketSnapshot,
     let limit = limit.unwrap_or(12).clamp(1, 50);
     let (source, tickers) = fetch_spot_tickers().await?;
     let mut summaries: Vec<_> = tickers
-        .iter()
+        .into_iter()
         .filter(|ticker| tradable_usdt_symbol(&ticker.symbol))
-        .map(summarize)
         .collect();
     summaries.sort_by(|a, b| {
         b.quote_volume_24h
@@ -1068,15 +1066,14 @@ pub async fn scan_market_opportunities(limit: Option<usize>) -> Result<Opportuni
 mod tests {
     use super::*;
 
-    fn sample(symbol: &str, change: &str, volume: &str, count: u64) -> BinanceTicker {
-        BinanceTicker {
+    fn sample(symbol: &str, change: f64, volume: f64, count: u64) -> MarketTickerSummary {
+        MarketTickerSummary {
             symbol: symbol.into(),
-            last_price: "1.25".into(),
-            price_change_percent: change.into(),
-            high_price: "1.40".into(),
-            low_price: "1.10".into(),
-            quote_volume: volume.into(),
-            count,
+            last_price: 1.25,
+            change_percent_24h: change,
+            quote_volume_24h: volume,
+            trade_count_24h: count,
+            intraday_range_percent: ((1.40 - 1.10) / 1.10) * 100.0,
         }
     }
 
@@ -1117,13 +1114,32 @@ mod tests {
     }
 
     #[test]
+    fn binance_ticker_normalizes_into_provider_neutral_summary() {
+        let ticker = BinanceTicker {
+            symbol: "BTCUSDT".into(),
+            last_price: "100".into(),
+            price_change_percent: "5".into(),
+            high_price: "110".into(),
+            low_price: "90".into(),
+            quote_volume: "250000000".into(),
+            count: 50000,
+        };
+        let normalized = summarize(&ticker);
+        assert_eq!(normalized.symbol, "BTCUSDT");
+        assert_eq!(normalized.last_price, 100.0);
+        assert_eq!(normalized.change_percent_24h, 5.0);
+        assert_eq!(normalized.quote_volume_24h, 250000000.0);
+        assert_eq!(normalized.trade_count_24h, 50000);
+    }
+
+    #[test]
     fn thin_markets_do_not_become_candidates() {
-        assert!(candidate_from(&sample("ABCUSDT", "20", "100000", 50)).is_none());
+        assert!(candidate_from(&sample("ABCUSDT", 20.0, 100000.0, 50)).is_none());
     }
 
     #[test]
     fn active_liquid_markets_can_enter_research_queue() {
-        let candidate = candidate_from(&sample("ABCUSDT", "9", "120000000", 25000)).unwrap();
+        let candidate = candidate_from(&sample("ABCUSDT", 9.0, 120000000.0, 25000)).unwrap();
         assert!(candidate.attention_score > 0.0);
         assert_eq!(candidate.signal, "high-momentum");
     }
