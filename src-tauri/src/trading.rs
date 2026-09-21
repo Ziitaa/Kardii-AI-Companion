@@ -1467,7 +1467,7 @@ impl TradingRuntimeState {
                                 params![
                                     format!("binance:trade:{}:{}:quote", trade.symbol, trade.id),
                                     amount,
-                                    trade.time.to_string(),
+                                    millis_timestamp_rfc3339(trade.time),
                                     external_id,
                                     raw,
                                     created_at,
@@ -1488,7 +1488,7 @@ impl TradingRuntimeState {
                                     format!("binance:trade:{}:{}:fee", trade.symbol, trade.id),
                                     trade.commission_asset.trim().to_uppercase(),
                                     -commission,
-                                    trade.time.to_string(),
+                                    millis_timestamp_rfc3339(trade.time),
                                     external_id,
                                     raw,
                                     created_at,
