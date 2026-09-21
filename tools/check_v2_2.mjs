@@ -55,6 +55,9 @@ const railwayConfig = JSON.parse(railway);
 assert.equal(railwayConfig.deploy.healthcheckPath, "/healthz");
 
 assert.match(trading, /save_market_gateway_connection/);
+assert.match(trading, /okx_public_available/);
+assert.match(trading, /okxPublicEnabled/);
+assert.match(trading, /\/okx\/api\/v5\/market\/ticker/);
 assert.match(trading, /market-gateway-token-v1/);
 assert.match(trading, /validate_market_gateway_token/);
 assert.match(trading, /DecisionProviderBenchmark/);

@@ -318,7 +318,8 @@ async function refreshMarketGatewayConnection() {
     }
     marketGatewayStatus.textContent = status.reachable ? "Gateway 已连接" : "Gateway 离线";
     marketGatewayDetail.textContent = status.reachable
-      ? status.baseUrl + " · " + status.source
+      ? status.baseUrl + " · " + status.source +
+        (status.okxPublicAvailable ? " · OKX public ready" : (status.okxError ? " · OKX error: " + status.okxError : " · OKX not configured"))
       : (status.error || status.baseUrl);
     marketGatewayConfigureBtn?.classList.toggle("hidden", status.reachable);
     marketGatewayDisconnectBtn?.classList.toggle("hidden", status.source === "environment");

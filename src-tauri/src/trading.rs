@@ -146,15 +146,25 @@ pub struct MarketGatewayConnectionStatus {
     base_url: String,
     source: String,
     reachable: bool,
+    okx_public_available: bool,
+    okx_error: String,
     error: String,
 }
 
-async fn probe_market_gateway(base_url: &str, token: &str) -> Result<(), String> {
-    let response = reqwest::Client::builder()
+#[derive(Debug, Clone, Default)]
+struct MarketGatewayProbe {
+    okx_public_available: bool,
+    okx_error: String,
+}
+
+async fn probe_market_gateway(base_url: &str, token: &str) -> Result<MarketGatewayProbe, String> {
+    let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(8))
         .build()
-        .map_err(|error| format!("无法初始化 Market Data Gateway 检查：{error}"))?
-        .get(format!("{}/api/v3/ticker/price?symbol=BTCUSDT", base_url.trim_end_matches('/')))
+        .map_err(|error| format!("无法初始化 Market Data Gateway 检查：{error}"))?;
+    let base = base_url.trim_end_matches('/');
+    let response = client
+        .get(format!("{base}/api/v3/ticker/price?symbol=BTCUSDT"))
         .header(MARKET_GATEWAY_TOKEN_HEADER, token)
         .header("Cache-Control", "no-store")
         .send()
@@ -170,7 +180,54 @@ async fn probe_market_gateway(base_url: &str, token: &str) -> Result<(), String>
     if payload.get("price").and_then(|value| value.as_str()).is_none() {
         return Err("Market Data Gateway 没有返回有效的 BTCUSDT 行情。".to_string());
     }
-    Ok(())
+
+    let mut probe = MarketGatewayProbe::default();
+    let okx_enabled = match client
+        .get(format!("{base}/healthz"))
+        .header("Cache-Control", "no-store")
+        .send()
+        .await
+    {
+        Ok(response) if response.status().is_success() => response
+            .json::<serde_json::Value>()
+            .await
+            .ok()
+            .and_then(|value| value.get("okxPublicEnabled").and_then(|item| item.as_bool()))
+            .unwrap_or(false),
+        _ => false,
+    };
+    if okx_enabled {
+        match client
+            .get(format!("{base}/okx/api/v5/market/ticker?instId=BTC-USDT"))
+            .header(MARKET_GATEWAY_TOKEN_HEADER, token)
+            .header("Cache-Control", "no-store")
+            .send()
+            .await
+        {
+            Ok(response) if response.status().is_success() => {
+                match response.json::<serde_json::Value>().await {
+                    Ok(value)
+                        if value.get("code").and_then(|item| item.as_str()) == Some("0")
+                            && value.get("data").and_then(|item| item.as_array()).is_some_and(|items| !items.is_empty()) =>
+                    {
+                        probe.okx_public_available = true;
+                    }
+                    Ok(value) => {
+                        probe.okx_error = value
+                            .get("msg")
+                            .and_then(|item| item.as_str())
+                            .filter(|message| !message.is_empty())
+                            .unwrap_or("OKX public provider 返回内容无效。")
+                            .to_string();
+                    }
+                    Err(error) => probe.okx_error = format!("OKX public provider 返回内容无法读取：{error}"),
+                }
+            }
+            Ok(response) => probe.okx_error = format!("OKX public provider 返回 HTTP {}", response.status()),
+            Err(error) => probe.okx_error = format!("无法连接 OKX public provider：{error}"),
+        }
+    }
+    Ok(probe)
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -215,13 +272,15 @@ pub async fn save_market_gateway_connection(
 ) -> Result<MarketGatewayConnectionStatus, String> {
     let base_url = normalize_market_gateway_base(&base_url)?;
     let token = validate_market_gateway_token(&token)?;
-    probe_market_gateway(&base_url, &token).await?;
+    let probe = probe_market_gateway(&base_url, &token).await?;
     save_market_gateway_keyring(&base_url, &token)?;
     Ok(MarketGatewayConnectionStatus {
         configured: true,
         base_url,
         source: "keyring".to_string(),
         reachable: true,
+        okx_public_available: probe.okx_public_available,
+        okx_error: probe.okx_error,
         error: String::new(),
     })
 }
@@ -234,15 +293,19 @@ pub async fn get_market_gateway_connection_status() -> Result<MarketGatewayConne
             base_url: String::new(),
             source: String::new(),
             reachable: false,
+            okx_public_available: false,
+            okx_error: String::new(),
             error: String::new(),
         });
     };
     match probe_market_gateway(&base_url, &token).await {
-        Ok(()) => Ok(MarketGatewayConnectionStatus {
+        Ok(probe) => Ok(MarketGatewayConnectionStatus {
             configured: true,
             base_url,
             source: source.to_string(),
             reachable: true,
+            okx_public_available: probe.okx_public_available,
+            okx_error: probe.okx_error,
             error: String::new(),
         }),
         Err(error) => Ok(MarketGatewayConnectionStatus {
@@ -250,6 +313,8 @@ pub async fn get_market_gateway_connection_status() -> Result<MarketGatewayConne
             base_url,
             source: source.to_string(),
             reachable: false,
+            okx_public_available: false,
+            okx_error: String::new(),
             error,
         }),
     }
