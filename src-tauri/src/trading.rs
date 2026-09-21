@@ -1275,7 +1275,7 @@ impl TradingRuntimeState {
                created_at TEXT NOT NULL
              );
              CREATE INDEX IF NOT EXISTS trade_intents_created
-               ON trade_intents(created_at DESC);"
+               ON trade_intents(created_at DESC);
              CREATE TABLE IF NOT EXISTS decision_shadow_samples (
                sample_id TEXT PRIMARY KEY NOT NULL,
                decided_at_ms INTEGER NOT NULL,
@@ -1321,7 +1321,7 @@ impl TradingRuntimeState {
                FOREIGN KEY(sample_id) REFERENCES decision_shadow_samples(sample_id)
              );
              CREATE INDEX IF NOT EXISTS decision_shadow_predictions_sample
-               ON decision_shadow_predictions(sample_id, provider);
+               ON decision_shadow_predictions(sample_id, provider);"
         ).map_err(|error| format!("无法初始化 Kardii 交易研究数据库：{error}"))?;
 
         let policy = default_risk_policy();
@@ -2001,7 +2001,8 @@ impl TradingRuntimeState {
         input: &DecisionInput,
         attempt: &DecisionAttempt,
     ) -> Result<(), String> {
-        let sample_id = format!("{}:{}", input.timestamp_ms, input.symbol);
+        let sample_bucket_ms = (input.timestamp_ms / (5 * 60_000)) * (5 * 60_000);
+        let sample_id = format!("{}:{}", sample_bucket_ms, input.symbol);
         let prediction_id = format!(
             "{}:{}:{}",
             sample_id,

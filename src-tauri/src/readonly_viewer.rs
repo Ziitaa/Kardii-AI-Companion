@@ -322,56 +322,7 @@ fn read_status(path: &Path) -> Result<serde_json::Value, String> {
          ORDER BY id DESC LIMIT 30"
     ) {
         if let Ok(rows) = statement.query_map([], |row| {
-        
-    let mut decision_shadow_recent = Vec::new();
-    if let Ok(mut statement) = connection.prepare(
-        "SELECT p.provider, p.provider_version, s.symbol, p.direction, p.action,
-                p.market_regime, p.risk_state, p.abnormal_state, p.signal_priority,
-                p.confidence, p.confidence_kind, p.latency_ms, p.estimated_cost_usd,
-                s.price_at_decision, s.price_5m, s.price_30m, s.price_1h, s.price_4h,
-                s.return_5m, s.return_30m, s.return_1h, s.return_4h,
-                s.actual_outcome, s.status, p.created_at, s.rule_engine_result
-         FROM decision_shadow_predictions p
-         JOIN decision_shadow_samples s ON s.sample_id = p.sample_id
-         ORDER BY p.created_at DESC LIMIT 30"
-    ) {
-        if let Ok(rows) = statement.query_map([], |row| {
             Ok(serde_json::json!({
-                "provider": row.get::<_, String>(0)?,
-                "providerVersion": row.get::<_, String>(1)?,
-                "symbol": row.get::<_, String>(2)?,
-                "direction": row.get::<_, String>(3)?,
-                "action": row.get::<_, String>(4)?,
-                "marketRegime": row.get::<_, String>(5)?,
-                "riskState": row.get::<_, String>(6)?,
-                "abnormalState": row.get::<_, i64>(7)? != 0,
-                "signalPriority": row.get::<_, String>(8)?,
-                "confidence": row.get::<_, f64>(9)?,
-                "confidenceKind": row.get::<_, String>(10)?,
-                "latencyMs": row.get::<_, i64>(11)?,
-                "estimatedCostUsd": row.get::<_, f64>(12)?,
-                "priceAtDecision": row.get::<_, f64>(13)?,
-                "price5m": row.get::<_, Option<f64>>(14)?,
-                "price30m": row.get::<_, Option<f64>>(15)?,
-                "price1h": row.get::<_, Option<f64>>(16)?,
-                "price4h": row.get::<_, Option<f64>>(17)?,
-                "return5m": row.get::<_, Option<f64>>(18)?,
-                "return30m": row.get::<_, Option<f64>>(19)?,
-                "return1h": row.get::<_, Option<f64>>(20)?,
-                "return4h": row.get::<_, Option<f64>>(21)?,
-                "actualOutcome": row.get::<_, Option<String>>(22)?,
-                "status": row.get::<_, String>(23)?,
-                "createdAt": row.get::<_, String>(24)?,
-                "ruleEngineResult": row.get::<_, String>(25)?
-            }))
-        }) {
-            for row in rows.flatten() {
-                decision_shadow_recent.push(row);
-            }
-        }
-    }
-
-    Ok(serde_json::json!({
                 "symbol": row.get::<_, String>(0)?,
                 "attentionScore": row.get::<_, f64>(1)?,
                 "signal": row.get::<_, String>(2)?,
@@ -514,6 +465,55 @@ fn read_status(path: &Path) -> Result<serde_json::Value, String> {
         }) {
             for row in rows.flatten() {
                 trade_intents.push(row);
+            }
+        }
+    }
+
+
+    let mut decision_shadow_recent = Vec::new();
+    if let Ok(mut statement) = connection.prepare(
+        "SELECT p.provider, p.provider_version, s.symbol, p.direction, p.action,
+                p.market_regime, p.risk_state, p.abnormal_state, p.signal_priority,
+                p.confidence, p.confidence_kind, p.latency_ms, p.estimated_cost_usd,
+                s.price_at_decision, s.price_5m, s.price_30m, s.price_1h, s.price_4h,
+                s.return_5m, s.return_30m, s.return_1h, s.return_4h,
+                s.actual_outcome, s.status, p.created_at, s.rule_engine_result
+         FROM decision_shadow_predictions p
+         JOIN decision_shadow_samples s ON s.sample_id = p.sample_id
+         ORDER BY p.created_at DESC LIMIT 30"
+    ) {
+        if let Ok(rows) = statement.query_map([], |row| {
+            Ok(serde_json::json!({
+                "provider": row.get::<_, String>(0)?,
+                "providerVersion": row.get::<_, String>(1)?,
+                "symbol": row.get::<_, String>(2)?,
+                "direction": row.get::<_, String>(3)?,
+                "action": row.get::<_, String>(4)?,
+                "marketRegime": row.get::<_, String>(5)?,
+                "riskState": row.get::<_, String>(6)?,
+                "abnormalState": row.get::<_, i64>(7)? != 0,
+                "signalPriority": row.get::<_, String>(8)?,
+                "confidence": row.get::<_, f64>(9)?,
+                "confidenceKind": row.get::<_, String>(10)?,
+                "latencyMs": row.get::<_, i64>(11)?,
+                "estimatedCostUsd": row.get::<_, f64>(12)?,
+                "priceAtDecision": row.get::<_, f64>(13)?,
+                "price5m": row.get::<_, Option<f64>>(14)?,
+                "price30m": row.get::<_, Option<f64>>(15)?,
+                "price1h": row.get::<_, Option<f64>>(16)?,
+                "price4h": row.get::<_, Option<f64>>(17)?,
+                "return5m": row.get::<_, Option<f64>>(18)?,
+                "return30m": row.get::<_, Option<f64>>(19)?,
+                "return1h": row.get::<_, Option<f64>>(20)?,
+                "return4h": row.get::<_, Option<f64>>(21)?,
+                "actualOutcome": row.get::<_, Option<String>>(22)?,
+                "status": row.get::<_, String>(23)?,
+                "createdAt": row.get::<_, String>(24)?,
+                "ruleEngineResult": row.get::<_, String>(25)?
+            }))
+        }) {
+            for row in rows.flatten() {
+                decision_shadow_recent.push(row);
             }
         }
     }
