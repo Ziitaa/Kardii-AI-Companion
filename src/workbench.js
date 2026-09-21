@@ -345,10 +345,12 @@ setInterval(() => void refreshMarketGatewayConnection(), 60 * 1000);
 async function refreshLocalViewerTransport() {
   if (!invokeCore || !remoteViewerDetail) return;
   try {
-    const status = await invokeCore("readonly_viewer_status");
-    remoteViewerPublicBaseClearBtn?.classList.toggle("hidden", !status.remoteEnabled);
-    if (status.remoteEnabled && status.publicUrl) {
-      remoteViewerDetail.textContent = "本机 HTTPS 入口已配置 · " + status.publicUrl;
+    const status = await invokeCore("get_readonly_viewer_transport_status");
+    remoteViewerPublicBaseClearBtn?.classList.toggle("hidden", !status.configured);
+    if (status.configured && status.publicUrl) {
+      remoteViewerDetail.textContent = status.reachable
+        ? "本机 HTTPS 入口已验证 · " + status.publicUrl
+        : "本机 HTTPS 入口不可达 · " + (status.error || status.publicUrl);
     }
   } catch {}
 }

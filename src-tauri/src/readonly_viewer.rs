@@ -33,6 +33,15 @@ pub struct ReadOnlyViewerStatus {
     pub remote_enabled: bool,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadOnlyTransportStatus {
+    configured: bool,
+    public_url: String,
+    reachable: bool,
+    error: String,
+}
+
 struct ViewerRuntime {
     running: bool,
     token: String,
@@ -684,14 +693,79 @@ fn viewer_html() -> String {
 }
 
 
+async fn verify_remote_public_base(base_url: &str, token: &str) -> Result<(), String> {
+    let response = reqwest::Client::builder()
+        .timeout(Duration::from_secs(8))
+        .build()
+        .map_err(|error| format!("无法初始化远程 Kardii 检查：{error}"))?
+        .get(format!("{}/status", base_url.trim_end_matches('/')))
+        .bearer_auth(token)
+        .header("Cache-Control", "no-store")
+        .send()
+        .await
+        .map_err(|error| format!("无法连接远程 Kardii HTTPS 入口：{error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("远程 Kardii HTTPS 入口返回 HTTP {}", response.status()));
+    }
+    let payload: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|error| format!("远程 Kardii 状态无法读取：{error}"))?;
+    if payload.get("viewMode").and_then(|value| value.as_str()) != Some("full-status-mirror")
+        || payload.get("secretsIncluded").and_then(|value| value.as_bool()) != Some(false)
+        || payload.get("remoteControlEnabled").and_then(|value| value.as_bool()) != Some(false)
+    {
+        return Err("这个 HTTPS 地址没有返回安全的 Kardii 只读全状态镜像。".to_string());
+    }
+    Ok(())
+}
+
 #[tauri::command]
-pub fn save_readonly_viewer_public_base(public_base: String) -> Result<ReadOnlyViewerStatus, String> {
+pub async fn save_readonly_viewer_public_base(public_base: String) -> Result<ReadOnlyViewerStatus, String> {
     let normalized = normalize_remote_public_base(&public_base)?;
+    let token = state()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .token
+        .clone();
+    verify_remote_public_base(&normalized, &token).await?;
     save_remote_public_base_keyring(&normalized)?;
     Ok(state()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .status())
+}
+
+#[tauri::command]
+pub async fn get_readonly_viewer_transport_status() -> Result<ReadOnlyTransportStatus, String> {
+    let public_url = configured_remote_public_base().unwrap_or_default();
+    if public_url.is_empty() {
+        return Ok(ReadOnlyTransportStatus {
+            configured: false,
+            public_url,
+            reachable: false,
+            error: String::new(),
+        });
+    }
+    let token = state()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .token
+        .clone();
+    match verify_remote_public_base(&public_url, &token).await {
+        Ok(()) => Ok(ReadOnlyTransportStatus {
+            configured: true,
+            public_url,
+            reachable: true,
+            error: String::new(),
+        }),
+        Err(error) => Ok(ReadOnlyTransportStatus {
+            configured: true,
+            public_url,
+            reachable: false,
+            error,
+        }),
+    }
 }
 
 #[tauri::command]

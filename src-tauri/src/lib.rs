@@ -44,8 +44,9 @@ use remote_viewer::{
     save_remote_viewer_connection,
 };
 use readonly_viewer::{
-    delete_readonly_viewer_public_base, initialize_readonly_viewer, open_readonly_viewer,
-    readonly_viewer_pairing_link, readonly_viewer_status, save_readonly_viewer_public_base,
+    delete_readonly_viewer_public_base, get_readonly_viewer_transport_status,
+    initialize_readonly_viewer, open_readonly_viewer, readonly_viewer_pairing_link,
+    readonly_viewer_status, save_readonly_viewer_public_base,
 };
 use trading::{create_trade_intent, delete_binance_readonly_credentials, delete_market_gateway_connection, evaluate_trade_risk, get_binance_readonly_status, get_decision_shadow_status, get_execution_guard_status, get_execution_readiness, get_market_gateway_connection_status, get_market_snapshot, get_real_ledger_status, get_shadow_experiment_status, get_symbol_research, get_trading_runtime_status, list_trade_intents, refresh_trading_runtime, reset_execution_kill_switch, save_binance_readonly_credentials, save_market_gateway_connection, scan_market_opportunities, sync_binance_readonly_ledger, TradingRuntimeState};
 use wecom::{
@@ -6076,6 +6077,7 @@ pub fn run() {
             open_readonly_viewer,
             readonly_viewer_pairing_link,
             save_readonly_viewer_public_base,
+            get_readonly_viewer_transport_status,
             delete_readonly_viewer_public_base,
             save_remote_viewer_connection,
             get_remote_viewer_connection_status,
