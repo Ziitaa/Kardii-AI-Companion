@@ -10,6 +10,7 @@
     <div class="brand"><div class="mark">K</div><div><strong>Kardii</strong><span>RUN CONSOLE</span></div></div>
     <nav>
       <button class="nav active" data-view="overview">⌂ <span>运行状态</span></button>
+      <button class="nav" data-view="remote">◈ <span>远程全状态</span></button>
       <button class="nav" data-view="ledger">▤ <span>真实账本</span></button>
       <button class="nav" data-view="research">◎ <span>研究日志</span></button>
     </nav>
@@ -38,12 +39,12 @@
           <div class="connection-note">Kardii 只接受严格只读权限。检测到交易、提现、内部转账、Margin、Futures、Options 等权限会直接拒绝保存。</div>
         </section>
         <section class="panel connection-panel">
-          <div class="panel-head"><div><span class="eyebrow">REMOTE · READ ONLY</span><h3>远程 Kardii 只读查看</h3></div></div>
+          <div class="panel-head"><div><span class="eyebrow">REMOTE · FULL STATUS</span><h3>远程 Kardii 全状态镜像</h3></div></div>
           <div class="connection-row">
-            <div><strong id="remoteViewerStatus">未连接</strong><span id="remoteViewerDetail">公司电脑只保存只读查看凭据，不保存交易所 API。</span></div>
+            <div><strong id="remoteViewerStatus">未连接</strong><span id="remoteViewerDetail">公司电脑只保存远程配对凭据，不保存交易所 API。</span></div>
             <div class="connection-actions"><button id="remoteViewerConnectBtn" class="primary">连接</button><button id="remoteViewerDisconnectBtn" class="secondary hidden">断开</button></div>
           </div>
-          <div class="connection-note">连接时粘贴个人 Kardii 生成的 HTTPS 配对链接。远程端只能读取研究、账本摘要与风控状态，不能下单或提现。</div>
+          <div class="connection-note">连接后显示完整运行状态：研究、策略实验、Shadow、余额快照、真实账本、Trade Intent、Risk Gate 与 Kill Switch。密钥不会进入镜像；远程控制与交易执行仍保持关闭。</div>
         </section>
         <section class="panel"><div class="panel-head"><div><span class="eyebrow">INTERNAL</span><h3>内部状态</h3></div></div>
           <div class="internal-list">
@@ -52,6 +53,23 @@
             <div><strong>市场与机会数据</strong><span>可以保存在后台，需要解释时再从聊天窗口问 Kardii。</span></div>
           </div>
         </section>
+      </section>
+
+      <section class="view" data-panel="remote">
+        <div class="hero compact"><div><span class="eyebrow">REMOTE · FULL STATUS</span><h2>个人 Kardii 全状态</h2><p>这里镜像个人电脑上的 Kardii 运行状态。显示完整状态，但不会把 Binance API Key / Secret 复制到公司电脑。</p></div><span class="badge">MIRROR</span></div>
+        <div class="cards">
+          <article><span>运行模式</span><strong id="remoteMode">未连接</strong><small id="remoteModeDetail">等待远程 Kardii</small></article>
+          <article><span>研究记录</span><strong id="remoteResearchCount">0</strong><small>最近研究与机会证据</small></article>
+          <article><span>真实账本</span><strong id="remoteLedgerCount">0</strong><small>事件总数</small></article>
+          <article><span>Kill Switch</span><strong id="remoteKillSwitch">—</strong><small id="remoteKillDetail">等待状态</small></article>
+        </div>
+        <section class="panel"><div class="panel-head"><div><span class="eyebrow">RISK / EXECUTION</span><h3>执行与风险状态</h3></div></div><div id="remoteRuntimeDetail" class="internal-list"></div></section>
+        <section class="panel"><div class="panel-head"><div><span class="eyebrow">BALANCES</span><h3>最新账户余额快照</h3></div></div><div id="remoteBalanceList" class="list"></div></section>
+        <section class="panel"><div class="panel-head"><div><span class="eyebrow">RESEARCH</span><h3>最近研究</h3></div></div><div id="remoteResearchList" class="list"></div></section>
+        <section class="panel"><div class="panel-head"><div><span class="eyebrow">STRATEGY</span><h3>策略实验</h3></div></div><div id="remoteExperimentList" class="list"></div></section>
+        <section class="panel"><div class="panel-head"><div><span class="eyebrow">SHADOW</span><h3>Shadow 实验</h3></div></div><div id="remoteShadowList" class="list"></div></section>
+        <section class="panel"><div class="panel-head"><div><span class="eyebrow">REAL LEDGER</span><h3>真实账本事件</h3></div></div><div id="remoteLedgerEventList" class="list"></div></section>
+        <section class="panel"><div class="panel-head"><div><span class="eyebrow">TRADE INTENT</span><h3>交易意图与风控决策</h3></div></div><div id="remoteTradeIntentList" class="list"></div></section>
       </section>
       <section class="view" data-panel="ledger">
         <div class="hero compact"><div><span class="eyebrow">REAL LEDGER</span><h2>真实账本</h2><p>这里只记录真实资金、真实成交、手续费、转入转出和已实现损益。模拟交易永远不会写进这里。</p></div><button id="addLedgerBtn" class="primary">＋ 记录真实变动</button></div>

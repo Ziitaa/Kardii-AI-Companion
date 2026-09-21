@@ -26,7 +26,7 @@ function saveState() {
   localStorage.setItem(STATE_KEY, JSON.stringify(state));
 }
 
-const titles = { overview: "运行状态", ledger: "真实账本", research: "研究日志" };
+const titles = { overview: "运行状态", remote: "远程全状态", ledger: "真实账本", research: "研究日志" };
 document.querySelectorAll(".nav").forEach((button) => {
   button.onclick = () => {
     document.querySelectorAll(".nav").forEach((item) => item.classList.toggle("active", item === button));
@@ -68,6 +68,20 @@ const ledgerCount = document.getElementById("ledgerCount");
 const ledgerLatest = document.getElementById("ledgerLatest");
 const ledgerList = document.getElementById("ledgerList");
 const researchList = document.getElementById("researchList");
+const remoteMode = document.getElementById("remoteMode");
+const remoteModeDetail = document.getElementById("remoteModeDetail");
+const remoteResearchCount = document.getElementById("remoteResearchCount");
+const remoteLedgerCount = document.getElementById("remoteLedgerCount");
+const remoteKillSwitch = document.getElementById("remoteKillSwitch");
+const remoteKillDetail = document.getElementById("remoteKillDetail");
+const remoteRuntimeDetail = document.getElementById("remoteRuntimeDetail");
+const remoteBalanceList = document.getElementById("remoteBalanceList");
+const remoteResearchList = document.getElementById("remoteResearchList");
+const remoteExperimentList = document.getElementById("remoteExperimentList");
+const remoteShadowList = document.getElementById("remoteShadowList");
+const remoteLedgerEventList = document.getElementById("remoteLedgerEventList");
+const remoteTradeIntentList = document.getElementById("remoteTradeIntentList");
+let remoteSnapshot = null;
 let mode = "";
 
 function openModal(nextMode) {
@@ -218,15 +232,19 @@ async function refreshRemoteViewerConnection() {
     const status = await invokeCore("get_remote_viewer_connection_status");
     if (!status.configured) {
       remoteViewerStatus.textContent = "未连接";
-      remoteViewerDetail.textContent = "公司电脑只保存只读查看凭据，不保存交易所 API。";
+      remoteViewerDetail.textContent = "公司电脑只保存远程配对凭据，不保存交易所 API。";
+      remoteSnapshot = null;
+      renderRemoteSnapshot(null);
       remoteViewerConnectBtn?.classList.remove("hidden");
       remoteViewerDisconnectBtn?.classList.add("hidden");
       return;
     }
-    remoteViewerStatus.textContent = status.reachable ? "已连接" : "暂时离线";
+    remoteViewerStatus.textContent = status.reachable ? "已连接 · 全状态" : "暂时离线";
     remoteViewerDetail.textContent = status.reachable
-      ? "只读连接正常 · " + status.baseUrl
+      ? "全状态镜像正常 · " + status.baseUrl
       : (status.error || "远程 Kardii 暂时不可达");
+    remoteSnapshot = status.snapshot || null;
+    renderRemoteSnapshot(remoteSnapshot);
     remoteViewerConnectBtn?.classList.toggle("hidden", status.reachable);
     remoteViewerDisconnectBtn?.classList.remove("hidden");
   } catch (error) {
@@ -235,7 +253,80 @@ async function refreshRemoteViewerConnection() {
   }
 }
 void refreshRemoteViewerConnection();
+setInterval(() => void refreshRemoteViewerConnection(), 10 * 1000);
 
+function remoteEmpty(target, message) {
+  if (target) target.innerHTML = '<div class="empty">' + esc(message) + '</div>';
+}
+
+function renderRemoteSnapshot(snapshot) {
+  if (!remoteMode) return;
+  if (!snapshot) {
+    remoteMode.textContent = "未连接";
+    remoteModeDetail.textContent = "等待远程 Kardii";
+    remoteResearchCount.textContent = "0";
+    remoteLedgerCount.textContent = "0";
+    remoteKillSwitch.textContent = "—";
+    remoteKillDetail.textContent = "等待状态";
+    [remoteRuntimeDetail, remoteBalanceList, remoteResearchList, remoteExperimentList, remoteShadowList, remoteLedgerEventList, remoteTradeIntentList]
+      .forEach((node) => remoteEmpty(node, "连接个人 Kardii 后显示。"));
+    return;
+  }
+
+  const gate = snapshot.executionGate || {};
+  const kill = snapshot.killSwitch || {};
+  const rec = snapshot.reconciliation || {};
+  const shadow = snapshot.shadowExperiments || {};
+  remoteMode.textContent = gate.realExecutionEnabled ? "真实执行已启用" : (gate.mode || "研究 / 观察");
+  remoteModeDetail.textContent = snapshot.remoteControlEnabled ? "远程控制已启用" : "全状态可见 · 远程执行关闭";
+  remoteResearchCount.textContent = String(snapshot.researchCount ?? 0);
+  remoteLedgerCount.textContent = String(snapshot.realLedgerEventCount ?? 0);
+  remoteKillSwitch.textContent = kill.latched ? "已锁定" : "正常";
+  remoteKillDetail.textContent = kill.latched ? (kill.reason || "执行已停止") : "未触发";
+
+  remoteRuntimeDetail.innerHTML = [
+    ["对账", rec.status || "未知", rec.detail || "暂无"],
+    ["真实执行", gate.realExecutionEnabled ? "已启用" : "关闭", gate.note || ""],
+    ["单笔上限", gate.maxOrderNotionalUsdt ?? 0, "USDT"],
+    ["单日亏损上限", gate.maxDailyLossUsdt ?? 0, "USDT"],
+    ["最大持仓数", gate.maxOpenPositions ?? 0, "确定性风控"],
+    ["提现", gate.withdrawalEnabled ? "已启用" : "关闭", "镜像端不可发起"],
+    ["杠杆", gate.leverageEnabled ? "已启用" : "关闭", "镜像端不可发起"],
+    ["Shadow", (shadow.open ?? 0) + " open / " + (shadow.closed ?? 0) + " closed", "平均 " + Number(shadow.averageReturnPercent || 0).toFixed(3) + "%"]
+  ].map(([name,value,note]) => '<div><strong>'+esc(name)+'</strong><span>'+esc(value)+(note?' · '+esc(note):'')+'</span></div>').join("");
+
+  const balances = Array.isArray(snapshot.latestBalances) ? snapshot.latestBalances : [];
+  remoteBalanceList.innerHTML = balances.length ? balances.map(x =>
+    '<div class="row"><strong>'+esc(x.asset)+'</strong><span>余额</span><div><span class="amount">'+esc(x.total)+'</span><small>可用 '+esc(x.free)+' · 锁定 '+esc(x.locked)+'</small></div><small>'+esc(x.capturedAt||"")+'</small></div>'
+  ).join("") : '<div class="empty">暂无余额快照。</div>';
+
+  const research = Array.isArray(snapshot.recentResearch) ? snapshot.recentResearch : [];
+  remoteResearchList.innerHTML = research.length ? research.map(x =>
+    '<div class="row"><strong>'+esc(x.symbol)+'</strong><span>'+esc(x.signal||"研究")+'</span><div><span>Score '+esc(Number(x.attentionScore||0).toFixed(2))+'</span><small>1h '+esc(Number(x.return1hPercent||0).toFixed(2))+'% · 4h '+esc(Number(x.return4hPercent||0).toFixed(2))+'%</small></div><small>'+esc(x.scannedAt||"")+'</small></div>'
+  ).join("") : '<div class="empty">暂无研究记录。</div>';
+
+  const experiments = Array.isArray(snapshot.strategyExperiments) ? snapshot.strategyExperiments : [];
+  remoteExperimentList.innerHTML = experiments.length ? experiments.map(x =>
+    '<div class="row"><strong>'+esc(x.symbol)+'</strong><span>'+esc(x.status)+'</span><div><span>'+esc(x.hypothesis||"")+'</span><small>观察 '+esc(x.observationCount)+' · miss '+esc(x.missCount)+'</small></div><small>'+esc(x.updatedAt||"")+'</small></div>'
+  ).join("") : '<div class="empty">暂无策略实验。</div>';
+
+  const trials = Array.isArray(snapshot.shadowTrials) ? snapshot.shadowTrials : [];
+  remoteShadowList.innerHTML = trials.length ? trials.map(x =>
+    '<div class="row"><strong>'+esc(x.symbol)+'</strong><span>'+esc(x.status)+'</span><div><span>'+esc(x.signal||"")+'</span><small>entry '+esc(x.entryPrice)+' · return '+esc(x.returnPercent==null?"—":Number(x.returnPercent).toFixed(3)+"%")+'</small></div><small>'+esc(x.horizonMinutes)+'m</small></div>'
+  ).join("") : '<div class="empty">暂无 Shadow 实验。</div>';
+
+  const events = Array.isArray(snapshot.ledgerEvents) ? snapshot.ledgerEvents : [];
+  remoteLedgerEventList.innerHTML = events.length ? events.map(x =>
+    '<div class="row"><strong>'+esc(x.eventType)+'</strong><span>'+esc(x.asset)+'</span><div><span class="amount">'+esc(x.amount)+'</span><small>'+esc(x.venue||"")+' · '+esc(x.source||"")+'</small></div><small>'+esc(x.occurredAt||"")+'</small></div>'
+  ).join("") : '<div class="empty">暂无真实账本事件。</div>';
+
+  const intents = Array.isArray(snapshot.tradeIntents) ? snapshot.tradeIntents : [];
+  remoteTradeIntentList.innerHTML = intents.length ? intents.map(x =>
+    '<div class="row"><strong>'+esc(x.symbol)+' '+esc(x.side)+'</strong><span>'+esc(x.status)+'</span><div><span>'+esc(x.notionalUsdt)+' USDT</span><small>'+esc(x.realExecutionAllowed?"risk passed":"blocked")+' · '+esc((x.riskReasons||[]).join(" / "))+'</small></div><small>'+esc(x.createdAt||"")+'</small></div>'
+  ).join("") : '<div class="empty">暂无交易意图。</div>';
+}
+
+renderRemoteSnapshot(null);
 
 function tasks(){try{return JSON.parse(localStorage.getItem(AGENT_KEY)||"[]")}catch{return[]}}function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}function typeLabel(t){return({deposit:"转入",withdrawal:"转出",trade:"真实成交",fee:"手续费",realized_pnl:"已实现损益",adjustment:"其他调整"})[t]||t}function render(){const t=tasks(),running=t.filter(x=>["running","queued"].includes(x.status)),approvals=t.filter(x=>["waiting_permission","waiting_input"].includes(x.status));agentCount.textContent=running.length;agentDetail.textContent=running.length?running.slice(0,2).map(x=>x.title||x.goal||"Agent 任务").join(" · "):"没有运行中的任务";approvalCount.textContent=approvals.length;marketStatus.textContent=state.market.connected?"已接入":"未接入";scanStatus.textContent=state.scanner.running?"运行中":"未运行";ledgerCount.textContent=state.ledger.length;ledgerLatest.textContent=state.ledger[0]?new Date(state.ledger[0].createdAt).toLocaleString("zh-CN"):"—";ledgerList.innerHTML=state.ledger.length?state.ledger.map(x=>'<div class="row"><strong>'+esc(typeLabel(x.type))+'</strong><span>'+esc(x.asset)+'</span><div><span class="amount">'+esc(x.amount)+'</span><small>'+esc(x.venue||"")+(x.note?" · "+esc(x.note):"")+'</small></div><small>'+new Date(x.createdAt).toLocaleString("zh-CN")+'</small></div>').join(""):'<div class="empty">还没有真实资金记录。模拟交易不会出现在这里。</div>';researchList.innerHTML=state.research.length?state.research.map(x=>'<div class="row"><strong>'+esc(x.title)+'</strong><span>研究</span><div><span>'+esc(x.conclusion)+'</span><small>'+esc(x.sources||"")+'</small></div><small>'+new Date(x.createdAt).toLocaleString("zh-CN")+'</small></div>').join(""):'<div class="empty">还没有研究日志。</div>'}render();
 async function syncRuntimeStatus(){

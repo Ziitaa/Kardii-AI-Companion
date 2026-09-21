@@ -252,18 +252,32 @@ fn read_status(path: &Path) -> Result<serde_json::Value, String> {
     let shadow_open: i64 = connection
         .query_row("SELECT COUNT(*) FROM shadow_strategy_trials WHERE status = 'open'", [], |row| row.get(0))
         .unwrap_or(0);
-    let (shadow_closed, shadow_avg): (i64, f64) = connection
-        .query_row("SELECT COUNT(*), COALESCE(AVG(return_percent), 0) FROM shadow_strategy_trials WHERE status = 'closed'", [], |row| Ok((row.get(0)?, row.get(1)?)))
-        .unwrap_or((0, 0.0));
+    let (shadow_closed, shadow_positive, shadow_negative, shadow_avg): (i64, i64, i64, f64) = connection
+        .query_row(
+            "SELECT COUNT(*),
+                    COALESCE(SUM(CASE WHEN return_percent > 0 THEN 1 ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN return_percent < 0 THEN 1 ELSE 0 END), 0),
+                    COALESCE(AVG(return_percent), 0)
+             FROM shadow_strategy_trials WHERE status = 'closed'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .unwrap_or((0, 0, 0, 0.0));
 
     let risk_gate = connection.query_row(
-        "SELECT real_execution_enabled, max_order_notional_usdt, max_daily_loss_usdt, max_open_positions FROM risk_policy WHERE id = 1",
+        "SELECT mode, real_execution_enabled, withdrawal_enabled, leverage_enabled,
+                max_order_notional_usdt, max_daily_loss_usdt, max_open_positions, note
+         FROM risk_policy WHERE id = 1",
         [],
         |row| Ok((
-            row.get::<_, i64>(0)? != 0,
-            row.get::<_, f64>(1)?,
-            row.get::<_, f64>(2)?,
-            row.get::<_, i64>(3)?,
+            row.get::<_, String>(0)?,
+            row.get::<_, i64>(1)? != 0,
+            row.get::<_, i64>(2)? != 0,
+            row.get::<_, i64>(3)? != 0,
+            row.get::<_, f64>(4)?,
+            row.get::<_, f64>(5)?,
+            row.get::<_, i64>(6)?,
+            row.get::<_, String>(7)?,
         )),
     ).ok();
 
@@ -290,26 +304,163 @@ fn read_status(path: &Path) -> Result<serde_json::Value, String> {
         )
         .ok();
 
-    let mut recent = Vec::new();
+    let mut recent_research = Vec::new();
     if let Ok(mut statement) = connection.prepare(
-        "SELECT symbol, attention_score, scanned_at
+        "SELECT symbol, attention_score, signal, last_price, spread_bps,
+                return_1h_percent, return_4h_percent, volume_acceleration, scanned_at
          FROM research_history
-         ORDER BY id DESC LIMIT 5"
+         ORDER BY id DESC LIMIT 30"
     ) {
         if let Ok(rows) = statement.query_map([], |row| {
             Ok(serde_json::json!({
                 "symbol": row.get::<_, String>(0)?,
                 "attentionScore": row.get::<_, f64>(1)?,
-                "scannedAt": row.get::<_, String>(2)?
+                "signal": row.get::<_, String>(2)?,
+                "lastPrice": row.get::<_, f64>(3)?,
+                "spreadBps": row.get::<_, f64>(4)?,
+                "return1hPercent": row.get::<_, f64>(5)?,
+                "return4hPercent": row.get::<_, f64>(6)?,
+                "volumeAcceleration": row.get::<_, f64>(7)?,
+                "scannedAt": row.get::<_, String>(8)?
             }))
         }) {
             for row in rows.flatten() {
-                recent.push(row);
+                recent_research.push(row);
+            }
+        }
+    }
+
+    let mut strategy_experiments = Vec::new();
+    if let Ok(mut statement) = connection.prepare(
+        "SELECT symbol, status, created_at, updated_at, observation_count, miss_count,
+                best_attention_score, hypothesis, invalidation_rule
+         FROM strategy_experiments
+         ORDER BY updated_at DESC LIMIT 30"
+    ) {
+        if let Ok(rows) = statement.query_map([], |row| {
+            Ok(serde_json::json!({
+                "symbol": row.get::<_, String>(0)?,
+                "status": row.get::<_, String>(1)?,
+                "createdAt": row.get::<_, String>(2)?,
+                "updatedAt": row.get::<_, String>(3)?,
+                "observationCount": row.get::<_, i64>(4)?,
+                "missCount": row.get::<_, i64>(5)?,
+                "bestAttentionScore": row.get::<_, f64>(6)?,
+                "hypothesis": row.get::<_, String>(7)?,
+                "invalidationRule": row.get::<_, String>(8)?
+            }))
+        }) {
+            for row in rows.flatten() {
+                strategy_experiments.push(row);
+            }
+        }
+    }
+
+    let mut ledger_events = Vec::new();
+    if let Ok(mut statement) = connection.prepare(
+        "SELECT venue, event_type, asset, amount, occurred_at, source
+         FROM real_ledger_events
+         ORDER BY occurred_at DESC LIMIT 60"
+    ) {
+        if let Ok(rows) = statement.query_map([], |row| {
+            Ok(serde_json::json!({
+                "venue": row.get::<_, String>(0)?,
+                "eventType": row.get::<_, String>(1)?,
+                "asset": row.get::<_, String>(2)?,
+                "amount": row.get::<_, f64>(3)?,
+                "occurredAt": row.get::<_, String>(4)?,
+                "source": row.get::<_, String>(5)?
+            }))
+        }) {
+            for row in rows.flatten() {
+                ledger_events.push(row);
+            }
+        }
+    }
+
+    let mut latest_balances = Vec::new();
+    if let Ok(mut statement) = connection.prepare(
+        "SELECT asset, free, locked, total, captured_at, source
+         FROM account_balance_snapshots
+         WHERE venue = 'binance'
+           AND captured_at = (SELECT MAX(captured_at) FROM account_balance_snapshots WHERE venue = 'binance')
+         ORDER BY total DESC, asset ASC"
+    ) {
+        if let Ok(rows) = statement.query_map([], |row| {
+            Ok(serde_json::json!({
+                "asset": row.get::<_, String>(0)?,
+                "free": row.get::<_, f64>(1)?,
+                "locked": row.get::<_, f64>(2)?,
+                "total": row.get::<_, f64>(3)?,
+                "capturedAt": row.get::<_, String>(4)?,
+                "source": row.get::<_, String>(5)?
+            }))
+        }) {
+            for row in rows.flatten() {
+                latest_balances.push(row);
+            }
+        }
+    }
+
+    let mut shadow_trials = Vec::new();
+    if let Ok(mut statement) = connection.prepare(
+        "SELECT symbol, signal, opened_at_ms, entry_price, horizon_minutes,
+                attention_score, status, closed_at_ms, exit_price, return_percent
+         FROM shadow_strategy_trials
+         ORDER BY id DESC LIMIT 40"
+    ) {
+        if let Ok(rows) = statement.query_map([], |row| {
+            Ok(serde_json::json!({
+                "symbol": row.get::<_, String>(0)?,
+                "signal": row.get::<_, String>(1)?,
+                "openedAtMs": row.get::<_, i64>(2)?,
+                "entryPrice": row.get::<_, f64>(3)?,
+                "horizonMinutes": row.get::<_, i64>(4)?,
+                "attentionScore": row.get::<_, f64>(5)?,
+                "status": row.get::<_, String>(6)?,
+                "closedAtMs": row.get::<_, Option<i64>>(7)?,
+                "exitPrice": row.get::<_, Option<f64>>(8)?,
+                "returnPercent": row.get::<_, Option<f64>>(9)?
+            }))
+        }) {
+            for row in rows.flatten() {
+                shadow_trials.push(row);
+            }
+        }
+    }
+
+    let mut trade_intents = Vec::new();
+    if let Ok(mut statement) = connection.prepare(
+        "SELECT id, symbol, side, notional_usdt, rationale, source, status,
+                real_execution_allowed, risk_reasons_json, created_at
+         FROM trade_intents
+         ORDER BY created_at DESC LIMIT 40"
+    ) {
+        if let Ok(rows) = statement.query_map([], |row| {
+            let risk_json: String = row.get(8)?;
+            let risk_reasons = serde_json::from_str::<serde_json::Value>(&risk_json)
+                .unwrap_or_else(|_| serde_json::json!([]));
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "symbol": row.get::<_, String>(1)?,
+                "side": row.get::<_, String>(2)?,
+                "notionalUsdt": row.get::<_, f64>(3)?,
+                "rationale": row.get::<_, String>(4)?,
+                "source": row.get::<_, String>(5)?,
+                "status": row.get::<_, String>(6)?,
+                "realExecutionAllowed": row.get::<_, i64>(7)? != 0,
+                "riskReasons": risk_reasons,
+                "createdAt": row.get::<_, String>(9)?
+            }))
+        }) {
+            for row in rows.flatten() {
+                trade_intents.push(row);
             }
         }
     }
 
     Ok(serde_json::json!({
+        "viewMode": "full-status-mirror",
         "researchCount": research_count,
         "observingExperimentCount": observing_count,
         "realLedgerEventCount": ledger_count,
@@ -317,6 +468,8 @@ fn read_status(path: &Path) -> Result<serde_json::Value, String> {
         "shadowExperiments": {
             "open": shadow_open,
             "closed": shadow_closed,
+            "positive": shadow_positive,
+            "negative": shadow_negative,
             "averageReturnPercent": (shadow_avg * 1000.0).round() / 1000.0
         },
         "reconciliation": reconciliation.map(|value| serde_json::json!({
@@ -324,13 +477,16 @@ fn read_status(path: &Path) -> Result<serde_json::Value, String> {
             "detail": value.1,
             "checkedAt": value.2
         })),
-        "recentResearch": recent,
         "executionGate": risk_gate.map(|value| serde_json::json!({
-            "realExecutionEnabled": value.0,
-            "riskLimitsConfigured": value.1 > 0.0 && value.2 > 0.0 && value.3 > 0,
-            "maxOrderNotionalUsdt": value.1,
-            "maxDailyLossUsdt": value.2,
-            "maxOpenPositions": value.3
+            "mode": value.0,
+            "realExecutionEnabled": value.1,
+            "withdrawalEnabled": value.2,
+            "leverageEnabled": value.3,
+            "riskLimitsConfigured": value.4 > 0.0 && value.5 > 0.0 && value.6 > 0,
+            "maxOrderNotionalUsdt": value.4,
+            "maxDailyLossUsdt": value.5,
+            "maxOpenPositions": value.6,
+            "note": value.7
         })),
         "killSwitch": kill_switch.map(|value| serde_json::json!({
             "latched": value.0,
@@ -338,7 +494,14 @@ fn read_status(path: &Path) -> Result<serde_json::Value, String> {
             "source": value.2,
             "updatedAt": value.3
         })),
-        "remoteEnabled": false
+        "recentResearch": recent_research,
+        "strategyExperiments": strategy_experiments,
+        "ledgerEvents": ledger_events,
+        "latestBalances": latest_balances,
+        "shadowTrials": shadow_trials,
+        "tradeIntents": trade_intents,
+        "secretsIncluded": false,
+        "remoteControlEnabled": false
     }))
 }
 
