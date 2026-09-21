@@ -7,6 +7,8 @@ const gateway = fs.readFileSync("infra/market-gateway/server.mjs", "utf8");
 const readonly = fs.readFileSync("src-tauri/src/readonly_viewer.rs", "utf8");
 const lib = fs.readFileSync("src-tauri/src/lib.rs", "utf8");
 const workbench = fs.readFileSync("src/workbench.html", "utf8");
+const railway = fs.readFileSync("infra/market-gateway/railway.json", "utf8");
+const remoteTransport = fs.readFileSync("infra/remote-transport/README.md", "utf8");
 
 assert.match(trading, /KARDII_MARKET_GATEWAY_BASE/);
 assert.match(trading, /KARDII_MARKET_GATEWAY_TOKEN/);
@@ -47,5 +49,9 @@ assert.match(lib, /save_market_gateway_connection/);
 assert.match(lib, /save_readonly_viewer_public_base/);
 assert.match(workbench, /MARKET DATA EGRESS/);
 assert.match(workbench, /设置 HTTPS 入口/);
+assert.match(railway, /"healthcheckPath": "\/healthz"/);
+assert.doesNotMatch(railway, /KARDII_MARKET_GATEWAY_TOKEN/);
+assert.match(remoteTransport, /tailscale serve --bg http:\/\/127\.0\.0\.1:43199/);
+assert.match(remoteTransport, /Do \*\*not\*\* use Tailscale Funnel/);
 
 console.log("Kardii v2.2 market gateway boundary checks passed.");
