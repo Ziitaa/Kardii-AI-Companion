@@ -1,3 +1,4 @@
+use crate::decision::{evaluate_with_fallback, DecisionAttempt, DecisionInput, RuleBaselineProvider};
 use chrono::Utc;
 use hmac::{Hmac, Mac};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -514,6 +515,69 @@ fn kline_number(row: &[serde_json::Value], index: usize) -> f64 {
         .unwrap_or(0.0)
 }
 
+fn kline_timestamp(row: &[serde_json::Value], index: usize) -> i64 {
+    row.get(index)
+        .and_then(|value| value.as_i64())
+        .unwrap_or(0)
+}
+
+fn nearest_kline_close(rows: &[Vec<serde_json::Value>], target_ms: i64) -> f64 {
+    rows.iter()
+        .filter(|row| kline_timestamp(row, 0) > 0)
+        .min_by_key(|row| (kline_timestamp(row, 0) - target_ms).abs())
+        .map(|row| kline_number(row, 4))
+        .unwrap_or(0.0)
+}
+
+async fn fetch_decision_horizon_prices(
+    symbol: &str,
+    decided_at_ms: i64,
+) -> Result<(f64, f64, f64, f64), String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(12))
+        .build()
+        .map_err(|error| format!("无法初始化 Decision Shadow 行情客户端：{error}"))?;
+
+    let start_ms = decided_at_ms + 4 * 60_000;
+    let end_ms = decided_at_ms + 242 * 60_000;
+    let path = format!(
+        "/api/v3/klines?symbol={symbol}&interval=1m&startTime={start_ms}&endTime={end_ms}&limit=300"
+    );
+    let (_source, rows) =
+        fetch_public_json::<Vec<Vec<serde_json::Value>>>(&client, &path).await?;
+    if rows.is_empty() {
+        return Err(format!("{symbol} Decision Shadow 缺少后续 K 线。"));
+    }
+
+    let p5 = nearest_kline_close(&rows, decided_at_ms + 5 * 60_000);
+    let p30 = nearest_kline_close(&rows, decided_at_ms + 30 * 60_000);
+    let p60 = nearest_kline_close(&rows, decided_at_ms + 60 * 60_000);
+    let p240 = nearest_kline_close(&rows, decided_at_ms + 240 * 60_000);
+    if [p5, p30, p60, p240].iter().any(|price| *price <= 0.0) {
+        return Err(format!("{symbol} Decision Shadow 后续价格样本不完整。"));
+    }
+    Ok((p5, p30, p60, p240))
+}
+
+fn shadow_return(entry: f64, future: f64) -> f64 {
+    if entry > 0.0 {
+        ((future - entry) / entry) * 100.0
+    } else {
+        0.0
+    }
+}
+
+fn classify_shadow_outcome(return_1h_percent: f64) -> &'static str {
+    if return_1h_percent >= 0.30 {
+        "bullish"
+    } else if return_1h_percent <= -0.30 {
+        "bearish"
+    } else {
+        "neutral"
+    }
+}
+
+
 #[tauri::command]
 pub async fn get_symbol_research(symbol: String) -> Result<SymbolResearch, String> {
     let symbol = symbol.trim().to_uppercase();
@@ -974,6 +1038,27 @@ pub struct ShadowExperimentStatus {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DecisionShadowStatus {
+    mode: String,
+    sample_count: i64,
+    prediction_count: i64,
+    pending_outcomes: i64,
+    settled_outcomes: i64,
+    providers_seen: i64,
+    effective_predictions: i64,
+    average_latency_ms: f64,
+    latest_decision_at: String,
+    latest_provider: String,
+    latest_symbol: String,
+    latest_direction: String,
+    latest_action: String,
+    external_provider_configured: bool,
+    execution_linked: bool,
+}
+
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ExecutionGuardStatus {
     latched: bool,
     reason: String,
@@ -1191,6 +1276,52 @@ impl TradingRuntimeState {
              );
              CREATE INDEX IF NOT EXISTS trade_intents_created
                ON trade_intents(created_at DESC);"
+             CREATE TABLE IF NOT EXISTS decision_shadow_samples (
+               sample_id TEXT PRIMARY KEY NOT NULL,
+               decided_at_ms INTEGER NOT NULL,
+               decided_at TEXT NOT NULL,
+               symbol TEXT NOT NULL,
+               feature_json TEXT NOT NULL,
+               price_at_decision REAL NOT NULL,
+               rule_engine_result TEXT NOT NULL,
+               price_5m REAL,
+               price_30m REAL,
+               price_1h REAL,
+               price_4h REAL,
+               return_5m REAL,
+               return_30m REAL,
+               return_1h REAL,
+               return_4h REAL,
+               actual_outcome TEXT,
+               settled_at TEXT,
+               status TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS decision_shadow_samples_status
+               ON decision_shadow_samples(status, decided_at_ms);
+             CREATE TABLE IF NOT EXISTS decision_shadow_predictions (
+               prediction_id TEXT PRIMARY KEY NOT NULL,
+               sample_id TEXT NOT NULL,
+               provider_requested TEXT NOT NULL,
+               provider TEXT NOT NULL,
+               provider_version TEXT NOT NULL,
+               fallback_used INTEGER NOT NULL,
+               primary_error TEXT NOT NULL,
+               direction TEXT NOT NULL,
+               action TEXT NOT NULL,
+               market_regime TEXT NOT NULL,
+               risk_state TEXT NOT NULL,
+               abnormal_state INTEGER NOT NULL,
+               signal_priority TEXT NOT NULL,
+               confidence REAL NOT NULL,
+               confidence_kind TEXT NOT NULL,
+               probabilities_json TEXT NOT NULL,
+               latency_ms INTEGER NOT NULL,
+               estimated_cost_usd REAL NOT NULL,
+               created_at TEXT NOT NULL,
+               FOREIGN KEY(sample_id) REFERENCES decision_shadow_samples(sample_id)
+             );
+             CREATE INDEX IF NOT EXISTS decision_shadow_predictions_sample
+               ON decision_shadow_predictions(sample_id, provider);
         ).map_err(|error| format!("无法初始化 Kardii 交易研究数据库：{error}"))?;
 
         let policy = default_risk_policy();
@@ -1864,6 +1995,261 @@ impl TradingRuntimeState {
         })
     }
 
+
+    fn record_decision_shadow(
+        &self,
+        input: &DecisionInput,
+        attempt: &DecisionAttempt,
+    ) -> Result<(), String> {
+        let sample_id = format!("{}:{}", input.timestamp_ms, input.symbol);
+        let prediction_id = format!(
+            "{}:{}:{}",
+            sample_id,
+            attempt.output.provider,
+            attempt.output.provider_version
+        );
+        let feature_json = serde_json::to_string(input)
+            .map_err(|error| format!("无法序列化 Decision Shadow 输入：{error}"))?;
+        let probabilities_json = attempt.output.probabilities.to_string();
+        let created_at = Utc::now().to_rfc3339();
+
+        self.with_database_mut(|connection| {
+            let transaction = connection
+                .transaction()
+                .map_err(|error| format!("无法开始 Decision Shadow 记录：{error}"))?;
+
+            transaction.execute(
+                "INSERT OR IGNORE INTO decision_shadow_samples(
+                   sample_id, decided_at_ms, decided_at, symbol, feature_json,
+                   price_at_decision, rule_engine_result, status
+                 ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, 'shadow-only-no-execution-link', 'pending')",
+                params![
+                    sample_id,
+                    input.timestamp_ms,
+                    input.timestamp,
+                    input.symbol,
+                    feature_json,
+                    input.price,
+                ],
+            ).map_err(|error| format!("无法保存 Decision Shadow 样本：{error}"))?;
+
+            transaction.execute(
+                "INSERT OR IGNORE INTO decision_shadow_predictions(
+                   prediction_id, sample_id, provider_requested, provider, provider_version,
+                   fallback_used, primary_error, direction, action, market_regime, risk_state,
+                   abnormal_state, signal_priority, confidence, confidence_kind,
+                   probabilities_json, latency_ms, estimated_cost_usd, created_at
+                 ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+                params![
+                    prediction_id,
+                    sample_id,
+                    attempt.provider_requested,
+                    attempt.output.provider,
+                    attempt.output.provider_version,
+                    attempt.fallback_used as i64,
+                    attempt.primary_error,
+                    attempt.output.direction,
+                    attempt.output.action,
+                    attempt.output.market_regime,
+                    attempt.output.risk_state,
+                    attempt.output.abnormal_state as i64,
+                    attempt.output.signal_priority,
+                    attempt.output.confidence,
+                    attempt.output.confidence_kind,
+                    probabilities_json,
+                    attempt.latency_ms as i64,
+                    attempt.output.estimated_cost_usd,
+                    created_at,
+                ],
+            ).map_err(|error| format!("无法保存 Decision Shadow 判断：{error}"))?;
+
+            transaction.commit()
+                .map_err(|error| format!("无法提交 Decision Shadow：{error}"))
+        })
+    }
+
+    fn due_decision_shadow_samples(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<(String, String, i64, f64)>, String> {
+        let due_before = Utc::now().timestamp_millis() - 240 * 60_000;
+        self.with_database(|connection| {
+            let mut statement = connection.prepare(
+                "SELECT sample_id, symbol, decided_at_ms, price_at_decision
+                 FROM decision_shadow_samples
+                 WHERE status = 'pending' AND decided_at_ms <= ?1
+                 ORDER BY decided_at_ms ASC
+                 LIMIT ?2"
+            ).map_err(|error| format!("无法读取待结算 Decision Shadow：{error}"))?;
+            let rows = statement.query_map(
+                params![due_before, limit.clamp(1, 24) as i64],
+                |row| Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, f64>(3)?,
+                )),
+            ).map_err(|error| format!("无法读取待结算 Decision Shadow：{error}"))?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(|error| format!("无法整理待结算 Decision Shadow：{error}"))
+        })
+    }
+
+    async fn settle_decision_shadow_outcomes(&self) -> Result<(), String> {
+        let due = self.due_decision_shadow_samples(8)?;
+        if due.is_empty() {
+            return Ok(());
+        }
+        let mut errors = Vec::new();
+
+        for (sample_id, symbol, decided_at_ms, entry_price) in due {
+            match fetch_decision_horizon_prices(&symbol, decided_at_ms).await {
+                Ok((price_5m, price_30m, price_1h, price_4h)) => {
+                    let return_5m = shadow_return(entry_price, price_5m);
+                    let return_30m = shadow_return(entry_price, price_30m);
+                    let return_1h = shadow_return(entry_price, price_1h);
+                    let return_4h = shadow_return(entry_price, price_4h);
+                    let actual_outcome = classify_shadow_outcome(return_1h);
+                    let update = self.with_database(|connection| {
+                        connection.execute(
+                            "UPDATE decision_shadow_samples
+                             SET price_5m = ?1, price_30m = ?2, price_1h = ?3, price_4h = ?4,
+                                 return_5m = ?5, return_30m = ?6, return_1h = ?7, return_4h = ?8,
+                                 actual_outcome = ?9, settled_at = ?10, status = 'settled'
+                             WHERE sample_id = ?11 AND status = 'pending'",
+                            params![
+                                price_5m,
+                                price_30m,
+                                price_1h,
+                                price_4h,
+                                return_5m,
+                                return_30m,
+                                return_1h,
+                                return_4h,
+                                actual_outcome,
+                                Utc::now().to_rfc3339(),
+                                sample_id,
+                            ],
+                        ).map_err(|error| format!("无法结算 Decision Shadow：{error}"))?;
+                        Ok(())
+                    });
+                    if let Err(error) = update {
+                        errors.push(error);
+                    }
+                }
+                Err(error) => errors.push(error),
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors.join("；"))
+        }
+    }
+
+    async fn update_decision_shadow(
+        &self,
+        scan: &OpportunityScan,
+        research: &[SymbolResearch],
+    ) -> Result<(), String> {
+        let baseline = RuleBaselineProvider;
+        let decided_at_ms = Utc::now().timestamp_millis();
+
+        for item in research.iter().take(3) {
+            let Some(candidate) = scan.candidates.iter().find(|value| value.symbol == item.symbol) else {
+                continue;
+            };
+            let input = DecisionInput {
+                timestamp: scan.fetched_at.clone(),
+                timestamp_ms: decided_at_ms,
+                symbol: item.symbol.clone(),
+                price: item.last_price,
+                candidate_signal: candidate.signal.clone(),
+                attention_score: candidate.attention_score,
+                change_percent_24h: candidate.change_percent_24h,
+                quote_volume_24h: candidate.quote_volume_24h,
+                trade_count_24h: candidate.trade_count_24h,
+                intraday_range_percent: candidate.intraday_range_percent,
+                spread_bps: item.spread_bps,
+                order_book_imbalance: item.order_book_imbalance,
+                return_1h_percent: item.return_1h_percent,
+                return_4h_percent: item.return_4h_percent,
+                realized_volatility_5m_percent: item.realized_volatility_5m_percent,
+                volume_acceleration: item.volume_acceleration,
+            };
+
+            // V0 intentionally has no external provider credentials.
+            // When Jev or another provider is configured, it becomes the primary here;
+            // this same baseline remains the deterministic fallback and comparison arm.
+            let attempt = evaluate_with_fallback(None, &baseline, &input).await?;
+            self.record_decision_shadow(&input, &attempt)?;
+        }
+
+        self.settle_decision_shadow_outcomes().await
+    }
+
+    pub fn decision_shadow_status(&self) -> Result<DecisionShadowStatus, String> {
+        self.with_database(|connection| {
+            let (sample_count, pending, settled): (i64, i64, i64) = connection.query_row(
+                "SELECT COUNT(*),
+                        COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0),
+                        COALESCE(SUM(CASE WHEN status = 'settled' THEN 1 ELSE 0 END), 0)
+                 FROM decision_shadow_samples",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            ).map_err(|error| format!("无法统计 Decision Shadow 样本：{error}"))?;
+
+            let (prediction_count, providers_seen, average_latency_ms, effective_predictions): (i64, i64, f64, i64) =
+                connection.query_row(
+                    "SELECT COUNT(*),
+                            COUNT(DISTINCT p.provider),
+                            COALESCE(AVG(p.latency_ms), 0),
+                            COALESCE(SUM(CASE WHEN s.status = 'settled' AND p.direction = s.actual_outcome THEN 1 ELSE 0 END), 0)
+                     FROM decision_shadow_predictions p
+                     JOIN decision_shadow_samples s ON s.sample_id = p.sample_id",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                ).map_err(|error| format!("无法统计 Decision Shadow 判断：{error}"))?;
+
+            let latest = connection.query_row(
+                "SELECT p.created_at, p.provider, s.symbol, p.direction, p.action
+                 FROM decision_shadow_predictions p
+                 JOIN decision_shadow_samples s ON s.sample_id = p.sample_id
+                 ORDER BY p.created_at DESC LIMIT 1",
+                [],
+                |row| Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                )),
+            ).optional().map_err(|error| format!("无法读取最近 Decision Shadow：{error}"))?;
+
+            let (latest_decision_at, latest_provider, latest_symbol, latest_direction, latest_action) =
+                latest.unwrap_or_default();
+
+            Ok(DecisionShadowStatus {
+                mode: "shadow-only".to_string(),
+                sample_count,
+                prediction_count,
+                pending_outcomes: pending,
+                settled_outcomes: settled,
+                providers_seen,
+                effective_predictions,
+                average_latency_ms: (average_latency_ms * 100.0).round() / 100.0,
+                latest_decision_at,
+                latest_provider,
+                latest_symbol,
+                latest_direction,
+                latest_action,
+                external_provider_configured: false,
+                execution_linked: false,
+            })
+        })
+    }
+
     fn persist_refresh(&self, scan: &OpportunityScan, research: &[SymbolResearch]) -> Result<(), String> {
         self.with_database_mut(|connection| {
             let transaction = connection.transaction()
@@ -1970,6 +2356,7 @@ impl TradingRuntimeState {
                 }
                 let persistence_error = self.persist_refresh(&scan, &research).err().unwrap_or_default();
                 let shadow_error = self.update_shadow_trials(&scan).await.err().unwrap_or_default();
+                let decision_shadow_error = self.update_decision_shadow(&scan, &research).await.err().unwrap_or_default();
                 {
                     let mut inner = self.inner.write().await;
                     inner.refreshing = false;
@@ -1979,7 +2366,7 @@ impl TradingRuntimeState {
                     inner.candidates = scan.candidates;
                     inner.research = research;
                     inner.last_error.clear();
-                    inner.persistence_error = [persistence_error, shadow_error].into_iter().filter(|value| !value.is_empty()).collect::<Vec<_>>().join("；");
+                    inner.persistence_error = [persistence_error, shadow_error, decision_shadow_error].into_iter().filter(|value| !value.is_empty()).collect::<Vec<_>>().join("；");
                 }
                 Ok(self.snapshot().await)
             }
@@ -2227,6 +2614,14 @@ pub fn get_shadow_experiment_status(
 ) -> Result<ShadowExperimentStatus, String> {
     state.shadow_experiment_status()
 }
+
+#[tauri::command]
+pub fn get_decision_shadow_status(
+    state: tauri::State<'_, TradingRuntimeState>,
+) -> Result<DecisionShadowStatus, String> {
+    state.decision_shadow_status()
+}
+
 
 #[tauri::command]
 pub fn get_execution_guard_status(

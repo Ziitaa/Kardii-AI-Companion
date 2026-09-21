@@ -53,6 +53,13 @@
             <div><strong>市场与机会数据</strong><span>可以保存在后台，需要解释时再从聊天窗口问 Kardii。</span></div>
           </div>
         </section>
+        <section class="panel connection-panel">
+          <div class="panel-head"><div><span class="eyebrow">FAST DECISION · SHADOW</span><h3>Decision Provider Benchmark</h3></div></div>
+          <div class="connection-row">
+            <div><strong id="decisionShadowStatus">初始化中</strong><span id="decisionShadowDetail">规则 baseline 先运行；外部 Decision Provider 尚未配置。</span></div>
+          </div>
+          <div class="connection-note">只做 observation / logging / outcome settlement / benchmark。此层没有下单、转账、提现或资金执行路径。</div>
+        </section>
       </section>
 
       <section class="view" data-panel="remote">
@@ -70,6 +77,7 @@
         <section class="panel"><div class="panel-head"><div><span class="eyebrow">SHADOW</span><h3>Shadow 实验</h3></div></div><div id="remoteShadowList" class="list"></div></section>
         <section class="panel"><div class="panel-head"><div><span class="eyebrow">REAL LEDGER</span><h3>真实账本事件</h3></div></div><div id="remoteLedgerEventList" class="list"></div></section>
         <section class="panel"><div class="panel-head"><div><span class="eyebrow">TRADE INTENT</span><h3>交易意图与风控决策</h3></div></div><div id="remoteTradeIntentList" class="list"></div></section>
+        <section class="panel"><div class="panel-head"><div><span class="eyebrow">FAST DECISION · SHADOW</span><h3>Decision Benchmark</h3></div></div><div id="remoteDecisionShadowList" class="list"></div></section>
       </section>
       <section class="view" data-panel="ledger">
         <div class="hero compact"><div><span class="eyebrow">REAL LEDGER</span><h2>真实账本</h2><p>这里只记录真实资金、真实成交、手续费、转入转出和已实现损益。模拟交易永远不会写进这里。</p></div><button id="addLedgerBtn" class="primary">＋ 记录真实变动</button></div>

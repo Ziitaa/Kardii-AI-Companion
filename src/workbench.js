@@ -81,6 +81,9 @@ const remoteExperimentList = document.getElementById("remoteExperimentList");
 const remoteShadowList = document.getElementById("remoteShadowList");
 const remoteLedgerEventList = document.getElementById("remoteLedgerEventList");
 const remoteTradeIntentList = document.getElementById("remoteTradeIntentList");
+const remoteDecisionShadowList = document.getElementById("remoteDecisionShadowList");
+const decisionShadowStatus = document.getElementById("decisionShadowStatus");
+const decisionShadowDetail = document.getElementById("decisionShadowDetail");
 let remoteSnapshot = null;
 let mode = "";
 
@@ -268,7 +271,7 @@ function renderRemoteSnapshot(snapshot) {
     remoteLedgerCount.textContent = "0";
     remoteKillSwitch.textContent = "—";
     remoteKillDetail.textContent = "等待状态";
-    [remoteRuntimeDetail, remoteBalanceList, remoteResearchList, remoteExperimentList, remoteShadowList, remoteLedgerEventList, remoteTradeIntentList]
+    [remoteRuntimeDetail, remoteBalanceList, remoteResearchList, remoteExperimentList, remoteShadowList, remoteLedgerEventList, remoteTradeIntentList, remoteDecisionShadowList]
       .forEach((node) => remoteEmpty(node, "连接个人 Kardii 后显示。"));
     return;
   }
@@ -324,11 +327,41 @@ function renderRemoteSnapshot(snapshot) {
   remoteTradeIntentList.innerHTML = intents.length ? intents.map(x =>
     '<div class="row"><strong>'+esc(x.symbol)+' '+esc(x.side)+'</strong><span>'+esc(x.status)+'</span><div><span>'+esc(x.notionalUsdt)+' USDT</span><small>'+esc(x.realExecutionAllowed?"risk passed":"blocked")+' · '+esc((x.riskReasons||[]).join(" / "))+'</small></div><small>'+esc(x.createdAt||"")+'</small></div>'
   ).join("") : '<div class="empty">暂无交易意图。</div>';
+
+  const decisionShadow = snapshot.decisionShadow || {};
+  const decisions = Array.isArray(decisionShadow.recent) ? decisionShadow.recent : [];
+  remoteDecisionShadowList.innerHTML = decisions.length ? decisions.map(x =>
+    '<div class="row"><strong>'+esc(x.symbol)+'</strong><span>'+esc(x.provider)+'</span><div><span>'+esc(String(x.direction||"").toUpperCase())+' · '+esc(String(x.action||"").toUpperCase())+'</span><small>'+esc(x.marketRegime||"")+' · risk '+esc(x.riskState||"")+' · conf '+esc(Number(x.confidence||0).toFixed(2))+' · '+esc(x.status||"")+(x.actualOutcome?' · actual '+esc(x.actualOutcome):'')+'</small></div><small>'+esc(x.latencyMs||0)+'ms</small></div>'
+  ).join("") : '<div class="empty">暂无 Decision Shadow 判断。</div>';
 }
 
 renderRemoteSnapshot(null);
 
 function tasks(){try{return JSON.parse(localStorage.getItem(AGENT_KEY)||"[]")}catch{return[]}}function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}function typeLabel(t){return({deposit:"转入",withdrawal:"转出",trade:"真实成交",fee:"手续费",realized_pnl:"已实现损益",adjustment:"其他调整"})[t]||t}function render(){const t=tasks(),running=t.filter(x=>["running","queued"].includes(x.status)),approvals=t.filter(x=>["waiting_permission","waiting_input"].includes(x.status));agentCount.textContent=running.length;agentDetail.textContent=running.length?running.slice(0,2).map(x=>x.title||x.goal||"Agent 任务").join(" · "):"没有运行中的任务";approvalCount.textContent=approvals.length;marketStatus.textContent=state.market.connected?"已接入":"未接入";scanStatus.textContent=state.scanner.running?"运行中":"未运行";ledgerCount.textContent=state.ledger.length;ledgerLatest.textContent=state.ledger[0]?new Date(state.ledger[0].createdAt).toLocaleString("zh-CN"):"—";ledgerList.innerHTML=state.ledger.length?state.ledger.map(x=>'<div class="row"><strong>'+esc(typeLabel(x.type))+'</strong><span>'+esc(x.asset)+'</span><div><span class="amount">'+esc(x.amount)+'</span><small>'+esc(x.venue||"")+(x.note?" · "+esc(x.note):"")+'</small></div><small>'+new Date(x.createdAt).toLocaleString("zh-CN")+'</small></div>').join(""):'<div class="empty">还没有真实资金记录。模拟交易不会出现在这里。</div>';researchList.innerHTML=state.research.length?state.research.map(x=>'<div class="row"><strong>'+esc(x.title)+'</strong><span>研究</span><div><span>'+esc(x.conclusion)+'</span><small>'+esc(x.sources||"")+'</small></div><small>'+new Date(x.createdAt).toLocaleString("zh-CN")+'</small></div>').join(""):'<div class="empty">还没有研究日志。</div>'}render();
+
+async function refreshDecisionShadowStatus() {
+  if (!invokeCore || !decisionShadowStatus || !decisionShadowDetail) return;
+  try {
+    const status = await invokeCore("get_decision_shadow_status");
+    decisionShadowStatus.textContent = status.sampleCount
+      ? "Shadow 运行中 · " + status.sampleCount + " samples"
+      : "Shadow 已就绪";
+    const latest = status.latestSymbol
+      ? "最近 " + status.latestSymbol + " · " + String(status.latestDirection || "").toUpperCase() + " / " + String(status.latestAction || "").toUpperCase()
+      : "等待首次市场样本";
+    decisionShadowDetail.textContent =
+      latest + " · predictions " + status.predictionCount +
+      " · settled " + status.settledOutcomes +
+      " · providers " + status.providersSeen +
+      " · external provider " + (status.externalProviderConfigured ? "connected" : "not configured");
+  } catch (error) {
+    decisionShadowStatus.textContent = "Shadow 暂不可用";
+    decisionShadowDetail.textContent = String(error);
+  }
+}
+void refreshDecisionShadowStatus();
+setInterval(() => void refreshDecisionShadowStatus(), 30 * 1000);
+
 async function syncRuntimeStatus(){
   const invoke=window.__TAURI__?.core?.invoke;
   if(!invoke)return;

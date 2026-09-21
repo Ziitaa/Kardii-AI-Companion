@@ -3,6 +3,7 @@ mod mcp;
 mod storage;
 mod voice;
 mod oauth;
+mod decision;
 mod trading;
 mod readonly_viewer;
 mod remote_viewer;
@@ -46,7 +47,7 @@ use readonly_viewer::{
     initialize_readonly_viewer, open_readonly_viewer, readonly_viewer_pairing_link,
     readonly_viewer_status,
 };
-use trading::{create_trade_intent, delete_binance_readonly_credentials, evaluate_trade_risk, get_binance_readonly_status, get_execution_guard_status, get_execution_readiness, get_market_snapshot, get_real_ledger_status, get_shadow_experiment_status, get_symbol_research, get_trading_runtime_status, list_trade_intents, refresh_trading_runtime, reset_execution_kill_switch, save_binance_readonly_credentials, scan_market_opportunities, sync_binance_readonly_ledger, TradingRuntimeState};
+use trading::{create_trade_intent, delete_binance_readonly_credentials, evaluate_trade_risk, get_binance_readonly_status, get_decision_shadow_status, get_execution_guard_status, get_execution_readiness, get_market_snapshot, get_real_ledger_status, get_shadow_experiment_status, get_symbol_research, get_trading_runtime_status, list_trade_intents, refresh_trading_runtime, reset_execution_kill_switch, save_binance_readonly_credentials, scan_market_opportunities, sync_binance_readonly_ledger, TradingRuntimeState};
 use wecom::{
     cancel_wecom_qr_authorization, delete_wecom_bot_secret, disconnect_wecom_documents,
     has_wecom_bot_secret, read_wecom_document, reply_wecom_media, reply_wecom_message,
@@ -6066,6 +6067,7 @@ pub fn run() {
             get_execution_readiness,
             get_execution_guard_status,
             get_shadow_experiment_status,
+            get_decision_shadow_status,
             reset_execution_kill_switch,
             readonly_viewer_status,
             open_readonly_viewer,
