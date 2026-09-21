@@ -22,7 +22,8 @@
     "test:v1.9": "node tools/check_v1_9.mjs",
     "test:v2.0": "node tools/check_v2_0.mjs",
     "test:v2.0.1": "node tools/check_v2_0_1.mjs",
-    "test:v2.1": "node tools/check_v2_1.mjs"
+    "test:v2.1": "node tools/check_v2_1.mjs",
+    "test:v2.2": "node tools/check_v2_2.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0"
