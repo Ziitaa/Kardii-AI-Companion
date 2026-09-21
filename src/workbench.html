@@ -37,6 +37,14 @@
           </div>
           <div class="connection-note">Kardii 只接受严格只读权限。检测到交易、提现、内部转账、Margin、Futures、Options 等权限会直接拒绝保存。</div>
         </section>
+        <section class="panel connection-panel">
+          <div class="panel-head"><div><span class="eyebrow">REMOTE · READ ONLY</span><h3>远程 Kardii 只读查看</h3></div></div>
+          <div class="connection-row">
+            <div><strong id="remoteViewerStatus">未连接</strong><span id="remoteViewerDetail">公司电脑只保存只读查看凭据，不保存交易所 API。</span></div>
+            <div class="connection-actions"><button id="remoteViewerConnectBtn" class="primary">连接</button><button id="remoteViewerDisconnectBtn" class="secondary hidden">断开</button></div>
+          </div>
+          <div class="connection-note">连接时粘贴个人 Kardii 生成的 HTTPS 配对链接。远程端只能读取研究、账本摘要与风控状态，不能下单或提现。</div>
+        </section>
         <section class="panel"><div class="panel-head"><div><span class="eyebrow">INTERNAL</span><h3>内部状态</h3></div></div>
           <div class="internal-list">
             <div><strong>策略实验</strong><span>保存假设、参数、回测/模拟结果与复盘，不要求你手动维护。</span></div>

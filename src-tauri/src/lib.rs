@@ -5,6 +5,7 @@ mod voice;
 mod oauth;
 mod trading;
 mod readonly_viewer;
+mod remote_viewer;
 mod wecom;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use image::{DynamicImage, ImageFormat};
@@ -36,6 +37,10 @@ use oauth::{
 use storage::{
     storage_bootstrap, storage_clear, storage_create_snapshot, storage_remove,
     storage_restore_snapshot, storage_set, storage_status, StorageState,
+};
+use remote_viewer::{
+    delete_remote_viewer_connection, get_remote_viewer_connection_status,
+    save_remote_viewer_connection,
 };
 use readonly_viewer::{
     initialize_readonly_viewer, open_readonly_viewer, readonly_viewer_pairing_link,
@@ -6065,6 +6070,9 @@ pub fn run() {
             readonly_viewer_status,
             open_readonly_viewer,
             readonly_viewer_pairing_link,
+            save_remote_viewer_connection,
+            get_remote_viewer_connection_status,
+            delete_remote_viewer_connection,
             sync_binance_readonly_ledger,
             get_market_snapshot,
             get_symbol_research,
