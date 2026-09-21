@@ -40,6 +40,14 @@ const syntax = spawnSync(process.execPath, ["--check", "infra/market-gateway/ser
 });
 assert.equal(syntax.status, 0, syntax.stderr || syntax.stdout);
 
+const workbenchSyntax = spawnSync(process.execPath, ["--check", "src/workbench.js"], {
+  encoding: "utf8",
+});
+assert.equal(workbenchSyntax.status, 0, workbenchSyntax.stderr || workbenchSyntax.stdout);
+
+const railwayConfig = JSON.parse(railway);
+assert.equal(railwayConfig.deploy.healthcheckPath, "/healthz");
+
 assert.match(trading, /save_market_gateway_connection/);
 assert.match(trading, /market-gateway-token-v1/);
 assert.match(trading, /validate_market_gateway_token/);

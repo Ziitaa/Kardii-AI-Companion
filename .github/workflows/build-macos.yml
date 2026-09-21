@@ -35,6 +35,9 @@ jobs:
       - name: Verify market gateway boundary
         run: npm run test:v2.2
 
+      - name: Run Rust unit tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+
       - name: Build universal macOS app
         run: npm run build -- --target universal-apple-darwin --config '{"bundle":{"createUpdaterArtifacts":false}}'
 

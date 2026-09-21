@@ -33,6 +33,9 @@ jobs:
       - name: Verify market gateway boundary
         run: npm run test:v2.2
 
+      - name: Run Rust unit tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+
       - name: Build Windows app
         run: npm run build -- --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
