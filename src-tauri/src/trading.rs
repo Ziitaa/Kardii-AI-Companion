@@ -104,6 +104,11 @@ fn public_market_path_allowed(path_and_query: &str) -> bool {
         || path == "/api/v3/klines"
         || path == "/api/v3/depth"
         || path == "/api/v3/exchangeInfo"
+        || path == "/okx/api/v5/market/tickers"
+        || path == "/okx/api/v5/market/ticker"
+        || path == "/okx/api/v5/market/books"
+        || path == "/okx/api/v5/market/candles"
+        || path == "/okx/api/v5/public/instruments"
 }
 
 fn public_market_targets(path_and_query: &str) -> Result<Vec<(String, Option<String>)>, String> {
@@ -1082,8 +1087,12 @@ mod tests {
         assert!(public_market_path_allowed("/api/v3/ticker/24hr"));
         assert!(public_market_path_allowed("/api/v3/ticker/24hr?symbol=BTCUSDT"));
         assert!(public_market_path_allowed("/api/v3/klines?symbol=BTCUSDT&interval=1m"));
+        assert!(public_market_path_allowed("/okx/api/v5/market/tickers?instType=SPOT"));
+        assert!(public_market_path_allowed("/okx/api/v5/market/books?instId=BTC-USDT&sz=100"));
         assert!(!public_market_path_allowed("/api/v3/account"));
         assert!(!public_market_path_allowed("/sapi/v1/account/apiRestrictions"));
+        assert!(!public_market_path_allowed("/okx/api/v5/account/balance"));
+        assert!(!public_market_path_allowed("/okx/api/v5/trade/order"));
     }
 
     #[test]

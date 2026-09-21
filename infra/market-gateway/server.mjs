@@ -1,18 +1,45 @@
 import http from "node:http";
 
 const PORT = Number(process.env.PORT || 8787);
-const UPSTREAM = "https://data-api.binance.vision";
+const BINANCE_UPSTREAM = "https://data-api.binance.vision";
+const OKX_PUBLIC_BASE = String(process.env.KARDII_OKX_PUBLIC_BASE || "").trim();
 const TOKEN = String(process.env.KARDII_MARKET_GATEWAY_TOKEN || "").trim();
 const ALLOW_UNAUTHENTICATED =
   process.env.KARDII_MARKET_GATEWAY_ALLOW_UNAUTHENTICATED === "1";
 
-const PUBLIC_PATHS = new Set([
+const BINANCE_PUBLIC_PATHS = new Set([
   "/api/v3/ticker/24hr",
   "/api/v3/ticker/price",
   "/api/v3/klines",
   "/api/v3/depth",
   "/api/v3/exchangeInfo",
 ]);
+
+const OKX_PUBLIC_PATHS = new Set([
+  "/api/v5/market/tickers",
+  "/api/v5/market/ticker",
+  "/api/v5/market/books",
+  "/api/v5/market/candles",
+  "/api/v5/public/instruments",
+]);
+
+function normalizedOkxBase() {
+  if (!OKX_PUBLIC_BASE) return "";
+  const url = new URL(OKX_PUBLIC_BASE);
+  if (url.protocol !== "https:") {
+    throw new Error("KARDII_OKX_PUBLIC_BASE must use HTTPS.");
+  }
+  const host = url.hostname.toLowerCase();
+  if (host !== "okx.com" && !host.endsWith(".okx.com")) {
+    throw new Error("KARDII_OKX_PUBLIC_BASE must be an official okx.com domain.");
+  }
+  if (url.username || url.password || url.search || url.hash || !["", "/"].includes(url.pathname)) {
+    throw new Error("KARDII_OKX_PUBLIC_BASE must be a clean site root URL.");
+  }
+  return url.origin;
+}
+
+const OKX_UPSTREAM = normalizedOkxBase();
 
 if (!TOKEN && !ALLOW_UNAUTHENTICATED) {
   throw new Error(
@@ -49,19 +76,31 @@ const server = http.createServer(async (req, res) => {
         ok: true,
         service: "kardii-market-gateway",
         upstream: "binance-public-market-data",
+        okxPublicEnabled: Boolean(OKX_UPSTREAM),
       });
     }
     if (!authorized(req)) {
       return json(res, 401, { error: "unauthorized" });
     }
-    if (!PUBLIC_PATHS.has(url.pathname)) {
+    let upstreamBase = BINANCE_UPSTREAM;
+    let upstreamPath = url.pathname;
+    if (url.pathname.startsWith("/okx/")) {
+      upstreamPath = url.pathname.slice("/okx".length);
+      if (!OKX_UPSTREAM) {
+        return json(res, 503, { error: "okx_public_provider_not_configured" });
+      }
+      if (!OKX_PUBLIC_PATHS.has(upstreamPath)) {
+        return json(res, 403, { error: "public_market_path_only" });
+      }
+      upstreamBase = OKX_UPSTREAM;
+    } else if (!BINANCE_PUBLIC_PATHS.has(url.pathname)) {
       return json(res, 403, { error: "public_market_path_only" });
     }
     if (url.toString().length > 4096) {
       return json(res, 414, { error: "request_uri_too_long" });
     }
 
-    const upstreamUrl = new URL(url.pathname + url.search, UPSTREAM);
+    const upstreamUrl = new URL(upstreamPath + url.search, upstreamBase);
     const upstream = await fetch(upstreamUrl, {
       method: "GET",
       redirect: "error",

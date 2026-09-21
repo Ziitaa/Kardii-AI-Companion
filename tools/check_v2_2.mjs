@@ -23,13 +23,19 @@ assert.ok(allowlistStart >= 0 && allowlistEnd > allowlistStart);
 const allowlist = trading.slice(allowlistStart, allowlistEnd);
 assert.doesNotMatch(allowlist, /\/api\/v3\/account/);
 assert.doesNotMatch(allowlist, /\/sapi\//);
+assert.doesNotMatch(allowlist, /\/okx\/api\/v5\/account\//);
+assert.doesNotMatch(allowlist, /\/okx\/api\/v5\/trade\//);
 
-assert.match(gateway, /PUBLIC_PATHS/);
+assert.match(gateway, /BINANCE_PUBLIC_PATHS/);
+assert.match(gateway, /OKX_PUBLIC_PATHS/);
+assert.match(gateway, /KARDII_OKX_PUBLIC_BASE/);
+assert.match(gateway, /official okx\.com domain/);
 assert.match(gateway, /X-Kardii-Market-Token/i);
 assert.doesNotMatch(gateway, /api[-_ ]?key/i);
 assert.doesNotMatch(gateway, /secret/i);
 assert.doesNotMatch(gateway, /withdraw/i);
-assert.doesNotMatch(gateway, /order/i);
+assert.doesNotMatch(gateway, /\/api\/v5\/account\//);
+assert.doesNotMatch(gateway, /\/api\/v5\/trade\//);
 
 const methodGuard = gateway.indexOf('if (req.method !== "GET")');
 const healthRoute = gateway.indexOf('if (url.pathname === "/healthz")');

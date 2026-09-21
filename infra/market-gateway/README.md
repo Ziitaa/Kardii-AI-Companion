@@ -59,3 +59,26 @@ Do not set `KARDII_MARKET_GATEWAY_ALLOW_UNAUTHENTICATED=1` outside isolated deve
 After Railway assigns a public HTTPS domain, configure that HTTPS root URL plus the same token in Kardii's **公共行情 Gateway** panel. Kardii verifies an authenticated BTCUSDT public-price request before saving the connection.
 
 The Railway health check uses `GET /healthz`; this endpoint exposes no account data or credentials.
+
+
+## Optional OKX public provider
+
+The same gateway can expose a second **public-market-only** provider for OKX without adding a second Kardii state source.
+
+Set:
+
+```text
+KARDII_OKX_PUBLIC_BASE=https://<official regional OKX API domain>
+```
+
+The value must be an HTTPS root URL under `okx.com`. Use the official API domain that applies to the account/region; do not use this setting to bypass regional service restrictions.
+
+When configured, the gateway accepts only these OKX public routes under the `/okx` prefix:
+
+- `/okx/api/v5/market/tickers`
+- `/okx/api/v5/market/ticker`
+- `/okx/api/v5/market/books`
+- `/okx/api/v5/market/candles`
+- `/okx/api/v5/public/instruments`
+
+Account, order, transfer and withdrawal endpoints remain blocked. This provider is optional and is not used for private account access.
