@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 
 const trading = fs.readFileSync("src-tauri/src/trading.rs", "utf8");
+const decision = fs.readFileSync("src-tauri/src/decision.rs", "utf8");
 const gateway = fs.readFileSync("infra/market-gateway/server.mjs", "utf8");
 const readonly = fs.readFileSync("src-tauri/src/readonly_viewer.rs", "utf8");
 const lib = fs.readFileSync("src-tauri/src/lib.rs", "utf8");
@@ -77,5 +78,14 @@ assert.match(railway, /"healthcheckPath": "\/healthz"/);
 assert.doesNotMatch(railway, /KARDII_MARKET_GATEWAY_TOKEN/);
 assert.match(remoteTransport, /tailscale serve --bg http:\/\/127\.0\.0\.1:43199/);
 assert.match(remoteTransport, /Do \*\*not\*\* use Tailscale Funnel/);
+
+assert.match(decision, /https:\/\/api\.typesafe\.ai\/v1\/systemone/);
+assert.match(decision, /JevDecisionProvider/);
+assert.match(decision, /"executionEnabled": false/);
+assert.match(decision, /"positionContextAvailable": false/);
+assert.match(decision, /"enter": "Evidence supports a new spot entry candidate strongly enough for shadow benchmarking; this does not authorize execution\."/);
+assert.match(trading, /evaluate_with_fallback\(None, &baseline, &input\)/);
+assert.match(trading, /external_provider_configured: false/);
+assert.match(trading, /execution_linked: false/);
 
 console.log("Kardii v2.2 market gateway boundary checks passed.");
