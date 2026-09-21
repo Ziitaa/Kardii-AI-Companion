@@ -13,11 +13,58 @@ const SPOT_BASES: &[&str] = &[
     "https://api1.binance.com",
 ];
 
-const SPOT_24H_ENDPOINTS: &[&str] = &[
-    "https://api.binance.com/api/v3/ticker/24hr",
-    "https://data-api.binance.vision/api/v3/ticker/24hr",
-    "https://api1.binance.com/api/v3/ticker/24hr",
-];
+const MARKET_GATEWAY_BASE_ENV: &str = "KARDII_MARKET_GATEWAY_BASE";
+const MARKET_GATEWAY_TOKEN_ENV: &str = "KARDII_MARKET_GATEWAY_TOKEN";
+const MARKET_GATEWAY_TOKEN_HEADER: &str = "X-Kardii-Market-Token";
+
+fn configured_market_gateway_base() -> Option<String> {
+    let value = std::env::var(MARKET_GATEWAY_BASE_ENV).ok()?;
+    let value = value.trim().trim_end_matches('/').to_string();
+    if value.is_empty() || !(value.starts_with("https://") || value.starts_with("http://")) {
+        return None;
+    }
+    Some(value)
+}
+
+fn public_market_path_allowed(path_and_query: &str) -> bool {
+    let path = path_and_query.split('?').next().unwrap_or(path_and_query);
+    path == "/api/v3/ticker/24hr"
+        || path == "/api/v3/ticker/price"
+        || path == "/api/v3/klines"
+        || path == "/api/v3/depth"
+        || path == "/api/v3/exchangeInfo"
+}
+
+fn public_market_targets(path_and_query: &str) -> Result<Vec<(String, bool)>, String> {
+    if !path_and_query.starts_with('/') {
+        return Err("公开市场数据路径无效。".to_string());
+    }
+    if let Some(base) = configured_market_gateway_base() {
+        if !public_market_path_allowed(path_and_query) {
+            return Err("Market Data Gateway 拒绝非公开行情路径。".to_string());
+        }
+        return Ok(vec![(format!("{base}{path_and_query}"), true)]);
+    }
+    Ok(SPOT_BASES
+        .iter()
+        .map(|base| (format!("{base}{path_and_query}"), false))
+        .collect())
+}
+
+fn with_market_gateway_auth(
+    request: reqwest::RequestBuilder,
+    via_gateway: bool,
+) -> reqwest::RequestBuilder {
+    if !via_gateway {
+        return request;
+    }
+    match std::env::var(MARKET_GATEWAY_TOKEN_ENV) {
+        Ok(token) if !token.trim().is_empty() => {
+            request.header(MARKET_GATEWAY_TOKEN_HEADER, token.trim())
+        }
+        _ => request,
+    }
+}
 
 
 const BINANCE_PRIVATE_BASES: &[&str] = &[
@@ -477,9 +524,9 @@ async fn fetch_public_json<T: DeserializeOwned>(
     path_and_query: &str,
 ) -> Result<(String, T), String> {
     let mut errors = Vec::new();
-    for base in SPOT_BASES {
-        let url = format!("{base}{path_and_query}");
-        match client.get(&url).send().await {
+    for (url, via_gateway) in public_market_targets(path_and_query)? {
+        let request = with_market_gateway_auth(client.get(&url), via_gateway);
+        match request.send().await {
             Ok(response) if response.status().is_success() => {
                 match response.json::<T>().await {
                     Ok(value) => return Ok((url, value)),
@@ -776,25 +823,12 @@ async fn fetch_spot_tickers() -> Result<(String, Vec<BinanceTicker>), String> {
         .timeout(Duration::from_secs(12))
         .build()
         .map_err(|error| format!("无法初始化市场数据客户端：{error}"))?;
-
-    let mut errors = Vec::new();
-    for endpoint in SPOT_24H_ENDPOINTS {
-        match client.get(*endpoint).send().await {
-            Ok(response) if response.status().is_success() => {
-                match response.json::<Vec<BinanceTicker>>().await {
-                    Ok(tickers) if !tickers.is_empty() => {
-                        return Ok((endpoint.to_string(), tickers));
-                    }
-                    Ok(_) => errors.push(format!("{endpoint}: 返回空数据")),
-                    Err(error) => errors.push(format!("{endpoint}: 数据解析失败 {error}")),
-                }
-            }
-            Ok(response) => errors.push(format!("{endpoint}: HTTP {}", response.status())),
-            Err(error) => errors.push(format!("{endpoint}: {error}")),
-        }
+    let (source, tickers) =
+        fetch_public_json::<Vec<BinanceTicker>>(&client, "/api/v3/ticker/24hr").await?;
+    if tickers.is_empty() {
+        return Err("市场数据暂不可用：返回空数据".to_string());
     }
-
-    Err(format!("市场数据暂不可用：{}", errors.join("；")))
+    Ok((source, tickers))
 }
 
 #[tauri::command]
@@ -856,6 +890,15 @@ mod tests {
             quote_volume: volume.into(),
             count,
         }
+    }
+
+    #[test]
+    fn market_gateway_only_allows_public_market_paths() {
+        assert!(public_market_path_allowed("/api/v3/ticker/24hr"));
+        assert!(public_market_path_allowed("/api/v3/ticker/24hr?symbol=BTCUSDT"));
+        assert!(public_market_path_allowed("/api/v3/klines?symbol=BTCUSDT&interval=1m"));
+        assert!(!public_market_path_allowed("/api/v3/account"));
+        assert!(!public_market_path_allowed("/sapi/v1/account/apiRestrictions"));
     }
 
     #[test]
