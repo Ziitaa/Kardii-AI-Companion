@@ -1,0 +1,42 @@
+# Kardii Market Data Gateway
+
+This is a stateless, public-market-data-only egress boundary for Kardii.
+
+It exists so the Kardii desktop app does not depend on the desktop browser/VPN route when reading public market data.
+
+## Security boundary
+
+The gateway:
+
+- only accepts `GET`
+- only proxies allowlisted Binance public market-data paths
+- never accepts Binance API keys or secrets
+- rejects `/api/v3/account`, `/sapi/*`, orders, transfers, withdrawals, and trading endpoints
+- optionally requires `X-Kardii-Market-Token`
+- does not persist account or trading state
+
+The desktop app uses:
+
+- `KARDII_MARKET_GATEWAY_BASE=https://<gateway-host>`
+- `KARDII_MARKET_GATEWAY_TOKEN=<shared-token>`
+
+When `KARDII_MARKET_GATEWAY_BASE` is set, Kardii uses the gateway only for public market data and does not fall back to direct Binance public endpoints. This keeps market-data egress stable even if the desktop VPN changes.
+
+Private/read-only Binance account calls intentionally remain on their separate path and are never sent through this gateway.
+
+## Run with Docker
+
+```bash
+docker build -t kardii-market-gateway .
+docker run --rm -p 8787:8787 \
+  -e KARDII_MARKET_GATEWAY_TOKEN='replace-with-a-long-random-token' \
+  kardii-market-gateway
+```
+
+Health check:
+
+```text
+GET /healthz
+```
+
+For remote use, place the container behind HTTPS on a host whose outbound region and use are compliant with the upstream service's terms and the user's actual account eligibility. This gateway is for public market data, not for bypassing account-region restrictions.
