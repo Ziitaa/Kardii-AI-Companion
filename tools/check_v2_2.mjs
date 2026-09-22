@@ -92,4 +92,14 @@ assert.match(trading, /evaluate_with_fallback\(None, &baseline, &input\)/);
 assert.match(trading, /external_provider_configured: false/);
 assert.match(trading, /execution_linked: false/);
 
+assert.match(decision, /TYPESAFE_MODELS_ENDPOINT/);
+assert.match(decision, /validate_access/);
+assert.match(trading, /typesafe-jev-api-key-v1/);
+assert.match(trading, /save_jev_provider_credentials/);
+assert.match(trading, /get_jev_provider_status/);
+assert.match(trading, /delete_jev_provider_credentials/);
+assert.match(trading, /Always record the deterministic baseline on the same sample first/);
+assert.match(trading, /execution_linked: false/);
+assert.match(workbench, /连接 Jev/);
+
 console.log("Kardii v2.2 market gateway boundary checks passed.");

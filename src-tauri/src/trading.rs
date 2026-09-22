@@ -1,4 +1,4 @@
-use crate::decision::{evaluate_with_fallback, DecisionAttempt, DecisionInput, RuleBaselineProvider};
+use crate::decision::{evaluate_with_fallback, DecisionAttempt, DecisionInput, DecisionProvider, JevDecisionProvider, RuleBaselineProvider};
 use chrono::Utc;
 use hmac::{Hmac, Mac};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -332,6 +332,98 @@ const BINANCE_PRIVATE_BASES: &[&str] = &[
 const TRADING_KEYRING_SERVICE: &str = "Kardii Trading Runtime";
 const BINANCE_API_KEY_ACCOUNT: &str = "binance-readonly-api-key";
 const BINANCE_API_SECRET_ACCOUNT: &str = "binance-readonly-api-secret";
+const TYPESAFE_JEV_API_KEY_ACCOUNT: &str = "typesafe-jev-api-key-v1";
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JevProviderStatus {
+    configured: bool,
+    verified: bool,
+    provider: String,
+    model: String,
+    mode: String,
+    execution_linked: bool,
+    error: String,
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn save_jev_api_key_to_keyring(api_key: &str) -> Result<(), String> {
+    keyring::Entry::new(TRADING_KEYRING_SERVICE, TYPESAFE_JEV_API_KEY_ACCOUNT)
+        .map_err(|error| format!("无法打开系统凭据库：{error}"))?
+        .set_password(api_key)
+        .map_err(|error| format!("无法保存 TypeSafe API Key：{error}"))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn save_jev_api_key_to_keyring(_api_key: &str) -> Result<(), String> {
+    Err("当前平台暂不支持系统凭据库。".to_string())
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn load_jev_api_key_from_keyring() -> Result<Option<String>, String> {
+    let entry = keyring::Entry::new(TRADING_KEYRING_SERVICE, TYPESAFE_JEV_API_KEY_ACCOUNT)
+        .map_err(|error| format!("无法打开系统凭据库：{error}"))?;
+    match entry.get_password() {
+        Ok(value) => Ok(Some(value)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(error) => Err(format!("无法读取 TypeSafe API Key：{error}")),
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn load_jev_api_key_from_keyring() -> Result<Option<String>, String> {
+    Ok(None)
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn delete_jev_api_key_from_keyring() -> Result<(), String> {
+    let entry = keyring::Entry::new(TRADING_KEYRING_SERVICE, TYPESAFE_JEV_API_KEY_ACCOUNT)
+        .map_err(|error| format!("无法打开系统凭据库：{error}"))?;
+    match entry.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(error) => Err(format!("无法删除 TypeSafe API Key：{error}")),
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn delete_jev_api_key_from_keyring() -> Result<(), String> {
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn save_jev_provider_credentials(api_key: String) -> Result<JevProviderStatus, String> {
+    let provider = JevDecisionProvider::new(api_key.clone())?;
+    let model = provider.validate_access().await?;
+    save_jev_api_key_to_keyring(api_key.trim())?;
+    Ok(JevProviderStatus {
+        configured: true,
+        verified: true,
+        provider: "typesafe-jev".to_string(),
+        model,
+        mode: "shadow-only".to_string(),
+        execution_linked: false,
+        error: String::new(),
+    })
+}
+
+#[tauri::command]
+pub fn get_jev_provider_status() -> Result<JevProviderStatus, String> {
+    let configured = load_jev_api_key_from_keyring()?.is_some();
+    Ok(JevProviderStatus {
+        configured,
+        verified: configured,
+        provider: "typesafe-jev".to_string(),
+        model: if configured { "jev-latest".to_string() } else { String::new() },
+        mode: "shadow-only".to_string(),
+        execution_linked: false,
+        error: String::new(),
+    })
+}
+
+#[tauri::command]
+pub fn delete_jev_provider_credentials() -> Result<(), String> {
+    delete_jev_api_key_from_keyring()
+}
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -2524,6 +2616,8 @@ impl TradingRuntimeState {
         research: &[SymbolResearch],
     ) -> Result<(), String> {
         let baseline = RuleBaselineProvider;
+        let jev = load_jev_api_key_from_keyring()?
+            .and_then(|key| JevDecisionProvider::new(key).ok());
         let decided_at_ms = Utc::now().timestamp_millis();
 
         for item in research.iter().take(3) {
@@ -2549,11 +2643,26 @@ impl TradingRuntimeState {
                 volume_acceleration: item.volume_acceleration,
             };
 
-            // V0 intentionally has no external provider credentials.
-            // When Jev or another provider is configured, it becomes the primary here;
-            // this same baseline remains the deterministic fallback and comparison arm.
-            let attempt = evaluate_with_fallback(None, &baseline, &input).await?;
-            self.record_decision_shadow(&input, &attempt)?;
+            // Always record the deterministic baseline on the same sample first.
+            let baseline_attempt = evaluate_with_fallback(None, &baseline, &input).await?;
+            self.record_decision_shadow(&input, &baseline_attempt)?;
+
+            // Jev is a second comparison arm only. Failure never blocks the research loop,
+            // never substitutes a hidden trade decision, and never links to execution.
+            if let Some(provider) = jev.as_ref() {
+                let started = std::time::Instant::now();
+                if let Ok(output) = provider.decide(&input).await {
+                    let attempt = DecisionAttempt {
+                        provider_requested: provider.id().to_string(),
+                        provider_used: provider.id().to_string(),
+                        fallback_used: false,
+                        primary_error: String::new(),
+                        latency_ms: started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+                        output,
+                    };
+                    self.record_decision_shadow(&input, &attempt)?;
+                }
+            }
         }
 
         self.settle_decision_shadow_outcomes().await
@@ -2693,7 +2802,7 @@ impl TradingRuntimeState {
                 latest_symbol,
                 latest_direction,
                 latest_action,
-                external_provider_configured: false,
+                external_provider_configured: load_jev_api_key_from_keyring().ok().flatten().is_some(),
                 execution_linked: false,
             })
         })

@@ -65,8 +65,9 @@
           <div class="panel-head"><div><span class="eyebrow">FAST DECISION · SHADOW</span><h3>Decision Provider Benchmark</h3></div></div>
           <div class="connection-row">
             <div><strong id="decisionShadowStatus">初始化中</strong><span id="decisionShadowDetail">规则 baseline 先运行；外部 Decision Provider 尚未配置。</span></div>
+            <div class="connection-actions"><button id="jevConnectBtn" class="primary">连接 Jev</button><button id="jevDisconnectBtn" class="secondary hidden">断开 Jev</button></div>
           </div>
-          <div class="connection-note">只做 observation / logging / outcome settlement / benchmark。此层没有下单、转账、提现或资金执行路径。</div>
+          <div class="connection-note">Jev 仅作为 Shadow 对照组，与 Rule Baseline 在同一批样本上比较。TypeSafe Key 只保存在本机系统安全凭据库；此层没有下单、转账、提现或资金执行路径。</div>
         </section>
       </section>
 

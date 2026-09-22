@@ -4,6 +4,7 @@ use serde_json::{json, Value};
 use std::time::{Duration, Instant};
 
 const TYPESAFE_JEV_ENDPOINT: &str = "https://api.typesafe.ai/v1/systemone";
+const TYPESAFE_MODELS_ENDPOINT: &str = "https://api.typesafe.ai/v1/models";
 const TYPESAFE_JEV_MODEL: &str = "jev-latest";
 const TYPESAFE_JEV_INPUT_COST_PER_MILLION_TOKENS_USD: f64 = 0.042;
 
@@ -79,6 +80,44 @@ impl JevDecisionProvider {
         Ok(Self {
             api_key: key.to_string(),
         })
+    }
+
+    pub async fn validate_access(&self) -> Result<String, String> {
+        let response = reqwest::Client::builder()
+            .timeout(Duration::from_secs(8))
+            .build()
+            .map_err(|error| format!("无法初始化 TypeSafe 连接检查：{error}"))?
+            .get(TYPESAFE_MODELS_ENDPOINT)
+            .bearer_auth(&self.api_key)
+            .header("Cache-Control", "no-store")
+            .send()
+            .await
+            .map_err(|error| format!("无法连接 TypeSafe：{error}"))?;
+        let status = response.status();
+        let payload: Value = response
+            .json()
+            .await
+            .map_err(|error| format!("TypeSafe 模型列表无法读取：{error}"))?;
+        if !status.is_success() {
+            let detail = payload
+                .get("detail")
+                .and_then(Value::as_str)
+                .or_else(|| payload.get("message").and_then(Value::as_str))
+                .unwrap_or("认证失败");
+            return Err(format!("TypeSafe 返回 HTTP {status}：{detail}"));
+        }
+        let models = payload
+            .get("models")
+            .and_then(Value::as_array)
+            .ok_or_else(|| "TypeSafe 没有返回 models 列表。".to_string())?;
+        let available = models.iter().filter_map(|item| {
+            item.get("name").and_then(Value::as_str)
+                .or_else(|| item.as_str())
+        }).collect::<Vec<_>>();
+        if !available.iter().any(|name| *name == TYPESAFE_JEV_MODEL || name.starts_with("jev-")) {
+            return Err("当前 TypeSafe 账户没有可用的 Jev 模型。".to_string());
+        }
+        Ok(TYPESAFE_JEV_MODEL.to_string())
     }
 }
 
