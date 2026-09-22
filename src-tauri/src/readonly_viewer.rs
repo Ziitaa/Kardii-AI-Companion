@@ -749,6 +749,88 @@ fn read_status(path: &Path) -> Result<serde_json::Value, String> {
         }
     }
 
+    let mut paired_settled_count = 0_i64;
+    let mut baseline_correct_count = 0_i64;
+    let mut challenger_correct_count = 0_i64;
+    let mut both_correct_count = 0_i64;
+    let mut baseline_only_correct_count = 0_i64;
+    let mut challenger_only_correct_count = 0_i64;
+    let mut neither_correct_count = 0_i64;
+    let mut baseline_brier_sum = 0.0;
+    let mut challenger_brier_sum = 0.0;
+    let mut paired_brier_count = 0_i64;
+    if let Ok(mut statement) = connection.prepare(
+        "SELECT s.actual_outcome,
+                baseline.direction, baseline.probabilities_json,
+                challenger.direction, challenger.probabilities_json
+         FROM decision_shadow_samples s
+         JOIN decision_shadow_predictions baseline
+           ON baseline.sample_id = s.sample_id AND baseline.provider = 'rule-baseline'
+         JOIN decision_shadow_predictions challenger
+           ON challenger.sample_id = s.sample_id AND challenger.provider = 'typesafe-jev'
+         WHERE s.status = 'settled' AND s.actual_outcome IS NOT NULL
+         ORDER BY s.decided_at_ms ASC"
+    ) {
+        if let Ok(rows) = statement.query_map([], |row| Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+            row.get::<_, String>(4)?,
+        ))) {
+            for row in rows.flatten() {
+                paired_settled_count += 1;
+                let baseline_correct = row.1 == row.0;
+                let challenger_correct = row.3 == row.0;
+                if baseline_correct { baseline_correct_count += 1; }
+                if challenger_correct { challenger_correct_count += 1; }
+                match (baseline_correct, challenger_correct) {
+                    (true, true) => both_correct_count += 1,
+                    (true, false) => baseline_only_correct_count += 1,
+                    (false, true) => challenger_only_correct_count += 1,
+                    (false, false) => neither_correct_count += 1,
+                }
+                if let (Some(baseline_brier), Some(challenger_brier)) = (
+                    remote_direction_brier_score(&row.2, &row.0),
+                    remote_direction_brier_score(&row.4, &row.0),
+                ) {
+                    baseline_brier_sum += baseline_brier;
+                    challenger_brier_sum += challenger_brier;
+                    paired_brier_count += 1;
+                }
+            }
+        }
+    }
+    let baseline_accuracy = if paired_settled_count > 0 {
+        baseline_correct_count as f64 / paired_settled_count as f64 * 100.0
+    } else { 0.0 };
+    let challenger_accuracy = if paired_settled_count > 0 {
+        challenger_correct_count as f64 / paired_settled_count as f64 * 100.0
+    } else { 0.0 };
+    let baseline_brier = if paired_brier_count > 0 {
+        baseline_brier_sum / paired_brier_count as f64
+    } else { 0.0 };
+    let challenger_brier = if paired_brier_count > 0 {
+        challenger_brier_sum / paired_brier_count as f64
+    } else { 0.0 };
+    let decision_head_to_head = serde_json::json!({
+        "baselineProvider": "rule-baseline",
+        "challengerProvider": "typesafe-jev",
+        "pairedSettledCount": paired_settled_count,
+        "baselineCorrectCount": baseline_correct_count,
+        "challengerCorrectCount": challenger_correct_count,
+        "bothCorrectCount": both_correct_count,
+        "baselineOnlyCorrectCount": baseline_only_correct_count,
+        "challengerOnlyCorrectCount": challenger_only_correct_count,
+        "neitherCorrectCount": neither_correct_count,
+        "baselineAccuracyPercent": (baseline_accuracy * 100.0).round() / 100.0,
+        "challengerAccuracyPercent": (challenger_accuracy * 100.0).round() / 100.0,
+        "accuracyDeltaPercentPoints": ((challenger_accuracy - baseline_accuracy) * 100.0).round() / 100.0,
+        "baselineBrierScore": (baseline_brier * 10_000.0).round() / 10_000.0,
+        "challengerBrierScore": (challenger_brier * 10_000.0).round() / 10_000.0,
+        "brierDelta": ((challenger_brier - baseline_brier) * 10_000.0).round() / 10_000.0
+    });
+
     let mut decision_shadow_recent = Vec::new();
     if let Ok(mut statement) = connection.prepare(
         "SELECT p.provider, p.provider_version, s.symbol, p.direction, p.action,
@@ -835,6 +917,7 @@ fn read_status(path: &Path) -> Result<serde_json::Value, String> {
             })),
             "executionLinked": false,
             "providerBenchmarks": decision_provider_benchmarks,
+            "headToHead": decision_head_to_head,
             "recent": decision_shadow_recent
         },
         "shadowExperiments": {
