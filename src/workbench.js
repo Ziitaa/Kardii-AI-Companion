@@ -91,6 +91,8 @@ const remoteTradeIntentList = document.getElementById("remoteTradeIntentList");
 const remoteDecisionShadowList = document.getElementById("remoteDecisionShadowList");
 const decisionShadowStatus = document.getElementById("decisionShadowStatus");
 const decisionShadowDetail = document.getElementById("decisionShadowDetail");
+const runtimeHealthStatus = document.getElementById("runtimeHealthStatus");
+const runtimeHealthDetail = document.getElementById("runtimeHealthDetail");
 const jevConnectBtn = document.getElementById("jevConnectBtn");
 const jevDisconnectBtn = document.getElementById("jevDisconnectBtn");
 let remoteSnapshot = null;
@@ -510,6 +512,31 @@ function renderRemoteSnapshot(snapshot) {
 renderRemoteSnapshot(null);
 
 function tasks(){try{return JSON.parse(localStorage.getItem(AGENT_KEY)||"[]")}catch{return[]}}function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}function typeLabel(t){return({deposit:"转入",withdrawal:"转出",trade:"真实成交",fee:"手续费",realized_pnl:"已实现损益",adjustment:"其他调整"})[t]||t}function render(){const t=tasks(),running=t.filter(x=>["running","queued"].includes(x.status)),approvals=t.filter(x=>["waiting_permission","waiting_input"].includes(x.status));agentCount.textContent=running.length;agentDetail.textContent=running.length?running.slice(0,2).map(x=>x.title||x.goal||"Agent 任务").join(" · "):"没有运行中的任务";approvalCount.textContent=approvals.length;marketStatus.textContent=state.market.connected?"已接入":"未接入";scanStatus.textContent=state.scanner.running?"运行中":"未运行";ledgerCount.textContent=state.ledger.length;ledgerLatest.textContent=state.ledger[0]?new Date(state.ledger[0].createdAt).toLocaleString("zh-CN"):"—";ledgerList.innerHTML=state.ledger.length?state.ledger.map(x=>'<div class="row"><strong>'+esc(typeLabel(x.type))+'</strong><span>'+esc(x.asset)+'</span><div><span class="amount">'+esc(x.amount)+'</span><small>'+esc(x.venue||"")+(x.note?" · "+esc(x.note):"")+'</small></div><small>'+new Date(x.createdAt).toLocaleString("zh-CN")+'</small></div>').join(""):'<div class="empty">还没有真实资金记录。模拟交易不会出现在这里。</div>';researchList.innerHTML=state.research.length?state.research.map(x=>'<div class="row"><strong>'+esc(x.title)+'</strong><span>研究</span><div><span>'+esc(x.conclusion)+'</span><small>'+esc(x.sources||"")+'</small></div><small>'+new Date(x.createdAt).toLocaleString("zh-CN")+'</small></div>').join(""):'<div class="empty">还没有研究日志。</div>'}render();
+
+async function refreshRuntimeHealth() {
+  if (!invokeCore || !runtimeHealthStatus || !runtimeHealthDetail) return;
+  try {
+    const health = await invokeCore("get_runtime_health_status");
+    const unhealthy = !health.databaseOk || health.scanStale || Number(health.overdueDecisionOutcomes || 0) > 0;
+    runtimeHealthStatus.textContent = unhealthy ? "运行状态需检查" : "运行状态正常";
+    const scanText = health.scanAgeSeconds == null
+      ? "等待首次研究扫描"
+      : (Math.round(Number(health.scanAgeSeconds) / 60) + " 分钟前扫描");
+    runtimeHealthDetail.textContent =
+      "DB " + (health.databaseOk ? "OK" : health.databaseCheck) +
+      " · " + scanText +
+      " · pending outcomes " + Number(health.pendingDecisionOutcomes || 0) +
+      " · overdue " + Number(health.overdueDecisionOutcomes || 0) +
+      " · Jev 24h attempts/errors " + Number(health.providerAttempts24h || 0) + "/" + Number(health.providerErrors24h || 0) +
+      " · cost $" + Number(health.estimatedProviderCost24hUsd || 0).toFixed(6) +
+      " · real execution " + (health.realExecutionEnabled ? "ON" : "OFF");
+  } catch (error) {
+    runtimeHealthStatus.textContent = "运行健康检查不可用";
+    runtimeHealthDetail.textContent = String(error);
+  }
+}
+void refreshRuntimeHealth();
+setInterval(() => void refreshRuntimeHealth(), 60 * 1000);
 
 async function refreshJevProvider() {
   if (!invokeCore || !jevConnectBtn || !jevDisconnectBtn) return;

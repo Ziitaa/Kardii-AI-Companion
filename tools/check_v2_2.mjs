@@ -124,4 +124,10 @@ assert.match(trading, /decision_provider_attempts/);
 assert.match(trading, /decision_provider_attempt_exists/);
 assert.match(trading, /record_decision_provider_attempt/);
 
+assert.match(trading, /RuntimeHealthStatus/);
+assert.match(trading, /PRAGMA quick_check\(1\)/);
+assert.match(trading, /overdue_decision_outcomes/);
+assert.match(lib, /get_runtime_health_status/);
+assert.match(workbench, /runtimeHealthStatus/);
+
 console.log("Kardii v2.2 market gateway boundary checks passed.");

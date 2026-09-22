@@ -1538,6 +1538,23 @@ pub struct DecisionShadowStatus {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RuntimeHealthStatus {
+    database_ok: bool,
+    database_check: String,
+    latest_research_at: String,
+    scan_age_seconds: Option<i64>,
+    scan_stale: bool,
+    research_row_count: i64,
+    pending_decision_outcomes: i64,
+    overdue_decision_outcomes: i64,
+    provider_attempts_24h: i64,
+    provider_errors_24h: i64,
+    estimated_provider_cost_24h_usd: f64,
+    real_execution_enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ExecutionGuardStatus {
     latched: bool,
     reason: String,
@@ -3148,6 +3165,97 @@ impl TradingRuntimeState {
     }
 
 
+    pub fn runtime_health_status(&self) -> Result<RuntimeHealthStatus, String> {
+        self.with_database(|connection| {
+            let database_check: String = connection
+                .query_row("PRAGMA quick_check(1)", [], |row| row.get(0))
+                .unwrap_or_else(|_| "check-failed".to_string());
+            let database_ok = database_check.eq_ignore_ascii_case("ok");
+
+            let research_row_count: i64 = connection
+                .query_row("SELECT COUNT(*) FROM research_history", [], |row| row.get(0))
+                .unwrap_or(0);
+            let latest_research_at: String = connection
+                .query_row(
+                    "SELECT COALESCE(MAX(scanned_at), '') FROM research_history",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap_or_default();
+            let scan_age_seconds = chrono::DateTime::parse_from_rfc3339(&latest_research_at)
+                .ok()
+                .map(|value| (Utc::now() - value.with_timezone(&Utc)).num_seconds().max(0));
+            let scan_stale = scan_age_seconds.map(|age| age > 15 * 60).unwrap_or(false);
+
+            let pending_decision_outcomes: i64 = connection
+                .query_row(
+                    "SELECT COUNT(*) FROM decision_shadow_samples WHERE status = 'pending'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
+            let overdue_before = Utc::now().timestamp_millis() - 5 * 60 * 60 * 1000;
+            let overdue_decision_outcomes: i64 = connection
+                .query_row(
+                    "SELECT COUNT(*) FROM decision_shadow_samples
+                     WHERE status = 'pending' AND decided_at_ms <= ?1",
+                    [overdue_before],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
+
+            let cutoff = (Utc::now() - chrono::Duration::hours(24)).to_rfc3339();
+            let provider_attempts_24h: i64 = connection
+                .query_row(
+                    "SELECT COUNT(*) FROM decision_provider_attempts WHERE attempted_at >= ?1",
+                    [&cutoff],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
+            let provider_errors_24h: i64 = connection
+                .query_row(
+                    "SELECT COUNT(*) FROM decision_provider_attempts
+                     WHERE attempted_at >= ?1 AND status = 'error'",
+                    [&cutoff],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
+            let estimated_provider_cost_24h_usd: f64 = connection
+                .query_row(
+                    "SELECT COALESCE(SUM(estimated_cost_usd), 0)
+                     FROM decision_shadow_predictions
+                     WHERE created_at >= ?1 AND provider = 'typesafe-jev'",
+                    [&cutoff],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0.0);
+            let real_execution_enabled = connection
+                .query_row(
+                    "SELECT real_execution_enabled FROM risk_policy WHERE id = 1",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .map(|value| value != 0)
+                .unwrap_or(false);
+
+            Ok(RuntimeHealthStatus {
+                database_ok,
+                database_check,
+                latest_research_at,
+                scan_age_seconds,
+                scan_stale,
+                research_row_count,
+                pending_decision_outcomes,
+                overdue_decision_outcomes,
+                provider_attempts_24h,
+                provider_errors_24h,
+                estimated_provider_cost_24h_usd:
+                    (estimated_provider_cost_24h_usd * 1_000_000.0).round() / 1_000_000.0,
+                real_execution_enabled,
+            })
+        })
+    }
+
     pub fn create_trade_intent_record(
         &self,
         request: TradeIntentRequest,
@@ -3389,6 +3497,13 @@ pub fn get_decision_shadow_status(
     state.decision_shadow_status()
 }
 
+
+#[tauri::command]
+pub fn get_runtime_health_status(
+    state: tauri::State<'_, TradingRuntimeState>,
+) -> Result<RuntimeHealthStatus, String> {
+    state.runtime_health_status()
+}
 
 #[tauri::command]
 pub fn get_execution_guard_status(
