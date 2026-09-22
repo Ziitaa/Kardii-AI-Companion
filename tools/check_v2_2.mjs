@@ -98,7 +98,7 @@ assert.match(trading, /typesafe-jev-api-key-v1/);
 assert.match(trading, /save_jev_provider_credentials/);
 assert.match(trading, /get_jev_provider_status/);
 assert.match(trading, /delete_jev_provider_credentials/);
-assert.match(trading, /Always record the deterministic baseline on the same sample first/);
+assert.match(trading, /Evaluate each provider at most once per 5-minute sample bucket/);
 assert.match(trading, /execution_linked: false/);
 assert.match(workbench, /连接 Jev/);
 
