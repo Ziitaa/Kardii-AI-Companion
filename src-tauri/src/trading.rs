@@ -1694,6 +1694,26 @@ pub struct DecisionProviderBenchmark {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DecisionHeadToHead {
+    baseline_provider: String,
+    challenger_provider: String,
+    paired_settled_count: i64,
+    baseline_correct_count: i64,
+    challenger_correct_count: i64,
+    both_correct_count: i64,
+    baseline_only_correct_count: i64,
+    challenger_only_correct_count: i64,
+    neither_correct_count: i64,
+    baseline_accuracy_percent: f64,
+    challenger_accuracy_percent: f64,
+    accuracy_delta_percent_points: f64,
+    baseline_brier_score: f64,
+    challenger_brier_score: f64,
+    brier_delta: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DecisionShadowStatus {
     mode: String,
     benchmark_policy_version: String,
@@ -1708,6 +1728,7 @@ pub struct DecisionShadowStatus {
     effective_predictions: i64,
     average_latency_ms: f64,
     provider_benchmarks: Vec<DecisionProviderBenchmark>,
+    head_to_head: DecisionHeadToHead,
     latest_decision_at: String,
     latest_provider: String,
     latest_symbol: String,
@@ -3156,6 +3177,100 @@ impl TradingRuntimeState {
                 });
             }
 
+            let mut head_to_head = DecisionHeadToHead {
+                baseline_provider: "rule-baseline".to_string(),
+                challenger_provider: "typesafe-jev".to_string(),
+                paired_settled_count: 0,
+                baseline_correct_count: 0,
+                challenger_correct_count: 0,
+                both_correct_count: 0,
+                baseline_only_correct_count: 0,
+                challenger_only_correct_count: 0,
+                neither_correct_count: 0,
+                baseline_accuracy_percent: 0.0,
+                challenger_accuracy_percent: 0.0,
+                accuracy_delta_percent_points: 0.0,
+                baseline_brier_score: 0.0,
+                challenger_brier_score: 0.0,
+                brier_delta: 0.0,
+            };
+            let mut baseline_brier_sum = 0.0;
+            let mut challenger_brier_sum = 0.0;
+            let mut paired_brier_count = 0_i64;
+            let mut paired_statement = connection.prepare(
+                "SELECT s.actual_outcome,
+                        baseline.direction, baseline.probabilities_json,
+                        challenger.direction, challenger.probabilities_json
+                 FROM decision_shadow_samples s
+                 JOIN decision_shadow_predictions baseline
+                   ON baseline.sample_id = s.sample_id AND baseline.provider = 'rule-baseline'
+                 JOIN decision_shadow_predictions challenger
+                   ON challenger.sample_id = s.sample_id AND challenger.provider = 'typesafe-jev'
+                 WHERE s.status = 'settled' AND s.actual_outcome IS NOT NULL
+                 ORDER BY s.decided_at_ms ASC"
+            ).map_err(|error| format!("无法准备 Decision Provider paired benchmark：{error}"))?;
+            let paired_rows = paired_statement.query_map([], |row| Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+            ))).map_err(|error| format!("无法统计 Decision Provider paired benchmark：{error}"))?;
+            for paired_row in paired_rows {
+                let (
+                    actual_outcome,
+                    baseline_direction,
+                    baseline_probabilities,
+                    challenger_direction,
+                    challenger_probabilities,
+                ) = paired_row.map_err(|error| format!("无法读取 Decision Provider paired benchmark：{error}"))?;
+                head_to_head.paired_settled_count += 1;
+                let baseline_correct = baseline_direction == actual_outcome;
+                let challenger_correct = challenger_direction == actual_outcome;
+                if baseline_correct { head_to_head.baseline_correct_count += 1; }
+                if challenger_correct { head_to_head.challenger_correct_count += 1; }
+                match (baseline_correct, challenger_correct) {
+                    (true, true) => head_to_head.both_correct_count += 1,
+                    (true, false) => head_to_head.baseline_only_correct_count += 1,
+                    (false, true) => head_to_head.challenger_only_correct_count += 1,
+                    (false, false) => head_to_head.neither_correct_count += 1,
+                }
+                if let (Some(baseline_brier), Some(challenger_brier)) = (
+                    direction_brier_score(&baseline_probabilities, &actual_outcome),
+                    direction_brier_score(&challenger_probabilities, &actual_outcome),
+                ) {
+                    baseline_brier_sum += baseline_brier;
+                    challenger_brier_sum += challenger_brier;
+                    paired_brier_count += 1;
+                }
+            }
+            if head_to_head.paired_settled_count > 0 {
+                head_to_head.baseline_accuracy_percent =
+                    head_to_head.baseline_correct_count as f64 / head_to_head.paired_settled_count as f64 * 100.0;
+                head_to_head.challenger_accuracy_percent =
+                    head_to_head.challenger_correct_count as f64 / head_to_head.paired_settled_count as f64 * 100.0;
+                head_to_head.accuracy_delta_percent_points =
+                    head_to_head.challenger_accuracy_percent - head_to_head.baseline_accuracy_percent;
+            }
+            if paired_brier_count > 0 {
+                head_to_head.baseline_brier_score = baseline_brier_sum / paired_brier_count as f64;
+                head_to_head.challenger_brier_score = challenger_brier_sum / paired_brier_count as f64;
+                head_to_head.brier_delta =
+                    head_to_head.challenger_brier_score - head_to_head.baseline_brier_score;
+            }
+            head_to_head.baseline_accuracy_percent =
+                (head_to_head.baseline_accuracy_percent * 100.0).round() / 100.0;
+            head_to_head.challenger_accuracy_percent =
+                (head_to_head.challenger_accuracy_percent * 100.0).round() / 100.0;
+            head_to_head.accuracy_delta_percent_points =
+                (head_to_head.accuracy_delta_percent_points * 100.0).round() / 100.0;
+            head_to_head.baseline_brier_score =
+                (head_to_head.baseline_brier_score * 10_000.0).round() / 10_000.0;
+            head_to_head.challenger_brier_score =
+                (head_to_head.challenger_brier_score * 10_000.0).round() / 10_000.0;
+            head_to_head.brier_delta =
+                (head_to_head.brier_delta * 10_000.0).round() / 10_000.0;
+
             let latest = connection.query_row(
                 "SELECT p.created_at, p.provider, s.symbol, p.direction, p.action
                  FROM decision_shadow_predictions p
@@ -3199,6 +3314,7 @@ impl TradingRuntimeState {
                 effective_predictions,
                 average_latency_ms: (average_latency_ms * 100.0).round() / 100.0,
                 provider_benchmarks,
+                head_to_head,
                 latest_decision_at,
                 latest_provider,
                 latest_symbol,

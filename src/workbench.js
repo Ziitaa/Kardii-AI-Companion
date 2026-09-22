@@ -595,12 +595,19 @@ async function refreshDecisionShadowStatus() {
           ? " · Jev error " + status.externalProviderLastError
           : (status.externalProviderLastSuccessAt ? " · Jev healthy" : " · Jev awaiting first sample"))
       : " · external provider not configured";
+    const headToHead = status.headToHead || {};
+    const pairedText = Number(headToHead.pairedSettledCount || 0) > 0
+      ? " · paired " + headToHead.pairedSettledCount +
+        " · Jev Δaccuracy " + Number(headToHead.accuracyDeltaPercentPoints || 0).toFixed(1) + "pp" +
+        " · Δbrier " + Number(headToHead.brierDelta || 0).toFixed(3)
+      : " · paired benchmark awaiting shared settled samples";
     decisionShadowDetail.textContent =
       latest + " · policy " + (status.benchmarkPolicyVersion || "direction-1h-v1") +
       " · predictions " + status.predictionCount +
       " · settled " + status.settledOutcomes +
       " · providers " + status.providersSeen +
       benchmarkText +
+      pairedText +
       providerHealth;
   } catch (error) {
     decisionShadowStatus.textContent = "Shadow 暂不可用";

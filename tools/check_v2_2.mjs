@@ -119,6 +119,13 @@ assert.match(trading, /at most once per 5-minute sample bucket/);
 
 assert.match(trading, /direction_brier_score/);
 assert.match(trading, /confidence_accuracy_gap_percent/);
+assert.match(trading, /DecisionHeadToHead/);
+assert.match(trading, /paired_settled_count/);
+assert.match(trading, /baseline\.provider = 'rule-baseline'/);
+assert.match(trading, /challenger\.provider = 'typesafe-jev'/);
+assert.match(trading, /accuracy_delta_percent_points/);
+assert.match(trading, /brier_delta/);
+assert.match(workbenchJs, /paired benchmark awaiting shared settled samples/);
 assert.match(readonly, /directionBrierScore/);
 
 assert.match(readonly, /externalProviderHealth/);
