@@ -114,4 +114,7 @@ assert.match(trading, /direction_brier_score/);
 assert.match(trading, /confidence_accuracy_gap_percent/);
 assert.match(readonly, /directionBrierScore/);
 
+assert.match(readonly, /externalProviderHealth/);
+assert.match(readonly, /externalProviderSeen/);
+
 console.log("Kardii v2.2 market gateway boundary checks passed.");

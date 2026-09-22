@@ -366,6 +366,27 @@ fn read_status(path: &Path) -> Result<serde_json::Value, String> {
         .query_row("SELECT COUNT(*) FROM decision_shadow_samples WHERE status = 'settled'", [], |row| row.get(0))
         .unwrap_or(0);
 
+    let external_provider_seen: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM decision_shadow_predictions WHERE provider = 'typesafe-jev')",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .map(|value| value != 0)
+        .unwrap_or(false);
+    let external_provider_health = connection
+        .query_row(
+            "SELECT last_success_at, last_error_at, last_error
+             FROM decision_provider_health WHERE provider = 'typesafe-jev'",
+            [],
+            |row| Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            )),
+        )
+        .ok();
+
     let shadow_open: i64 = connection
         .query_row("SELECT COUNT(*) FROM shadow_strategy_trials WHERE status = 'open'", [], |row| row.get(0))
         .unwrap_or(0);
@@ -736,6 +757,13 @@ fn read_status(path: &Path) -> Result<serde_json::Value, String> {
             "predictionCount": decision_prediction_count,
             "settledOutcomeCount": decision_settled_count,
             "externalProviderConfigured": false,
+            "externalProviderSeen": external_provider_seen,
+            "externalProviderHealth": external_provider_health.map(|value| serde_json::json!({
+                "provider": "typesafe-jev",
+                "lastSuccessAt": value.0,
+                "lastErrorAt": value.1,
+                "lastError": value.2
+            })),
             "executionLinked": false,
             "providerBenchmarks": decision_provider_benchmarks,
             "recent": decision_shadow_recent
