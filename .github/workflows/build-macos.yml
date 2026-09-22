@@ -1,4 +1,4 @@
-name: Build Kardii macOS Universal App
+name: Validate / Build Kardii macOS Universal App
 
 on:
   workflow_dispatch:
@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-macos-universal:
+  validate-macos-universal:
     runs-on: macos-latest
     permissions:
       contents: read
@@ -39,12 +39,15 @@ jobs:
         run: cargo test --manifest-path src-tauri/Cargo.toml --lib
 
       - name: Build universal macOS app
+        if: github.event_name == 'workflow_dispatch'
         run: npm run build -- --target universal-apple-darwin --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
       - name: Upload universal macOS app
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: Kardii-AI-Companion-macOS-Universal
+          retention-days: 1
           path: |
             src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
             src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app
