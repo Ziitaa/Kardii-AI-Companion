@@ -1514,6 +1514,9 @@ pub struct DecisionShadowStatus {
     latest_direction: String,
     latest_action: String,
     external_provider_configured: bool,
+    external_provider_last_success_at: String,
+    external_provider_last_error_at: String,
+    external_provider_last_error: String,
     execution_linked: bool,
 }
 
@@ -1782,7 +1785,13 @@ impl TradingRuntimeState {
                FOREIGN KEY(sample_id) REFERENCES decision_shadow_samples(sample_id)
              );
              CREATE INDEX IF NOT EXISTS decision_shadow_predictions_sample
-               ON decision_shadow_predictions(sample_id, provider);"
+               ON decision_shadow_predictions(sample_id, provider);
+             CREATE TABLE IF NOT EXISTS decision_provider_health (
+               provider TEXT PRIMARY KEY NOT NULL,
+               last_success_at TEXT NOT NULL,
+               last_error_at TEXT NOT NULL,
+               last_error TEXT NOT NULL
+             );"
         ).map_err(|error| format!("无法初始化 Kardii 交易研究数据库：{error}"))?;
 
         let policy = default_risk_policy();
@@ -2610,6 +2619,36 @@ impl TradingRuntimeState {
         }
     }
 
+    fn record_decision_provider_success(&self, provider: &str) -> Result<(), String> {
+        self.with_database(|connection| {
+            connection.execute(
+                "INSERT INTO decision_provider_health(provider, last_success_at, last_error_at, last_error)
+                 VALUES(?1, ?2, '', '')
+                 ON CONFLICT(provider) DO UPDATE SET last_success_at = excluded.last_success_at",
+                params![provider, Utc::now().to_rfc3339()],
+            ).map_err(|error| format!("无法记录 Decision Provider 成功状态：{error}"))?;
+            Ok(())
+        })
+    }
+
+    fn record_decision_provider_error(&self, provider: &str, error: &str) -> Result<(), String> {
+        self.with_database(|connection| {
+            connection.execute(
+                "INSERT INTO decision_provider_health(provider, last_success_at, last_error_at, last_error)
+                 VALUES(?1, '', ?2, ?3)
+                 ON CONFLICT(provider) DO UPDATE SET
+                   last_error_at = excluded.last_error_at,
+                   last_error = excluded.last_error",
+                params![
+                    provider,
+                    Utc::now().to_rfc3339(),
+                    error.chars().take(500).collect::<String>(),
+                ],
+            ).map_err(|db_error| format!("无法记录 Decision Provider 异常状态：{db_error}"))?;
+            Ok(())
+        })
+    }
+
     async fn update_decision_shadow(
         &self,
         scan: &OpportunityScan,
@@ -2651,16 +2690,22 @@ impl TradingRuntimeState {
             // never substitutes a hidden trade decision, and never links to execution.
             if let Some(provider) = jev.as_ref() {
                 let started = std::time::Instant::now();
-                if let Ok(output) = provider.decide(&input).await {
-                    let attempt = DecisionAttempt {
-                        provider_requested: provider.id().to_string(),
-                        provider_used: provider.id().to_string(),
-                        fallback_used: false,
-                        primary_error: String::new(),
-                        latency_ms: started.elapsed().as_millis().min(u64::MAX as u128) as u64,
-                        output,
-                    };
-                    self.record_decision_shadow(&input, &attempt)?;
+                match provider.decide(&input).await {
+                    Ok(output) => {
+                        let attempt = DecisionAttempt {
+                            provider_requested: provider.id().to_string(),
+                            provider_used: provider.id().to_string(),
+                            fallback_used: false,
+                            primary_error: String::new(),
+                            latency_ms: started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+                            output,
+                        };
+                        self.record_decision_shadow(&input, &attempt)?;
+                        self.record_decision_provider_success(provider.id())?;
+                    }
+                    Err(error) => {
+                        self.record_decision_provider_error(provider.id(), &error)?;
+                    }
                 }
             }
         }
@@ -2782,6 +2827,17 @@ impl TradingRuntimeState {
 
             let (latest_decision_at, latest_provider, latest_symbol, latest_direction, latest_action) =
                 latest.unwrap_or_default();
+            let external_health = connection.query_row(
+                "SELECT last_success_at, last_error_at, last_error
+                 FROM decision_provider_health WHERE provider = 'typesafe-jev'",
+                [],
+                |row| Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                )),
+            ).optional().map_err(|error| format!("无法读取 Jev provider health：{error}"))?
+                .unwrap_or_default();
 
             Ok(DecisionShadowStatus {
                 mode: "shadow-only".to_string(),
@@ -2803,6 +2859,9 @@ impl TradingRuntimeState {
                 latest_direction,
                 latest_action,
                 external_provider_configured: load_jev_api_key_from_keyring().ok().flatten().is_some(),
+                external_provider_last_success_at: external_health.0,
+                external_provider_last_error_at: external_health.1,
+                external_provider_last_error: external_health.2,
                 execution_linked: false,
             })
         })

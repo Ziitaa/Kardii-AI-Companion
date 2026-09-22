@@ -543,13 +543,19 @@ async function refreshDecisionShadowStatus() {
           " · " + Number(item.averageLatencyMs || 0).toFixed(1) + "ms"
         ).join(" | ")
       : "";
+    const providerHealth = status.externalProviderConfigured
+      ? (status.externalProviderLastError && status.externalProviderLastErrorAt &&
+         (!status.externalProviderLastSuccessAt || status.externalProviderLastErrorAt > status.externalProviderLastSuccessAt)
+          ? " · Jev error " + status.externalProviderLastError
+          : (status.externalProviderLastSuccessAt ? " · Jev healthy" : " · Jev awaiting first sample"))
+      : " · external provider not configured";
     decisionShadowDetail.textContent =
       latest + " · policy " + (status.benchmarkPolicyVersion || "direction-1h-v1") +
       " · predictions " + status.predictionCount +
       " · settled " + status.settledOutcomes +
       " · providers " + status.providersSeen +
       benchmarkText +
-      " · external provider " + (status.externalProviderConfigured ? "connected" : "not configured");
+      providerHealth;
   } catch (error) {
     decisionShadowStatus.textContent = "Shadow 暂不可用";
     decisionShadowDetail.textContent = String(error);

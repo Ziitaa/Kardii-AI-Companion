@@ -102,4 +102,9 @@ assert.match(trading, /Always record the deterministic baseline on the same samp
 assert.match(trading, /execution_linked: false/);
 assert.match(workbench, /连接 Jev/);
 
+assert.match(trading, /decision_provider_health/);
+assert.match(trading, /record_decision_provider_success/);
+assert.match(trading, /record_decision_provider_error/);
+assert.match(workbench, /Decision Provider Benchmark/);
+
 console.log("Kardii v2.2 market gateway boundary checks passed.");
