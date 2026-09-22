@@ -3075,7 +3075,7 @@ impl TradingRuntimeState {
 
             transaction.execute(
                 "DELETE FROM decision_provider_attempts
-                 WHERE attempted_at < datetime('now', '-90 days')",
+                 WHERE julianday(attempted_at) < julianday('now', '-90 days')",
                 [],
             ).map_err(|error| format!("无法整理 Decision Provider attempts：{error}"))?;
 
