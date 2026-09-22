@@ -328,6 +328,18 @@ fn handle_request(mut stream: TcpStream, runtime: Arc<Mutex<ViewerRuntime>>) {
     write_json(&mut stream, "404 Not Found", serde_json::json!({"error": "not found"}));
 }
 
+fn remote_direction_brier_score(probabilities_json: &str, actual_outcome: &str) -> Option<f64> {
+    let payload: serde_json::Value = serde_json::from_str(probabilities_json).ok()?;
+    let direction = payload.get("direction")?;
+    let mut score = 0.0;
+    for label in ["bullish", "neutral", "bearish"] {
+        let probability = direction.get(label)?.as_f64()?.clamp(0.0, 1.0);
+        let target = if actual_outcome == label { 1.0 } else { 0.0 };
+        score += (probability - target).powi(2);
+    }
+    Some(score)
+}
+
 fn read_status(path: &Path) -> Result<serde_json::Value, String> {
     let connection = Connection::open(path)
         .map_err(|error| format!("无法读取 Kardii 状态数据库：{error}"))?;
@@ -601,13 +613,53 @@ fn read_status(path: &Path) -> Result<serde_json::Value, String> {
             for row in rows.flatten() {
                 let direction_accuracy = if row.3 > 0 { row.4 as f64 / row.3 as f64 * 100.0 } else { 0.0 };
                 let enter_positive_rate = if row.6 > 0 { row.7 as f64 / row.6 as f64 * 100.0 } else { 0.0 };
+                let provider = row.0.clone();
+                let provider_version = row.1.clone();
+                let mut brier_sum = 0.0;
+                let mut brier_count = 0_i64;
+                let mut confidence_sum = 0.0;
+                let mut confidence_count = 0_i64;
+                if let Ok(mut calibration_statement) = connection.prepare(
+                    "SELECT p.probabilities_json, p.confidence, s.actual_outcome
+                     FROM decision_shadow_predictions p
+                     JOIN decision_shadow_samples s ON s.sample_id = p.sample_id
+                     WHERE p.provider = ?1
+                       AND p.provider_version = ?2
+                       AND s.status = 'settled'
+                       AND s.actual_outcome IS NOT NULL"
+                ) {
+                    if let Ok(calibration_rows) = calibration_statement.query_map(
+                        rusqlite::params![&provider, &provider_version],
+                        |item| Ok((
+                            item.get::<_, String>(0)?,
+                            item.get::<_, f64>(1)?,
+                            item.get::<_, String>(2)?,
+                        )),
+                    ) {
+                        for item in calibration_rows.flatten() {
+                            confidence_sum += item.1.clamp(0.0, 1.0);
+                            confidence_count += 1;
+                            if let Some(score) = remote_direction_brier_score(&item.0, &item.2) {
+                                brier_sum += score;
+                                brier_count += 1;
+                            }
+                        }
+                    }
+                }
+                let brier = if brier_count > 0 { brier_sum / brier_count as f64 } else { 0.0 };
+                let average_confidence = if confidence_count > 0 { confidence_sum / confidence_count as f64 } else { 0.0 };
+                let accuracy_fraction = if row.3 > 0 { row.4 as f64 / row.3 as f64 } else { 0.0 };
+                let confidence_gap = (average_confidence - accuracy_fraction).abs() * 100.0;
                 decision_provider_benchmarks.push(serde_json::json!({
-                    "provider": row.0,
-                    "providerVersion": row.1,
+                    "provider": provider,
+                    "providerVersion": provider_version,
                     "predictionCount": row.2,
                     "settledCount": row.3,
                     "correctDirectionCount": row.4,
                     "directionAccuracyPercent": (direction_accuracy * 100.0).round() / 100.0,
+                    "directionBrierScore": (brier * 10_000.0).round() / 10_000.0,
+                    "averageDirectionConfidence": (average_confidence * 10_000.0).round() / 10_000.0,
+                    "confidenceAccuracyGapPercent": (confidence_gap * 100.0).round() / 100.0,
                     "enterCount": row.5,
                     "settledEnterCount": row.6,
                     "positiveEnterCount": row.7,

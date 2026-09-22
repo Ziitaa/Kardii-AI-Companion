@@ -979,6 +979,18 @@ fn classify_shadow_outcome(return_1h_percent: f64) -> &'static str {
     }
 }
 
+fn direction_brier_score(probabilities_json: &str, actual_outcome: &str) -> Option<f64> {
+    let payload: serde_json::Value = serde_json::from_str(probabilities_json).ok()?;
+    let direction = payload.get("direction")?;
+    let mut score = 0.0;
+    for label in ["bullish", "neutral", "bearish"] {
+        let probability = direction.get(label)?.as_f64()?.clamp(0.0, 1.0);
+        let target = if actual_outcome == label { 1.0 } else { 0.0 };
+        score += (probability - target).powi(2);
+    }
+    Some(score)
+}
+
 
 #[tauri::command]
 pub async fn get_symbol_research(symbol: String) -> Result<SymbolResearch, String> {
@@ -1483,6 +1495,9 @@ pub struct DecisionProviderBenchmark {
     settled_count: i64,
     correct_direction_count: i64,
     direction_accuracy_percent: f64,
+    direction_brier_score: f64,
+    average_direction_confidence: f64,
+    confidence_accuracy_gap_percent: f64,
     enter_count: i64,
     settled_enter_count: i64,
     positive_enter_count: i64,
@@ -2818,6 +2833,55 @@ impl TradingRuntimeState {
                 } else {
                     0.0
                 };
+                let mut brier_sum = 0.0;
+                let mut brier_count = 0_i64;
+                let mut confidence_sum = 0.0;
+                let mut confidence_count = 0_i64;
+                let mut calibration_statement = connection.prepare(
+                    "SELECT p.probabilities_json, p.confidence, s.actual_outcome
+                     FROM decision_shadow_predictions p
+                     JOIN decision_shadow_samples s ON s.sample_id = p.sample_id
+                     WHERE p.provider = ?1
+                       AND p.provider_version = ?2
+                       AND s.status = 'settled'
+                       AND s.actual_outcome IS NOT NULL"
+                ).map_err(|error| format!("无法准备 Direction calibration：{error}"))?;
+                let calibration_rows = calibration_statement.query_map(
+                    params![&provider, &provider_version],
+                    |row| Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, f64>(1)?,
+                        row.get::<_, String>(2)?,
+                    )),
+                ).map_err(|error| format!("无法统计 Direction calibration：{error}"))?;
+                for calibration_row in calibration_rows {
+                    let (probabilities_json, confidence, actual_outcome) =
+                        calibration_row.map_err(|error| format!("无法读取 Direction calibration：{error}"))?;
+                    confidence_sum += confidence.clamp(0.0, 1.0);
+                    confidence_count += 1;
+                    if let Some(score) = direction_brier_score(&probabilities_json, &actual_outcome) {
+                        brier_sum += score;
+                        brier_count += 1;
+                    }
+                }
+                let direction_brier_score = if brier_count > 0 {
+                    brier_sum / brier_count as f64
+                } else {
+                    0.0
+                };
+                let average_direction_confidence = if confidence_count > 0 {
+                    confidence_sum / confidence_count as f64
+                } else {
+                    0.0
+                };
+                let accuracy_fraction = if provider_settled_count > 0 {
+                    correct_direction_count as f64 / provider_settled_count as f64
+                } else {
+                    0.0
+                };
+                let confidence_accuracy_gap_percent =
+                    (average_direction_confidence - accuracy_fraction).abs() * 100.0;
+
                 provider_benchmarks.push(DecisionProviderBenchmark {
                     provider,
                     provider_version,
@@ -2825,6 +2889,9 @@ impl TradingRuntimeState {
                     settled_count: provider_settled_count,
                     correct_direction_count,
                     direction_accuracy_percent: (direction_accuracy_percent * 100.0).round() / 100.0,
+                    direction_brier_score: (direction_brier_score * 10_000.0).round() / 10_000.0,
+                    average_direction_confidence: (average_direction_confidence * 10_000.0).round() / 10_000.0,
+                    confidence_accuracy_gap_percent: (confidence_accuracy_gap_percent * 100.0).round() / 100.0,
                     enter_count,
                     settled_enter_count,
                     positive_enter_count,
@@ -3342,6 +3409,22 @@ pub fn evaluate_trade_risk(
 #[cfg(test)]
 mod runtime_tests {
     use super::*;
+
+    #[test]
+    fn direction_brier_score_is_zero_for_perfect_prediction() {
+        let probabilities = serde_json::json!({
+            "direction": {"bullish": 1.0, "neutral": 0.0, "bearish": 0.0}
+        }).to_string();
+        assert_eq!(direction_brier_score(&probabilities, "bullish"), Some(0.0));
+    }
+
+    #[test]
+    fn direction_brier_score_penalizes_wrong_prediction() {
+        let probabilities = serde_json::json!({
+            "direction": {"bullish": 1.0, "neutral": 0.0, "bearish": 0.0}
+        }).to_string();
+        assert_eq!(direction_brier_score(&probabilities, "bearish"), Some(2.0));
+    }
 
     #[test]
     fn decision_sample_id_uses_five_minute_bucket() {

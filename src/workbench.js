@@ -486,7 +486,7 @@ function renderRemoteSnapshot(snapshot) {
   const benchmarkRows = benchmarks.map(x =>
     '<div class="row"><strong>'+esc(x.provider)+'</strong><span>benchmark</span><div><span>'+
     (x.settledCount ? ('direction '+esc(Number(x.directionAccuracyPercent||0).toFixed(1))+'%') : 'awaiting outcomes')+
-    '</span><small>settled '+esc(x.settledCount||0)+' · enter '+esc(x.settledEnterCount||0)+
+    '</span><small>settled '+esc(x.settledCount||0)+' · brier '+esc(Number(x.directionBrierScore||0).toFixed(3))+' · conf-gap '+esc(Number(x.confidenceAccuracyGapPercent||0).toFixed(1))+'% · enter '+esc(x.settledEnterCount||0)+
     (x.settledEnterCount ? (' · positive '+esc(Number(x.enterPositiveRatePercent||0).toFixed(1))+'% · avg1h '+esc(Number(x.averageEnterReturn1hPercent||0).toFixed(3))+'%') : '')+
     '</small></div><small>'+esc(Number(x.averageLatencyMs||0).toFixed(1))+'ms</small></div>'
   );
@@ -539,7 +539,9 @@ async function refreshDecisionShadowStatus() {
     const benchmarkText = benchmarks.length
       ? " · " + benchmarks.map(item =>
           item.provider + " " +
-          (item.settledCount ? ("accuracy " + Number(item.directionAccuracyPercent || 0).toFixed(1) + "%") : "awaiting outcomes") +
+          (item.settledCount
+            ? ("accuracy " + Number(item.directionAccuracyPercent || 0).toFixed(1) + "% · brier " + Number(item.directionBrierScore || 0).toFixed(3))
+            : "awaiting outcomes") +
           " · " + Number(item.averageLatencyMs || 0).toFixed(1) + "ms"
         ).join(" | ")
       : "";

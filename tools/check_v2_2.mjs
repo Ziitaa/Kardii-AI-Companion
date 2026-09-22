@@ -110,4 +110,8 @@ assert.match(workbench, /Decision Provider Benchmark/);
 assert.match(trading, /decision_prediction_exists/);
 assert.match(trading, /at most once per 5-minute sample bucket/);
 
+assert.match(trading, /direction_brier_score/);
+assert.match(trading, /confidence_accuracy_gap_percent/);
+assert.match(readonly, /directionBrierScore/);
+
 console.log("Kardii v2.2 market gateway boundary checks passed.");
