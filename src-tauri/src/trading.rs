@@ -121,6 +121,9 @@ fn public_market_targets(path_and_query: &str) -> Result<Vec<(String, Option<Str
         }
         return Ok(vec![(format!("{base}{path_and_query}"), Some(token))]);
     }
+    if path_and_query.starts_with("/okx/") {
+        return Err("OKX public provider 仅通过已配置的 Market Data Gateway 读取。".to_string());
+    }
     Ok(SPOT_BASES
         .iter()
         .map(|base| (format!("{base}{path_and_query}"), None))
@@ -801,6 +804,33 @@ struct BinanceTicker {
     count: u64,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct OkxTickerEnvelope {
+    #[serde(default)]
+    code: String,
+    #[serde(default)]
+    msg: String,
+    #[serde(default)]
+    data: Vec<OkxTicker>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OkxTicker {
+    #[serde(default)]
+    inst_id: String,
+    #[serde(default)]
+    last: String,
+    #[serde(default)]
+    open24h: String,
+    #[serde(default)]
+    high24h: String,
+    #[serde(default)]
+    low24h: String,
+    #[serde(default)]
+    vol_ccy24h: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MarketTickerSummary {
@@ -823,6 +853,19 @@ pub struct MarketSnapshot {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct VenueCorroboration {
+    venue: String,
+    source: String,
+    source_symbol: String,
+    last_price: f64,
+    change_percent_24h: f64,
+    quote_volume_24h: f64,
+    price_gap_bps: f64,
+    change_gap_percent: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct OpportunityCandidate {
     symbol: String,
     last_price: f64,
@@ -833,6 +876,7 @@ pub struct OpportunityCandidate {
     attention_score: f64,
     signal: String,
     rationale: String,
+    venue_corroborations: Vec<VenueCorroboration>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1125,6 +1169,98 @@ fn summarize(ticker: &BinanceTicker) -> MarketTickerSummary {
     }
 }
 
+fn canonical_okx_spot_symbol(inst_id: &str) -> Option<String> {
+    let mut parts = inst_id.trim().to_uppercase().split('-').map(str::to_string);
+    let base = parts.next()?;
+    let quote = parts.next()?;
+    if parts.next().is_some()
+        || quote != "USDT"
+        || base.is_empty()
+        || !base.chars().all(|character| character.is_ascii_alphanumeric())
+    {
+        return None;
+    }
+    let symbol = format!("{base}{quote}");
+    tradable_usdt_symbol(&symbol).then_some(symbol)
+}
+
+fn summarize_okx(ticker: &OkxTicker) -> Option<MarketTickerSummary> {
+    let symbol = canonical_okx_spot_symbol(&ticker.inst_id)?;
+    let last = parse_number(&ticker.last);
+    let open = parse_number(&ticker.open24h);
+    let high = parse_number(&ticker.high24h);
+    let low = parse_number(&ticker.low24h);
+    if last <= 0.0 {
+        return None;
+    }
+    let range = if low > 0.0 { ((high - low) / low) * 100.0 } else { 0.0 };
+    Some(MarketTickerSummary {
+        symbol,
+        last_price: last,
+        change_percent_24h: percent_change(open, last),
+        quote_volume_24h: parse_number(&ticker.vol_ccy24h),
+        // OKX's public ticker does not expose Binance-style trade count.
+        // Never fabricate one; OKX is corroboration only and does not drive candidate ranking.
+        trade_count_24h: 0,
+        intraday_range_percent: range.max(0.0),
+    })
+}
+
+async fn fetch_okx_spot_tickers() -> Result<(String, Vec<MarketTickerSummary>), String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(12))
+        .build()
+        .map_err(|error| format!("无法初始化 OKX public market 客户端：{error}"))?;
+    let (source, payload) = fetch_public_json::<OkxTickerEnvelope>(
+        &client,
+        "/okx/api/v5/market/tickers?instType=SPOT",
+    ).await?;
+    if payload.code != "0" {
+        let detail = if payload.msg.trim().is_empty() {
+            "unknown OKX public market error".to_string()
+        } else {
+            payload.msg
+        };
+        return Err(format!("OKX public provider 返回错误：{detail}"));
+    }
+    let summaries: Vec<_> = payload.data.iter().filter_map(summarize_okx).collect();
+    if summaries.is_empty() {
+        return Err("OKX public provider 没有返回可用的 USDT 现货行情。".to_string());
+    }
+    Ok((source, summaries))
+}
+
+fn attach_okx_corroborations(
+    candidates: &mut [OpportunityCandidate],
+    source: &str,
+    okx_tickers: &[MarketTickerSummary],
+) -> usize {
+    let mut matched = 0usize;
+    for candidate in candidates {
+        let Some(okx) = okx_tickers.iter().find(|ticker| ticker.symbol == candidate.symbol) else {
+            continue;
+        };
+        let mid = (candidate.last_price + okx.last_price) / 2.0;
+        let price_gap_bps = if mid > 0.0 {
+            ((candidate.last_price - okx.last_price).abs() / mid) * 10_000.0
+        } else {
+            0.0
+        };
+        candidate.venue_corroborations.push(VenueCorroboration {
+            venue: "okx-public".to_string(),
+            source: source.to_string(),
+            source_symbol: candidate.symbol.trim_end_matches("USDT").to_string() + "-USDT",
+            last_price: okx.last_price,
+            change_percent_24h: (okx.change_percent_24h * 100.0).round() / 100.0,
+            quote_volume_24h: okx.quote_volume_24h,
+            price_gap_bps: (price_gap_bps * 100.0).round() / 100.0,
+            change_gap_percent: ((candidate.change_percent_24h - okx.change_percent_24h).abs() * 100.0).round() / 100.0,
+        });
+        matched += 1;
+    }
+    matched
+}
+
 fn candidate_from(summary: &MarketTickerSummary) -> Option<OpportunityCandidate> {
     if !tradable_usdt_symbol(&summary.symbol) {
         return None;
@@ -1181,6 +1317,7 @@ fn candidate_from(summary: &MarketTickerSummary) -> Option<OpportunityCandidate>
         attention_score: (score * 10.0).round() / 10.0,
         signal,
         rationale,
+        venue_corroborations: Vec::new(),
     })
 }
 
@@ -1224,7 +1361,7 @@ pub async fn get_market_snapshot(limit: Option<usize>) -> Result<MarketSnapshot,
 #[tauri::command]
 pub async fn scan_market_opportunities(limit: Option<usize>) -> Result<OpportunityScan, String> {
     let limit = limit.unwrap_or(12).clamp(1, 50);
-    let (source, tickers) = fetch_spot_tickers().await?;
+    let (primary_source, tickers) = fetch_spot_tickers().await?;
     let mut candidates: Vec<_> = tickers.iter().filter_map(candidate_from).collect();
     candidates.sort_by(|a, b| {
         b.attention_score
@@ -1233,10 +1370,23 @@ pub async fn scan_market_opportunities(limit: Option<usize>) -> Result<Opportuni
     });
     candidates.truncate(limit);
 
+    // Binance remains the deterministic discovery source because its public ticker includes
+    // the trade-count field used by the frozen candidate filter. OKX is optional corroboration:
+    // it can add an independent public venue observation but cannot change ranking or execution.
+    let mut source = primary_source;
+    let mut methodology = "公开现货 24h 数据的确定性筛选：流动性、成交笔数、价格变化与日内振幅。候选仅进入研究队列，不构成交易指令。OKX（若通过 Market Data Gateway 可用）只作为跨交易所公开行情复核，不参与候选排序。".to_string();
+    if let Ok((okx_source, okx_tickers)) = fetch_okx_spot_tickers().await {
+        let matched = attach_okx_corroborations(&mut candidates, &okx_source, &okx_tickers);
+        if matched > 0 {
+            source = format!("{source} | corroboration:{okx_source}");
+            methodology.push_str(&format!(" 本次有 {matched} 个候选获得 OKX 公开行情复核。"));
+        }
+    }
+
     Ok(OpportunityScan {
         source,
         fetched_at: Utc::now().to_rfc3339(),
-        methodology: "公开现货 24h 数据的确定性筛选：流动性、成交笔数、价格变化与日内振幅。候选仅进入研究队列，不构成交易指令。".to_string(),
+        methodology,
         candidates,
     })
 }
@@ -1313,6 +1463,40 @@ mod tests {
         assert_eq!(normalized.change_percent_24h, 5.0);
         assert_eq!(normalized.quote_volume_24h, 250000000.0);
         assert_eq!(normalized.trade_count_24h, 50000);
+    }
+
+    #[test]
+    fn okx_spot_ticker_normalizes_without_faking_trade_count() {
+        let ticker = OkxTicker {
+            inst_id: "BTC-USDT".into(),
+            last: "101".into(),
+            open24h: "100".into(),
+            high24h: "110".into(),
+            low24h: "90".into(),
+            vol_ccy24h: "123456789".into(),
+        };
+        let normalized = summarize_okx(&ticker).unwrap();
+        assert_eq!(normalized.symbol, "BTCUSDT");
+        assert_eq!(normalized.trade_count_24h, 0);
+        assert_eq!(normalized.quote_volume_24h, 123456789.0);
+        assert_eq!((normalized.change_percent_24h * 100.0).round() / 100.0, 1.0);
+    }
+
+    #[test]
+    fn okx_corroboration_does_not_change_attention_score() {
+        let mut candidate = candidate_from(&sample("BTCUSDT", 5.0, 250000000.0, 50000)).unwrap();
+        let score_before = candidate.attention_score;
+        let okx = vec![MarketTickerSummary {
+            symbol: "BTCUSDT".into(),
+            last_price: 1.251,
+            change_percent_24h: 4.8,
+            quote_volume_24h: 200000000.0,
+            trade_count_24h: 0,
+            intraday_range_percent: 4.0,
+        }];
+        assert_eq!(attach_okx_corroborations(std::slice::from_mut(&mut candidate), "https://market.example/okx/api/v5/market/tickers?instType=SPOT", &okx), 1);
+        assert_eq!(candidate.attention_score, score_before);
+        assert_eq!(candidate.venue_corroborations.len(), 1);
     }
 
     #[test]
@@ -3134,7 +3318,17 @@ impl TradingRuntimeState {
             Ok(scan) => {
                 let mut research = Vec::new();
                 for candidate in scan.candidates.iter().take(3) {
-                    if let Ok(item) = get_symbol_research(candidate.symbol.clone()).await {
+                    if let Ok(mut item) = get_symbol_research(candidate.symbol.clone()).await {
+                        if let Some(corroboration) = candidate.venue_corroborations.first() {
+                            item.sources.push(corroboration.source.clone());
+                            item.evidence.push(format!(
+                                "OKX 公开现货复核：{} 最新价 {:.8}，与主数据源价差约 {:.2} bps；24h 变化差约 {:.2} 个百分点。该复核不参与候选排序。",
+                                corroboration.source_symbol,
+                                corroboration.last_price,
+                                corroboration.price_gap_bps,
+                                corroboration.change_gap_percent,
+                            ));
+                        }
                         research.push(item);
                     }
                 }
