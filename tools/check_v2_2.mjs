@@ -89,7 +89,7 @@ assert.match(decision, /"executionEnabled": false/);
 assert.match(decision, /"positionContextAvailable": false/);
 assert.match(decision, /"enter": "Evidence supports a new spot entry candidate strongly enough for shadow benchmarking; this does not authorize execution\."/);
 assert.match(trading, /evaluate_with_fallback\(None, &baseline, &input\)/);
-assert.match(trading, /external_provider_configured: false/);
+assert.match(trading, /external_provider_configured: load_jev_api_key_from_keyring\(\)\.ok\(\)\.flatten\(\)\.is_some\(\)/);
 assert.match(trading, /execution_linked: false/);
 
 assert.match(decision, /TYPESAFE_MODELS_ENDPOINT/);
