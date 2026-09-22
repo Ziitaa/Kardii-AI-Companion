@@ -2466,13 +2466,31 @@ impl TradingRuntimeState {
     }
 
 
+    fn decision_sample_id(input: &DecisionInput) -> String {
+        let sample_bucket_ms = (input.timestamp_ms / (5 * 60_000)) * (5 * 60_000);
+        format!("{}:{}", sample_bucket_ms, input.symbol)
+    }
+
+    fn decision_prediction_exists(&self, sample_id: &str, provider: &str) -> Result<bool, String> {
+        self.with_database(|connection| {
+            connection.query_row(
+                "SELECT EXISTS(
+                   SELECT 1 FROM decision_shadow_predictions
+                   WHERE sample_id = ?1 AND provider = ?2
+                 )",
+                params![sample_id, provider],
+                |row| row.get::<_, i64>(0),
+            ).map(|value| value != 0)
+             .map_err(|error| format!("无法检查 Decision Shadow 去重状态：{error}"))
+        })
+    }
+
     fn record_decision_shadow(
         &self,
         input: &DecisionInput,
         attempt: &DecisionAttempt,
     ) -> Result<(), String> {
-        let sample_bucket_ms = (input.timestamp_ms / (5 * 60_000)) * (5 * 60_000);
-        let sample_id = format!("{}:{}", sample_bucket_ms, input.symbol);
+        let sample_id = Self::decision_sample_id(input);
         let prediction_id = format!(
             "{}:{}:{}",
             sample_id,
@@ -2682,29 +2700,36 @@ impl TradingRuntimeState {
                 volume_acceleration: item.volume_acceleration,
             };
 
-            // Always record the deterministic baseline on the same sample first.
-            let baseline_attempt = evaluate_with_fallback(None, &baseline, &input).await?;
-            self.record_decision_shadow(&input, &baseline_attempt)?;
+            let sample_id = Self::decision_sample_id(&input);
+
+            // Evaluate each provider at most once per 5-minute sample bucket.
+            // This prevents repeated paid Jev calls when runtime refreshes more frequently.
+            if !self.decision_prediction_exists(&sample_id, baseline.id())? {
+                let baseline_attempt = evaluate_with_fallback(None, &baseline, &input).await?;
+                self.record_decision_shadow(&input, &baseline_attempt)?;
+            }
 
             // Jev is a second comparison arm only. Failure never blocks the research loop,
             // never substitutes a hidden trade decision, and never links to execution.
             if let Some(provider) = jev.as_ref() {
-                let started = std::time::Instant::now();
-                match provider.decide(&input).await {
-                    Ok(output) => {
-                        let attempt = DecisionAttempt {
-                            provider_requested: provider.id().to_string(),
-                            provider_used: provider.id().to_string(),
-                            fallback_used: false,
-                            primary_error: String::new(),
-                            latency_ms: started.elapsed().as_millis().min(u64::MAX as u128) as u64,
-                            output,
-                        };
-                        self.record_decision_shadow(&input, &attempt)?;
-                        self.record_decision_provider_success(provider.id())?;
-                    }
-                    Err(error) => {
-                        self.record_decision_provider_error(provider.id(), &error)?;
+                if !self.decision_prediction_exists(&sample_id, provider.id())? {
+                    let started = std::time::Instant::now();
+                    match provider.decide(&input).await {
+                        Ok(output) => {
+                            let attempt = DecisionAttempt {
+                                provider_requested: provider.id().to_string(),
+                                provider_used: provider.id().to_string(),
+                                fallback_used: false,
+                                primary_error: String::new(),
+                                latency_ms: started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+                                output,
+                            };
+                            self.record_decision_shadow(&input, &attempt)?;
+                            self.record_decision_provider_success(provider.id())?;
+                        }
+                        Err(error) => {
+                            self.record_decision_provider_error(provider.id(), &error)?;
+                        }
                     }
                 }
             }
@@ -3317,6 +3342,31 @@ pub fn evaluate_trade_risk(
 #[cfg(test)]
 mod runtime_tests {
     use super::*;
+
+    #[test]
+    fn decision_sample_id_uses_five_minute_bucket() {
+        let input = DecisionInput {
+            timestamp: "2026-09-22T00:01:30Z".to_string(),
+            timestamp_ms: 1_758_499_290_000,
+            symbol: "BTCUSDT".to_string(),
+            price: 100_000.0,
+            candidate_signal: "high-momentum".to_string(),
+            attention_score: 80.0,
+            change_percent_24h: 5.0,
+            quote_volume_24h: 1_000_000_000.0,
+            trade_count_24h: 100_000,
+            intraday_range_percent: 5.0,
+            spread_bps: 1.0,
+            order_book_imbalance: 0.1,
+            return_1h_percent: 1.0,
+            return_4h_percent: 2.0,
+            realized_volatility_5m_percent: 0.2,
+            volume_acceleration: 1.1,
+        };
+        let id = TradingRuntimeState::decision_sample_id(&input);
+        assert!(id.ends_with(":BTCUSDT"));
+        assert_eq!(id, TradingRuntimeState::decision_sample_id(&input));
+    }
 
     #[test]
     fn decision_benchmark_policy_v1_is_frozen() {
