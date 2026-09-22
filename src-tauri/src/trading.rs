@@ -1170,7 +1170,8 @@ fn summarize(ticker: &BinanceTicker) -> MarketTickerSummary {
 }
 
 fn canonical_okx_spot_symbol(inst_id: &str) -> Option<String> {
-    let mut parts = inst_id.trim().to_uppercase().split('-').map(str::to_string);
+    let normalized = inst_id.trim().to_uppercase();
+    let mut parts = normalized.split('-');
     let base = parts.next()?;
     let quote = parts.next()?;
     if parts.next().is_some()
