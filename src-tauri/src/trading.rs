@@ -1806,7 +1806,17 @@ impl TradingRuntimeState {
                last_success_at TEXT NOT NULL,
                last_error_at TEXT NOT NULL,
                last_error TEXT NOT NULL
-             );"
+             );
+             CREATE TABLE IF NOT EXISTS decision_provider_attempts (
+               sample_id TEXT NOT NULL,
+               provider TEXT NOT NULL,
+               attempted_at TEXT NOT NULL,
+               status TEXT NOT NULL,
+               error TEXT NOT NULL,
+               PRIMARY KEY(sample_id, provider)
+             );
+             CREATE INDEX IF NOT EXISTS decision_provider_attempts_time
+               ON decision_provider_attempts(attempted_at DESC);"
         ).map_err(|error| format!("无法初始化 Kardii 交易研究数据库：{error}"))?;
 
         let policy = default_risk_policy();
@@ -2682,6 +2692,44 @@ impl TradingRuntimeState {
         })
     }
 
+    fn decision_provider_attempt_exists(&self, sample_id: &str, provider: &str) -> Result<bool, String> {
+        self.with_database(|connection| {
+            connection.query_row(
+                "SELECT EXISTS(
+                   SELECT 1 FROM decision_provider_attempts
+                   WHERE sample_id = ?1 AND provider = ?2
+                 )",
+                params![sample_id, provider],
+                |row| row.get::<_, i64>(0),
+            ).map(|value| value != 0)
+             .map_err(|error| format!("无法检查 Decision Provider attempt：{error}"))
+        })
+    }
+
+    fn record_decision_provider_attempt(
+        &self,
+        sample_id: &str,
+        provider: &str,
+        status: &str,
+        error: &str,
+    ) -> Result<(), String> {
+        self.with_database(|connection| {
+            connection.execute(
+                "INSERT OR REPLACE INTO decision_provider_attempts(
+                   sample_id, provider, attempted_at, status, error
+                 ) VALUES(?1, ?2, ?3, ?4, ?5)",
+                params![
+                    sample_id,
+                    provider,
+                    Utc::now().to_rfc3339(),
+                    status,
+                    error.chars().take(500).collect::<String>(),
+                ],
+            ).map_err(|db_error| format!("无法记录 Decision Provider attempt：{db_error}"))?;
+            Ok(())
+        })
+    }
+
     async fn update_decision_shadow(
         &self,
         scan: &OpportunityScan,
@@ -2727,7 +2775,9 @@ impl TradingRuntimeState {
             // Jev is a second comparison arm only. Failure never blocks the research loop,
             // never substitutes a hidden trade decision, and never links to execution.
             if let Some(provider) = jev.as_ref() {
-                if !self.decision_prediction_exists(&sample_id, provider.id())? {
+                if !self.decision_prediction_exists(&sample_id, provider.id())?
+                    && !self.decision_provider_attempt_exists(&sample_id, provider.id())?
+                {
                     let started = std::time::Instant::now();
                     match provider.decide(&input).await {
                         Ok(output) => {
@@ -2741,9 +2791,11 @@ impl TradingRuntimeState {
                             };
                             self.record_decision_shadow(&input, &attempt)?;
                             self.record_decision_provider_success(provider.id())?;
+                            self.record_decision_provider_attempt(&sample_id, provider.id(), "success", "")?;
                         }
                         Err(error) => {
                             self.record_decision_provider_error(provider.id(), &error)?;
+                            self.record_decision_provider_attempt(&sample_id, provider.id(), "error", &error)?;
                         }
                     }
                 }
@@ -3020,6 +3072,12 @@ impl TradingRuntimeState {
                  )",
                 [],
             ).map_err(|error| format!("无法整理研究历史：{error}"))?;
+
+            transaction.execute(
+                "DELETE FROM decision_provider_attempts
+                 WHERE attempted_at < datetime('now', '-90 days')",
+                [],
+            ).map_err(|error| format!("无法整理 Decision Provider attempts：{error}"))?;
 
             transaction.commit()
                 .map_err(|error| format!("无法提交交易研究记录：{error}"))

@@ -120,4 +120,8 @@ assert.match(readonly, /externalProviderSeen/);
 assert.match(decision, /typesafe_model_names/);
 assert.match(decision, /payload\.get\("data"\)/);
 
+assert.match(trading, /decision_provider_attempts/);
+assert.match(trading, /decision_provider_attempt_exists/);
+assert.match(trading, /record_decision_provider_attempt/);
+
 console.log("Kardii v2.2 market gateway boundary checks passed.");
