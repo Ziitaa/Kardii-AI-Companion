@@ -117,4 +117,7 @@ assert.match(readonly, /directionBrierScore/);
 assert.match(readonly, /externalProviderHealth/);
 assert.match(readonly, /externalProviderSeen/);
 
+assert.match(decision, /typesafe_model_names/);
+assert.match(decision, /payload\.get\("data"\)/);
+
 console.log("Kardii v2.2 market gateway boundary checks passed.");

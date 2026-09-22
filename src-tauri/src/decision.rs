@@ -71,6 +71,23 @@ pub struct JevDecisionProvider {
     api_key: String,
 }
 
+fn typesafe_model_names(payload: &Value) -> Vec<String> {
+    let items = payload
+        .get("models")
+        .and_then(Value::as_array)
+        .or_else(|| payload.get("data").and_then(Value::as_array))
+        .or_else(|| payload.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    items.into_iter().filter_map(|item| {
+        item.as_str()
+            .or_else(|| item.get("name").and_then(Value::as_str))
+            .or_else(|| item.get("id").and_then(Value::as_str))
+            .map(str::to_string)
+    }).collect()
+}
+
 impl JevDecisionProvider {
     pub fn new(api_key: String) -> Result<Self, String> {
         let key = api_key.trim();
@@ -106,15 +123,11 @@ impl JevDecisionProvider {
                 .unwrap_or("认证失败");
             return Err(format!("TypeSafe 返回 HTTP {status}：{detail}"));
         }
-        let models = payload
-            .get("models")
-            .and_then(Value::as_array)
-            .ok_or_else(|| "TypeSafe 没有返回 models 列表。".to_string())?;
-        let available = models.iter().filter_map(|item| {
-            item.get("name").and_then(Value::as_str)
-                .or_else(|| item.as_str())
-        }).collect::<Vec<_>>();
-        if !available.iter().any(|name| *name == TYPESAFE_JEV_MODEL || name.starts_with("jev-")) {
+        let available = typesafe_model_names(&payload);
+        if available.is_empty() {
+            return Err("TypeSafe 没有返回可识别的模型列表。".to_string());
+        }
+        if !available.iter().any(|name| name == TYPESAFE_JEV_MODEL || name.starts_with("jev-")) {
             return Err("当前 TypeSafe 账户没有可用的 Jev 模型。".to_string());
         }
         Ok(TYPESAFE_JEV_MODEL.to_string())
@@ -593,6 +606,18 @@ mod tests {
         let output = rule_baseline_decision(&input);
         assert_eq!(output.risk_state, "extreme");
         assert_eq!(output.action, "wait");
+    }
+
+    #[test]
+    fn parses_typesafe_models_from_supported_list_shapes() {
+        let direct = json!(["jev-latest", "jev-1.13.0"]);
+        assert_eq!(typesafe_model_names(&direct), vec!["jev-latest", "jev-1.13.0"]);
+
+        let models = json!({"models": [{"name": "jev-latest"}, {"id": "jev-1.13.0"}]});
+        assert_eq!(typesafe_model_names(&models), vec!["jev-latest", "jev-1.13.0"]);
+
+        let data = json!({"data": [{"id": "jev-latest"}]});
+        assert_eq!(typesafe_model_names(&data), vec!["jev-latest"]);
     }
 
     #[test]
