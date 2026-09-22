@@ -431,6 +431,10 @@ function renderRemoteSnapshot(snapshot) {
   const kill = snapshot.killSwitch || {};
   const rec = snapshot.reconciliation || {};
   const shadow = snapshot.shadowExperiments || {};
+  const health = snapshot.runtimeHealth || {};
+  const remoteScanText = health.scanAgeSeconds == null
+    ? "等待首次研究扫描"
+    : (Math.round(Number(health.scanAgeSeconds) / 60) + " 分钟前扫描");
   remoteMode.textContent = gate.realExecutionEnabled ? "真实执行已启用" : (gate.mode || "研究 / 观察");
   remoteModeDetail.textContent = snapshot.remoteControlEnabled ? "远程控制已启用" : "全状态可见 · 远程执行关闭";
   remoteResearchCount.textContent = String(snapshot.researchCount ?? 0);
@@ -439,6 +443,10 @@ function renderRemoteSnapshot(snapshot) {
   remoteKillDetail.textContent = kill.latched ? (kill.reason || "执行已停止") : "未触发";
 
   remoteRuntimeDetail.innerHTML = [
+    ["数据库", health.databaseOk ? "OK" : (health.databaseCheck || "未知"), "canonical SQLite"],
+    ["研究扫描", health.scanStale ? "过期" : "正常", remoteScanText],
+    ["Decision outcomes", (health.pendingDecisionOutcomes ?? 0) + " pending", (health.overdueDecisionOutcomes ?? 0) + " overdue"],
+    ["Jev 24h", (health.providerAttempts24h ?? 0) + " attempts", (health.providerErrors24h ?? 0) + " errors · cost $" + Number(health.estimatedProviderCost24hUsd || 0).toFixed(6)],
     ["对账", rec.status || "未知", rec.detail || "暂无"],
     ["真实执行", gate.realExecutionEnabled ? "已启用" : "关闭", gate.note || ""],
     ["单笔上限", gate.maxOrderNotionalUsdt ?? 0, "USDT"],

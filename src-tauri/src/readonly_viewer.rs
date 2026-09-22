@@ -1,4 +1,5 @@
 
+use chrono::Utc;
 use rand::RngCore;
 use reqwest::Url;
 use rusqlite::Connection;
@@ -343,6 +344,61 @@ fn remote_direction_brier_score(probabilities_json: &str, actual_outcome: &str) 
 fn read_status(path: &Path) -> Result<serde_json::Value, String> {
     let connection = Connection::open(path)
         .map_err(|error| format!("无法读取 Kardii 状态数据库：{error}"))?;
+
+    let database_check: String = connection
+        .query_row("PRAGMA quick_check(1)", [], |row| row.get(0))
+        .unwrap_or_else(|_| "check-failed".to_string());
+    let latest_research_at: String = connection
+        .query_row(
+            "SELECT COALESCE(MAX(scanned_at), '') FROM research_history",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or_default();
+    let scan_age_seconds = chrono::DateTime::parse_from_rfc3339(&latest_research_at)
+        .ok()
+        .map(|value| (Utc::now() - value.with_timezone(&Utc)).num_seconds().max(0));
+    let pending_decision_outcomes: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM decision_shadow_samples WHERE status = 'pending'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    let overdue_before = Utc::now().timestamp_millis() - 5 * 60 * 60 * 1000;
+    let overdue_decision_outcomes: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM decision_shadow_samples
+             WHERE status = 'pending' AND decided_at_ms <= ?1",
+            [overdue_before],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    let provider_cutoff = (Utc::now() - chrono::Duration::hours(24)).to_rfc3339();
+    let provider_attempts_24h: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM decision_provider_attempts WHERE attempted_at >= ?1",
+            [&provider_cutoff],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    let provider_errors_24h: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM decision_provider_attempts
+             WHERE attempted_at >= ?1 AND status = 'error'",
+            [&provider_cutoff],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    let estimated_provider_cost_24h_usd: f64 = connection
+        .query_row(
+            "SELECT COALESCE(SUM(estimated_cost_usd), 0)
+             FROM decision_shadow_predictions
+             WHERE created_at >= ?1 AND provider = 'typesafe-jev'",
+            [&provider_cutoff],
+            |row| row.get(0),
+        )
+        .unwrap_or(0.0);
 
     let research_count: i64 = connection
         .query_row("SELECT COUNT(*) FROM research_history", [], |row| row.get(0))
@@ -747,6 +803,19 @@ fn read_status(path: &Path) -> Result<serde_json::Value, String> {
         "observingExperimentCount": observing_count,
         "realLedgerEventCount": ledger_count,
         "balanceSnapshotCount": snapshot_count,
+        "runtimeHealth": {
+            "databaseOk": database_check.eq_ignore_ascii_case("ok"),
+            "databaseCheck": database_check,
+            "latestResearchAt": latest_research_at,
+            "scanAgeSeconds": scan_age_seconds,
+            "scanStale": scan_age_seconds.map(|age| age > 15 * 60).unwrap_or(false),
+            "pendingDecisionOutcomes": pending_decision_outcomes,
+            "overdueDecisionOutcomes": overdue_decision_outcomes,
+            "providerAttempts24h": provider_attempts_24h,
+            "providerErrors24h": provider_errors_24h,
+            "estimatedProviderCost24hUsd":
+                (estimated_provider_cost_24h_usd * 1_000_000.0).round() / 1_000_000.0
+        },
         "decisionShadow": {
             "mode": "shadow-only",
             "benchmarkPolicyVersion": "direction-1h-v1",

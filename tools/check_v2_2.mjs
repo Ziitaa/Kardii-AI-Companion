@@ -8,6 +8,7 @@ const gateway = fs.readFileSync("infra/market-gateway/server.mjs", "utf8");
 const readonly = fs.readFileSync("src-tauri/src/readonly_viewer.rs", "utf8");
 const lib = fs.readFileSync("src-tauri/src/lib.rs", "utf8");
 const workbench = fs.readFileSync("src/workbench.html", "utf8");
+const workbenchJs = fs.readFileSync("src/workbench.js", "utf8");
 const railway = fs.readFileSync("infra/market-gateway/railway.json", "utf8");
 const remoteTransport = fs.readFileSync("infra/remote-transport/README.md", "utf8");
 
@@ -116,6 +117,12 @@ assert.match(readonly, /directionBrierScore/);
 
 assert.match(readonly, /externalProviderHealth/);
 assert.match(readonly, /externalProviderSeen/);
+assert.match(readonly, /"runtimeHealth"/);
+assert.match(readonly, /PRAGMA quick_check\(1\)/);
+assert.match(readonly, /providerAttempts24h/);
+assert.match(readonly, /estimatedProviderCost24hUsd/);
+assert.match(workbenchJs, /snapshot\.runtimeHealth/);
+assert.match(workbenchJs, /canonical SQLite/);
 
 assert.match(decision, /typesafe_model_names/);
 assert.match(decision, /payload\.get\("data"\)/);
