@@ -1920,6 +1920,10 @@ fn canonical_external_url(raw: &str) -> Result<String, String> {
         return Err("External Research 只接受公开 http/https URL，且不能包含用户名或密码。".to_string());
     }
     url.set_fragment(None);
+    if url.path() != "/" && url.path().ends_with('/') {
+        let trimmed_path = url.path().trim_end_matches('/').to_string();
+        url.set_path(&trimmed_path);
+    }
 
     let mut pairs: Vec<(String, String)> = url
         .query_pairs()
@@ -1935,13 +1939,7 @@ fn canonical_external_url(raw: &str) -> Result<String, String> {
     if !pairs.is_empty() {
         url.query_pairs_mut().extend_pairs(pairs.iter().map(|(key, value)| (key, value)));
     }
-    let mut value = url.to_string();
-    if url.path() != "/" {
-        while value.ends_with('/') {
-            value.pop();
-        }
-    }
-    Ok(value)
+    Ok(url.to_string())
 }
 
 fn normalized_external_content(value: &str) -> String {
