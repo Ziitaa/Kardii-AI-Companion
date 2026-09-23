@@ -2022,6 +2022,26 @@ fn external_research_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Exter
     })
 }
 
+fn external_research_by_id(
+    connection: &Connection,
+    id: i64,
+) -> Result<ExternalResearchItem, String> {
+    connection
+        .query_row(
+            "SELECT
+               id, source_id, author, source_type, source_tier, canonical_url, title,
+               summary, published_at, retrieved_at, raw_content, content_hash, duplicate_of,
+               assets_json, indicators_json, tools_json, claims_json, evidence_links_json,
+               topic, possible_commercial_relationship, verification_status,
+               linked_experiment_id, hypothesis, research_result, disposition,
+               rejection_reason, ingestion_provider, created_at, updated_at
+             FROM external_research_items WHERE id = ?1",
+            [id],
+            external_research_from_row,
+        )
+        .map_err(|error| format!("无法读取 External Research item：{error}"))
+}
+
 #[derive(Clone)]
 pub struct TradingRuntimeState {
     inner: Arc<RwLock<TradingRuntimeSnapshot>>,
@@ -2364,7 +2384,7 @@ impl TradingRuntimeState {
                 .optional()
                 .map_err(|error| format!("无法检查 External Research URL 去重：{error}"))?
             {
-                return self.load_external_research_item(existing_id);
+                return external_research_by_id(connection, existing_id);
             }
 
             let duplicate_of = connection
@@ -2407,27 +2427,12 @@ impl TradingRuntimeState {
                 ],
             ).map_err(|error| format!("无法保存 External Research item：{error}"))?;
 
-            self.load_external_research_item(connection.last_insert_rowid())
+            external_research_by_id(connection, connection.last_insert_rowid())
         })
     }
 
     pub fn load_external_research_item(&self, id: i64) -> Result<ExternalResearchItem, String> {
-        self.with_database(|connection| {
-            connection
-                .query_row(
-                    "SELECT
-                       id, source_id, author, source_type, source_tier, canonical_url, title,
-                       summary, published_at, retrieved_at, raw_content, content_hash, duplicate_of,
-                       assets_json, indicators_json, tools_json, claims_json, evidence_links_json,
-                       topic, possible_commercial_relationship, verification_status,
-                       linked_experiment_id, hypothesis, research_result, disposition,
-                       rejection_reason, ingestion_provider, created_at, updated_at
-                     FROM external_research_items WHERE id = ?1",
-                    [id],
-                    external_research_from_row,
-                )
-                .map_err(|error| format!("无法读取 External Research item：{error}"))
-        })
+        self.with_database(|connection| external_research_by_id(connection, id))
     }
 
     pub fn list_external_research_items(
@@ -2526,7 +2531,7 @@ impl TradingRuntimeState {
                     id,
                 ],
             ).map_err(|error| format!("无法更新 External Research claims：{error}"))?;
-            self.load_external_research_item(id)
+            external_research_by_id(connection, id)
         })
     }
 
@@ -2561,7 +2566,7 @@ impl TradingRuntimeState {
                     id,
                 ],
             ).map_err(|error| format!("无法更新 External Research verification：{error}"))?;
-            self.load_external_research_item(id)
+            external_research_by_id(connection, id)
         })
     }
 
@@ -2604,7 +2609,7 @@ impl TradingRuntimeState {
                  WHERE id = ?4",
                 params![hypothesis, linked_experiment_id, now, id],
             ).map_err(|error| format!("无法创建 External Research hypothesis：{error}"))?;
-            self.load_external_research_item(id)
+            external_research_by_id(connection, id)
         })
     }
 
