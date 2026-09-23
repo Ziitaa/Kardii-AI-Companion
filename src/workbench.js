@@ -433,8 +433,11 @@ function renderRemoteSnapshot(snapshot) {
   const shadow = snapshot.shadowExperiments || {};
   const health = snapshot.runtimeHealth || {};
   const remoteScanText = health.scanAgeSeconds == null
-    ? "等待首次研究扫描"
-    : (Math.round(Number(health.scanAgeSeconds) / 60) + " 分钟前扫描");
+    ? "等待首次市场扫描"
+    : (Math.round(Number(health.scanAgeSeconds) / 60) + " 分钟前扫描 · " +
+       String(health.lastScanStatus || "unknown") + " · " +
+       Number(health.lastScanCandidateCount || 0) + " candidates / " +
+       Number(health.lastScanResearchCount || 0) + " research");
   remoteMode.textContent = gate.realExecutionEnabled ? "真实执行已启用" : (gate.mode || "研究 / 观察");
   remoteModeDetail.textContent = snapshot.remoteControlEnabled ? "远程控制已启用" : "全状态可见 · 远程执行关闭";
   remoteResearchCount.textContent = String(snapshot.researchCount ?? 0);
@@ -536,8 +539,11 @@ async function refreshRuntimeHealth() {
     const unhealthy = !health.databaseOk || health.scanStale || Number(health.overdueDecisionOutcomes || 0) > 0;
     runtimeHealthStatus.textContent = unhealthy ? "运行状态需检查" : "运行状态正常";
     const scanText = health.scanAgeSeconds == null
-      ? "等待首次研究扫描"
-      : (Math.round(Number(health.scanAgeSeconds) / 60) + " 分钟前扫描");
+      ? "等待首次市场扫描"
+      : (Math.round(Number(health.scanAgeSeconds) / 60) + " 分钟前扫描 · " +
+         String(health.lastScanStatus || "unknown") + " · " +
+         Number(health.lastScanCandidateCount || 0) + " candidates / " +
+         Number(health.lastScanResearchCount || 0) + " research");
     runtimeHealthDetail.textContent =
       "DB " + (health.databaseOk ? "OK" : health.databaseCheck) +
       " · " + scanText +

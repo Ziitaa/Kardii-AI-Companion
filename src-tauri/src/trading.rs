@@ -1748,6 +1748,11 @@ pub struct RuntimeHealthStatus {
     database_ok: bool,
     database_check: String,
     latest_research_at: String,
+    latest_scan_at: String,
+    last_scan_status: String,
+    last_scan_error: String,
+    last_scan_candidate_count: i64,
+    last_scan_research_count: i64,
     scan_age_seconds: Option<i64>,
     scan_stale: bool,
     research_row_count: i64,
@@ -2039,7 +2044,16 @@ impl TradingRuntimeState {
                PRIMARY KEY(sample_id, provider)
              );
              CREATE INDEX IF NOT EXISTS decision_provider_attempts_time
-               ON decision_provider_attempts(attempted_at DESC);"
+               ON decision_provider_attempts(attempted_at DESC);
+             CREATE TABLE IF NOT EXISTS runtime_scan_health (
+               id INTEGER PRIMARY KEY CHECK(id = 1),
+               last_attempt_at TEXT NOT NULL,
+               last_success_at TEXT NOT NULL,
+               last_status TEXT NOT NULL,
+               last_error TEXT NOT NULL,
+               candidate_count INTEGER NOT NULL,
+               research_count INTEGER NOT NULL
+             );"
         ).map_err(|error| format!("无法初始化 Kardii 交易研究数据库：{error}"))?;
 
         let policy = default_risk_policy();
@@ -2064,6 +2078,13 @@ impl TradingRuntimeState {
             "INSERT OR IGNORE INTO execution_guard(id, latched, reason, source, updated_at) VALUES(1, 0, '', 'system', ?1)",
             [Utc::now().to_rfc3339()],
         ).map_err(|error| format!("无法初始化执行 Kill Switch：{error}"))?;
+
+        connection.execute(
+            "INSERT OR IGNORE INTO runtime_scan_health(
+               id, last_attempt_at, last_success_at, last_status, last_error, candidate_count, research_count
+             ) VALUES(1, '', '', 'waiting', '', 0, 0)",
+            [],
+        ).map_err(|error| format!("无法初始化运行扫描健康状态：{error}"))?;
 
         let mut guard = self.database.lock()
             .map_err(|_| "Kardii 交易研究数据库暂时不可用。".to_string())?;
@@ -3329,6 +3350,44 @@ impl TradingRuntimeState {
         })
     }
 
+    fn record_scan_heartbeat(
+        &self,
+        status: &str,
+        success_at: Option<&str>,
+        error: &str,
+        candidate_count: usize,
+        research_count: usize,
+    ) -> Result<(), String> {
+        let attempt_at = Utc::now().to_rfc3339();
+        let success_at = success_at.unwrap_or("");
+        self.with_database(|connection| {
+            connection.execute(
+                "INSERT INTO runtime_scan_health(
+                   id, last_attempt_at, last_success_at, last_status, last_error, candidate_count, research_count
+                 ) VALUES(1, ?1, ?2, ?3, ?4, ?5, ?6)
+                 ON CONFLICT(id) DO UPDATE SET
+                   last_attempt_at = excluded.last_attempt_at,
+                   last_success_at = CASE
+                     WHEN excluded.last_success_at = '' THEN runtime_scan_health.last_success_at
+                     ELSE excluded.last_success_at
+                   END,
+                   last_status = excluded.last_status,
+                   last_error = excluded.last_error,
+                   candidate_count = excluded.candidate_count,
+                   research_count = excluded.research_count",
+                params![
+                    attempt_at,
+                    success_at,
+                    status,
+                    error.chars().take(1000).collect::<String>(),
+                    candidate_count as i64,
+                    research_count as i64,
+                ],
+            ).map_err(|db_error| format!("无法记录运行扫描健康状态：{db_error}"))?;
+            Ok(())
+        })
+    }
+
     fn persist_refresh(&self, scan: &OpportunityScan, research: &[SymbolResearch]) -> Result<(), String> {
         self.with_database_mut(|connection| {
             let transaction = connection.transaction()
@@ -3452,6 +3511,19 @@ impl TradingRuntimeState {
                 let persistence_error = self.persist_refresh(&scan, &research).err().unwrap_or_default();
                 let shadow_error = self.update_shadow_trials(&scan).await.err().unwrap_or_default();
                 let decision_shadow_error = self.update_decision_shadow(&scan, &research).await.err().unwrap_or_default();
+                let combined_error = [persistence_error, shadow_error, decision_shadow_error]
+                    .into_iter()
+                    .filter(|value| !value.is_empty())
+                    .collect::<Vec<_>>()
+                    .join("；");
+                let heartbeat_status = if combined_error.is_empty() { "success" } else { "degraded" };
+                let _ = self.record_scan_heartbeat(
+                    heartbeat_status,
+                    Some(&scan.fetched_at),
+                    &combined_error,
+                    scan.candidates.len(),
+                    research.len(),
+                );
                 {
                     let mut inner = self.inner.write().await;
                     inner.refreshing = false;
@@ -3461,11 +3533,12 @@ impl TradingRuntimeState {
                     inner.candidates = scan.candidates;
                     inner.research = research;
                     inner.last_error.clear();
-                    inner.persistence_error = [persistence_error, shadow_error, decision_shadow_error].into_iter().filter(|value| !value.is_empty()).collect::<Vec<_>>().join("；");
+                    inner.persistence_error = combined_error;
                 }
                 Ok(self.snapshot().await)
             }
             Err(error) => {
+                let _ = self.record_scan_heartbeat("error", None, &error, 0, 0);
                 let mut inner = self.inner.write().await;
                 inner.refreshing = false;
                 inner.last_error = error.clone();
@@ -3493,10 +3566,31 @@ impl TradingRuntimeState {
                     |row| row.get(0),
                 )
                 .unwrap_or_default();
-            let scan_age_seconds = chrono::DateTime::parse_from_rfc3339(&latest_research_at)
+            let (
+                latest_scan_at,
+                last_scan_status,
+                last_scan_error,
+                last_scan_candidate_count,
+                last_scan_research_count,
+            ): (String, String, String, i64, i64) = connection
+                .query_row(
+                    "SELECT last_success_at, last_status, last_error, candidate_count, research_count
+                     FROM runtime_scan_health WHERE id = 1",
+                    [],
+                    |row| Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    )),
+                )
+                .unwrap_or_default();
+            let scan_age_seconds = chrono::DateTime::parse_from_rfc3339(&latest_scan_at)
                 .ok()
                 .map(|value| (Utc::now() - value.with_timezone(&Utc)).num_seconds().max(0));
-            let scan_stale = scan_age_seconds.map(|age| age > 15 * 60).unwrap_or(false);
+            let scan_stale = matches!(last_scan_status.as_str(), "error" | "degraded")
+                || scan_age_seconds.map(|age| age > 15 * 60).unwrap_or(false);
 
             let pending_decision_outcomes: i64 = connection
                 .query_row(
@@ -3553,6 +3647,11 @@ impl TradingRuntimeState {
                 database_ok,
                 database_check,
                 latest_research_at,
+                latest_scan_at,
+                last_scan_status,
+                last_scan_error,
+                last_scan_candidate_count,
+                last_scan_research_count,
                 scan_age_seconds,
                 scan_stale,
                 research_row_count,

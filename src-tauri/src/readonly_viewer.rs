@@ -355,9 +355,31 @@ fn read_status(path: &Path) -> Result<serde_json::Value, String> {
             |row| row.get(0),
         )
         .unwrap_or_default();
-    let scan_age_seconds = chrono::DateTime::parse_from_rfc3339(&latest_research_at)
+    let (
+        latest_scan_at,
+        last_scan_status,
+        last_scan_error,
+        last_scan_candidate_count,
+        last_scan_research_count,
+    ): (String, String, String, i64, i64) = connection
+        .query_row(
+            "SELECT last_success_at, last_status, last_error, candidate_count, research_count
+             FROM runtime_scan_health WHERE id = 1",
+            [],
+            |row| Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            )),
+        )
+        .unwrap_or_default();
+    let scan_age_seconds = chrono::DateTime::parse_from_rfc3339(&latest_scan_at)
         .ok()
         .map(|value| (Utc::now() - value.with_timezone(&Utc)).num_seconds().max(0));
+    let scan_stale = matches!(last_scan_status.as_str(), "error" | "degraded")
+        || scan_age_seconds.map(|age| age > 15 * 60).unwrap_or(false);
     let pending_decision_outcomes: i64 = connection
         .query_row(
             "SELECT COUNT(*) FROM decision_shadow_samples WHERE status = 'pending'",
@@ -889,8 +911,13 @@ fn read_status(path: &Path) -> Result<serde_json::Value, String> {
             "databaseOk": database_check.eq_ignore_ascii_case("ok"),
             "databaseCheck": database_check,
             "latestResearchAt": latest_research_at,
+            "latestScanAt": latest_scan_at,
+            "lastScanStatus": last_scan_status,
+            "lastScanError": last_scan_error,
+            "lastScanCandidateCount": last_scan_candidate_count,
+            "lastScanResearchCount": last_scan_research_count,
             "scanAgeSeconds": scan_age_seconds,
-            "scanStale": scan_age_seconds.map(|age| age > 15 * 60).unwrap_or(false),
+            "scanStale": scan_stale,
             "pendingDecisionOutcomes": pending_decision_outcomes,
             "overdueDecisionOutcomes": overdue_decision_outcomes,
             "providerAttempts24h": provider_attempts_24h,

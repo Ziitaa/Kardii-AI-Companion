@@ -139,6 +139,8 @@ assert.match(readonly, /directionBrierScore/);
 assert.match(readonly, /externalProviderHealth/);
 assert.match(readonly, /externalProviderSeen/);
 assert.match(readonly, /"runtimeHealth"/);
+assert.match(readonly, /"latestScanAt"/);
+assert.match(readonly, /"lastScanStatus"/);
 assert.match(readonly, /PRAGMA quick_check\(1\)/);
 assert.match(readonly, /providerAttempts24h/);
 assert.match(readonly, /estimatedProviderCost24hUsd/);
@@ -153,6 +155,9 @@ assert.match(trading, /decision_provider_attempt_exists/);
 assert.match(trading, /record_decision_provider_attempt/);
 
 assert.match(trading, /RuntimeHealthStatus/);
+assert.match(trading, /runtime_scan_health/);
+assert.match(trading, /record_scan_heartbeat/);
+assert.match(trading, /last_scan_candidate_count/);
 assert.match(trading, /PRAGMA quick_check\(1\)/);
 assert.match(trading, /overdue_decision_outcomes/);
 assert.match(lib, /get_runtime_health_status/);
