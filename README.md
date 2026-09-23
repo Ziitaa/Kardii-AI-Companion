@@ -484,3 +484,18 @@ npm run build
 - 跨设备产品：在 SQLite 本机数据层之上评估网页端、iOS 和由用户控制的加密同步
 - 实时连续语音、持续对话和可关闭的唤醒词
 - 稳定性工程：崩溃诊断、连接健康检查和更稳健的更新回退；不规划 Windows/macOS 系统签名或公证
+
+
+## Research Intelligence / External Evidence V0
+
+Kardii now has a provider-neutral **Research Inbox** inside the existing canonical trading SQLite database.
+
+- Reuses the existing public-web safety boundary, RSS parser, AI provider layer, workbench UI, research/experiment concepts, and `kardii-trading.sqlite3`.
+- Manual URL and explicit RSS feed ingestion map into one canonical External Research Item contract.
+- Canonical URL normalization, exact content hash, normalized-content hash, and `duplicate_of` prevent the inbox from becoming a duplicate dump.
+- Existing configured AI providers can extract claims, topics, assets, indicators, tools, possible commercial context, and a falsifiable hypothesis. The model is not asked to decide whether a claim is true.
+- Verification lifecycle is `NEW → TRIAGED → VERIFYING → SUPPORTED / REJECTED / UNRESOLVED`.
+- `Create Hypothesis` promotes an item only into the research/experiment lifecycle; it does not create a Signal, approve a Strategy, change Risk Engine rules, or grant execution permission.
+- OpenMagpie and X/social collectors are intentionally **not** dependencies of V0. A future collector only needs to map into the same canonical item contract.
+
+Architecture and handoff evidence: `docs/CANONICAL_HANDOFF_RESEARCH_INTELLIGENCE_V0.md`.
