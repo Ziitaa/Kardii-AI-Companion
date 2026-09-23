@@ -376,6 +376,7 @@ async function refreshExternalResearchInbox() {
       const claims = Array.isArray(item.extractedClaims) ? item.extractedClaims : [];
       const claimPreview = claims.slice(0, 3).map(externalClaimText).filter(Boolean).join(" / ");
       const meta = [
+        item.topic && item.topic !== "unclassified" ? item.topic : "",
         item.sourceTier || "unknown",
         item.sourceType || "",
         item.author || item.sourceId || "",
@@ -383,13 +384,20 @@ async function refreshExternalResearchInbox() {
         Array.isArray(item.mentionedIndicators) && item.mentionedIndicators.length ? item.mentionedIndicators.join(", ") : "",
       ].filter(Boolean).join(" · ");
       const duplicate = item.duplicateOf ? " · duplicate of #" + item.duplicateOf : "";
+      const commercial = item.possibleCommercialRelationship && item.possibleCommercialRelationship !== "unknown"
+        ? " · commercial: " + item.possibleCommercialRelationship
+        : "";
+      const verification = item.researchResult
+        ? "Verification result: " + item.researchResult
+        : (item.rejectionReason ? "Rejected: " + item.rejectionReason : "");
       return '<div class="row research-inbox-row" data-research-id="'+esc(item.id)+'">' +
         '<strong>'+esc(item.title || item.canonicalUrl || ("Research #"+item.id))+'</strong>' +
         '<span>'+esc(item.verificationStatus || "NEW")+'</span>' +
         '<div><span>'+esc(item.summary || String(item.rawContent || "").slice(0, 240))+'</span>' +
-        '<small>'+esc(meta + duplicate)+'</small>' +
+        '<small>'+esc(meta + duplicate + commercial)+'</small>' +
         (claimPreview ? '<small>Claims: '+esc(claimPreview)+'</small>' : '') +
         (item.hypothesis ? '<small>Hypothesis: '+esc(item.hypothesis)+'</small>' : '') +
+        (verification ? '<small>'+esc(verification)+'</small>' : '') +
         '<div class="research-actions">' +
           '<button type="button" class="secondary" data-research-action="analyze">提取 Claims</button>' +
           '<button type="button" class="secondary" data-research-action="hypothesis">Create Hypothesis</button>' +
