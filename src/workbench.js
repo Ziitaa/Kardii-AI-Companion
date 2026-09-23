@@ -3,6 +3,7 @@ const appWindow = getCurrentWindow();
 const invokeCore = window.__TAURI__?.core?.invoke;
 const STATE_KEY = "kardii-trading-state-v1";
 const AGENT_KEY = "kardii-agent-tasks-v1";
+const AI_SETTINGS_KEY = "kardii-ai-settings-v1";
 const state = loadState();
 
 function loadState() {
@@ -51,6 +52,7 @@ const modalClose = document.getElementById("modalClose");
 const modalCancel = document.getElementById("modalCancel");
 const addLedgerBtn = document.getElementById("addLedgerBtn");
 const addResearchBtn = document.getElementById("addResearchBtn");
+const addRssBtn = document.getElementById("addRssBtn");
 const binanceConnectBtn = document.getElementById("binanceConnectBtn");
 const binanceDisconnectBtn = document.getElementById("binanceDisconnectBtn");
 const binanceConnectionStatus = document.getElementById("binanceConnectionStatus");
@@ -75,6 +77,8 @@ const ledgerCount = document.getElementById("ledgerCount");
 const ledgerLatest = document.getElementById("ledgerLatest");
 const ledgerList = document.getElementById("ledgerList");
 const researchList = document.getElementById("researchList");
+const externalResearchList = document.getElementById("externalResearchList");
+const externalResearchSummary = document.getElementById("externalResearchSummary");
 const remoteMode = document.getElementById("remoteMode");
 const remoteModeDetail = document.getElementById("remoteModeDetail");
 const remoteResearchCount = document.getElementById("remoteResearchCount");
@@ -117,10 +121,14 @@ function openModal(nextMode) {
     modalEyebrow.textContent = "FAST DECISION · SHADOW";
     modalTitle.textContent = "连接 TypeSafe Jev";
     fields.innerHTML = '<div class="field full"><label>TypeSafe API Key</label><input name="jevApiKey" type="password" autocomplete="off" spellcheck="false" required></div><div class="field full credential-warning">Kardii 会先调用 TypeSafe 模型列表验证 Key，再保存到系统安全凭据库。Jev 只进入 Shadow Benchmark，不连接真实执行。</div>';
-  } else {
-    modalEyebrow.textContent = "RESEARCH LOG";
-    modalTitle.textContent = "记录研究";
-    fields.innerHTML = '<div class="field full"><label>主题</label><input name="title" required></div><div class="field full"><label>来源 / 证据</label><textarea name="sources"></textarea></div><div class="field full"><label>结论 / 下一步</label><textarea name="conclusion" required></textarea></div>';
+  } else if (nextMode === "researchUrl") {
+    modalEyebrow.textContent = "EXTERNAL EVIDENCE · MANUAL URL";
+    modalTitle.textContent = "加入公开研究材料";
+    fields.innerHTML = '<div class="field full"><label>公开 URL</label><input name="researchUrl" type="url" placeholder="https://…" required></div><div class="field full credential-warning">Kardii 会读取公开网页快照并写入 canonical Research Inbox。内容不会成为 Signal，也不会修改 Strategy / Risk Engine。</div>';
+  } else if (nextMode === "researchRss") {
+    modalEyebrow.textContent = "EXTERNAL EVIDENCE · RSS";
+    modalTitle.textContent = "从 RSS 导入";
+    fields.innerHTML = '<div class="field full"><label>RSS Feed URL</label><input name="rssUrl" type="url" placeholder="https://…/feed.xml" required></div><div class="field"><label>最多导入</label><input name="rssMaxItems" type="number" min="1" max="20" value="10"></div><div class="field full credential-warning">V0 只读取显式提供的 RSS feed；默认低频、小规模 intake，不做全网抓取。</div>';
   }
 }
 
@@ -133,7 +141,8 @@ function closeModal() {
 modalClose.onclick = closeModal;
 modalCancel.onclick = closeModal;
 addLedgerBtn.onclick = () => openModal("ledger");
-addResearchBtn.onclick = () => openModal("research");
+addResearchBtn.onclick = () => openModal("researchUrl");
+if (addRssBtn) addRssBtn.onclick = () => openModal("researchRss");
 if (binanceConnectBtn) binanceConnectBtn.onclick = () => openModal("binance");
 if (marketGatewayConfigureBtn) marketGatewayConfigureBtn.onclick = () => openModal("marketGateway");
 if (jevConnectBtn) jevConnectBtn.onclick = () => openModal("jev");
@@ -274,6 +283,33 @@ form.onsubmit = async (event) => {
     return;
   }
 
+  if (mode === "researchUrl") {
+    if (!invokeCore) return;
+    try {
+      await invokeCore("ingest_external_research_url", { url: String(data.get("researchUrl") || "").trim() });
+      closeModal();
+      await refreshExternalResearchInbox();
+    } catch (error) {
+      window.alert(String(error));
+    }
+    return;
+  }
+
+  if (mode === "researchRss") {
+    if (!invokeCore) return;
+    try {
+      await invokeCore("ingest_external_research_rss", {
+        feedUrl: String(data.get("rssUrl") || "").trim(),
+        maxItems: Number(data.get("rssMaxItems") || 10),
+      });
+      closeModal();
+      await refreshExternalResearchInbox();
+    } catch (error) {
+      window.alert(String(error));
+    }
+    return;
+  }
+
   if (mode === "ledger") {
     state.ledger.unshift({
       id: crypto.randomUUID(),
@@ -285,18 +321,140 @@ form.onsubmit = async (event) => {
       createdAt: now,
     });
   } else {
-    state.research.unshift({
-      id: crypto.randomUUID(),
-      title: String(data.get("title")).trim(),
-      sources: String(data.get("sources")).trim(),
-      conclusion: String(data.get("conclusion")).trim(),
-      createdAt: now,
-    });
+    return;
   }
   saveState();
   closeModal();
   render();
 };
+
+function currentResearchAiConfig() {
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(AI_SETTINGS_KEY) || "{}"); } catch {}
+  const provider = ["deepseek", "gemini", "ollama", "codex"].includes(saved.provider)
+    ? saved.provider
+    : "deepseek";
+  const model = provider === "deepseek"
+    ? "deepseek-v4-flash"
+    : provider === "gemini"
+      ? (["gemini-3.1-flash-lite", "gemini-3.5-flash"].includes(saved.geminiModel)
+          ? saved.geminiModel
+          : "gemini-3.1-flash-lite")
+      : provider === "codex"
+        ? "codex-default"
+        : String(saved.ollamaModel || "").slice(0, 120);
+  return {
+    provider,
+    model,
+    ollamaBaseUrl: String(saved.ollamaBaseUrl || "http://127.0.0.1:11434").slice(0, 200),
+  };
+}
+
+function externalClaimText(claim) {
+  if (!claim || typeof claim !== "object") return String(claim || "");
+  return [claim.claim, claim.indicator, claim.threshold, claim.horizon].filter(Boolean).join(" · ");
+}
+
+async function refreshExternalResearchInbox() {
+  if (!invokeCore || !externalResearchList || !externalResearchSummary) return;
+  try {
+    const items = await invokeCore("list_external_research_items", { limit: 60, verificationStatus: null });
+    const rows = Array.isArray(items) ? items : [];
+    const counts = rows.reduce((acc, item) => {
+      const key = String(item.verificationStatus || "NEW");
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {});
+    const countText = ["NEW","TRIAGED","VERIFYING","SUPPORTED","REJECTED","UNRESOLVED"]
+      .filter(key => counts[key])
+      .map(key => key + " " + counts[key])
+      .join(" · ");
+    externalResearchSummary.textContent =
+      rows.length + " items" + (countText ? " · " + countText : "") + " · external content ≠ signal";
+
+    externalResearchList.innerHTML = rows.length ? rows.map(item => {
+      const claims = Array.isArray(item.extractedClaims) ? item.extractedClaims : [];
+      const claimPreview = claims.slice(0, 3).map(externalClaimText).filter(Boolean).join(" / ");
+      const meta = [
+        item.sourceTier || "unknown",
+        item.sourceType || "",
+        item.author || item.sourceId || "",
+        Array.isArray(item.assets) && item.assets.length ? item.assets.join(", ") : "",
+        Array.isArray(item.mentionedIndicators) && item.mentionedIndicators.length ? item.mentionedIndicators.join(", ") : "",
+      ].filter(Boolean).join(" · ");
+      const duplicate = item.duplicateOf ? " · duplicate of #" + item.duplicateOf : "";
+      return '<div class="row research-inbox-row" data-research-id="'+esc(item.id)+'">' +
+        '<strong>'+esc(item.title || item.canonicalUrl || ("Research #"+item.id))+'</strong>' +
+        '<span>'+esc(item.verificationStatus || "NEW")+'</span>' +
+        '<div><span>'+esc(item.summary || String(item.rawContent || "").slice(0, 240))+'</span>' +
+        '<small>'+esc(meta + duplicate)+'</small>' +
+        (claimPreview ? '<small>Claims: '+esc(claimPreview)+'</small>' : '') +
+        (item.hypothesis ? '<small>Hypothesis: '+esc(item.hypothesis)+'</small>' : '') +
+        '<div class="research-actions">' +
+          '<button type="button" class="secondary" data-research-action="analyze">提取 Claims</button>' +
+          '<button type="button" class="secondary" data-research-action="hypothesis">Create Hypothesis</button>' +
+          '<button type="button" class="secondary" data-research-action="status">Verification</button>' +
+        '</div></div>' +
+        '<small>'+esc(item.retrievedAt || item.publishedAt || "")+'</small>' +
+      '</div>';
+    }).join("") : '<div class="empty">Research Inbox 为空。可以先添加一个公开 URL，或导入一个精选 RSS feed。</div>';
+  } catch (error) {
+    externalResearchSummary.textContent = "Research Inbox 暂不可用";
+    externalResearchList.innerHTML = '<div class="empty">'+esc(String(error))+'</div>';
+  }
+}
+
+if (externalResearchList) {
+  externalResearchList.onclick = async (event) => {
+    const button = event.target.closest("button[data-research-action]");
+    if (!button || !invokeCore) return;
+    const row = button.closest("[data-research-id]");
+    const itemId = Number(row?.dataset.researchId || 0);
+    if (!itemId) return;
+    const action = button.dataset.researchAction;
+    try {
+      if (action === "analyze") {
+        const ai = currentResearchAiConfig();
+        if (!ai.model) throw new Error("当前 Ollama 还没有选择模型；请先在聊天窗口的 AI 设置中选择。");
+        button.disabled = true;
+        button.textContent = "提取中…";
+        await invokeCore("analyze_external_research_item", {
+          itemId,
+          provider: ai.provider,
+          model: ai.model,
+          ollamaBaseUrl: ai.ollamaBaseUrl,
+        });
+      } else if (action === "hypothesis") {
+        const hypothesis = window.prompt("写入一个可被历史数据 / experiment 证伪的 Hypothesis：");
+        if (!hypothesis) return;
+        const linkedExperimentId = window.prompt("可选：关联已有 strategy experiment symbol；没有就留空。", "") || "";
+        await invokeCore("promote_external_research_hypothesis", { itemId, hypothesis, linkedExperimentId });
+      } else if (action === "status") {
+        const verificationStatus = String(window.prompt(
+          "Verification 状态：NEW / TRIAGED / VERIFYING / SUPPORTED / REJECTED / UNRESOLVED",
+          "VERIFYING"
+        ) || "").trim().toUpperCase();
+        if (!verificationStatus) return;
+        const researchResult = window.prompt("独立验证 / experiment 结论（可留空）：", "") || "";
+        const rejectionReason = verificationStatus === "REJECTED"
+          ? (window.prompt("拒绝原因：", "") || "")
+          : "";
+        await invokeCore("set_external_research_verification", {
+          itemId,
+          verificationStatus,
+          researchResult,
+          rejectionReason,
+        });
+      }
+      await refreshExternalResearchInbox();
+    } catch (error) {
+      window.alert(String(error));
+      await refreshExternalResearchInbox();
+    }
+  };
+}
+void refreshExternalResearchInbox();
+setInterval(() => void refreshExternalResearchInbox(), 60 * 1000);
 
 async function refreshBinanceConnection() {
   if (!invokeCore || !binanceConnectionStatus || !binanceConnectionDetail) return;

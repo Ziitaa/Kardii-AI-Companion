@@ -95,8 +95,13 @@
         <div id="ledgerList" class="list"></div>
       </section>
       <section class="view" data-panel="research">
-        <div class="hero compact"><div><span class="eyebrow">RESEARCH LOG</span><h2>研究日志</h2><p>记录真正影响策略判断的研究、来源和结论；不是你的个人工作笔记。</p></div><button id="addResearchBtn" class="primary">＋ 记录研究</button></div>
-        <div id="researchList" class="list"></div>
+        <div class="hero compact">
+          <div><span class="eyebrow">RESEARCH INTELLIGENCE · EXTERNAL EVIDENCE</span><h2>Research Inbox</h2><p>公开内容只作为 hypothesis source。Claim 必须经过独立验证 / experiment 后才能形成 Kardii research conclusion；这里没有任何交易执行入口。</p></div>
+          <div class="connection-actions"><button id="addRssBtn" class="secondary">＋ RSS</button><button id="addResearchBtn" class="primary">＋ 添加 URL</button></div>
+        </div>
+        <div id="externalResearchSummary" class="connection-note">正在读取 canonical Research Inbox…</div>
+        <div id="researchList" class="hidden"></div>
+        <div id="externalResearchList" class="list"></div>
       </section>
     </div>
   </section>
