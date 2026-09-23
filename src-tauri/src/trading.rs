@@ -3,8 +3,8 @@ use chrono::Utc;
 use hmac::{Hmac, Mac};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use sha2::Sha256;
-use std::{path::Path, sync::{Arc, Mutex}, time::Duration};
+use sha2::{Digest, Sha256};
+use std::{collections::HashSet, path::Path, sync::{Arc, Mutex}, time::Duration};
 use tokio::sync::RwLock;
 
 const SPOT_BASES: &[&str] = &[
@@ -1501,6 +1501,26 @@ mod tests {
     }
 
     #[test]
+    fn external_research_url_removes_tracking_noise() {
+        let value = canonical_external_url("https://example.com/research/?utm_source=x&b=2&a=1#section").unwrap();
+        assert_eq!(value, "https://example.com/research?a=1&b=2");
+    }
+
+    #[test]
+    fn external_research_normalized_hash_ignores_formatting_noise() {
+        let left = external_sha256(&normalized_external_content("AHR999 < 0.45 is a claim."));
+        let right = external_sha256(&normalized_external_content("ahr999   <   0.45 IS A CLAIM"));
+        assert_eq!(left, right);
+    }
+
+    #[test]
+    fn external_research_verification_status_is_closed_set() {
+        assert!(valid_verification_status("SUPPORTED"));
+        assert!(valid_verification_status("UNRESOLVED"));
+        assert!(!valid_verification_status("TRUSTED"));
+    }
+
+    #[test]
     fn thin_markets_do_not_become_candidates() {
         assert!(candidate_from(&sample("ABCUSDT", 20.0, 100000.0, 50)).is_none());
     }
@@ -1830,6 +1850,178 @@ pub struct TradeIntentRecord {
     created_at: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalResearchItem {
+    pub id: i64,
+    pub source_id: String,
+    pub author: String,
+    pub source_type: String,
+    pub source_tier: String,
+    pub canonical_url: String,
+    pub title: String,
+    pub summary: String,
+    pub published_at: String,
+    pub retrieved_at: String,
+    pub raw_content: String,
+    pub content_hash: String,
+    pub duplicate_of: Option<i64>,
+    pub topic: String,
+    pub assets: Vec<String>,
+    pub mentioned_indicators: Vec<String>,
+    pub mentioned_tools: Vec<String>,
+    pub extracted_claims: serde_json::Value,
+    pub evidence_links: Vec<String>,
+    pub possible_commercial_relationship: String,
+    pub verification_status: String,
+    pub linked_experiment_id: String,
+    pub hypothesis: String,
+    pub research_result: String,
+    pub disposition: String,
+    pub rejection_reason: String,
+    pub ingestion_provider: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ExternalResearchUpsert {
+    pub source_id: String,
+    pub author: String,
+    pub source_type: String,
+    pub canonical_url: String,
+    pub title: String,
+    pub published_at: String,
+    pub raw_content: String,
+    pub ingestion_provider: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ExternalResearchAnalysisUpdate {
+    pub summary: String,
+    pub topic: String,
+    pub source_tier: String,
+    pub assets: Vec<String>,
+    pub mentioned_indicators: Vec<String>,
+    pub mentioned_tools: Vec<String>,
+    pub extracted_claims: serde_json::Value,
+    pub evidence_links: Vec<String>,
+    pub possible_commercial_relationship: String,
+    pub hypothesis: String,
+}
+
+fn canonical_external_url(raw: &str) -> Result<String, String> {
+    let mut url = reqwest::Url::parse(raw.trim())
+        .map_err(|_| "External Research URL 格式不正确。".to_string())?;
+    if !matches!(url.scheme(), "http" | "https")
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return Err("External Research 只接受公开 http/https URL，且不能包含用户名或密码。".to_string());
+    }
+    url.set_fragment(None);
+
+    let mut pairs: Vec<(String, String)> = url
+        .query_pairs()
+        .filter(|(key, _)| {
+            let lower = key.to_ascii_lowercase();
+            !lower.starts_with("utm_")
+                && !matches!(lower.as_str(), "gclid" | "fbclid" | "ref" | "ref_src")
+        })
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+        .collect();
+    pairs.sort();
+    url.set_query(None);
+    if !pairs.is_empty() {
+        url.query_pairs_mut().extend_pairs(pairs.iter().map(|(key, value)| (key, value)));
+    }
+    let mut value = url.to_string();
+    if url.path() != "/" {
+        while value.ends_with('/') {
+            value.pop();
+        }
+    }
+    Ok(value)
+}
+
+fn normalized_external_content(value: &str) -> String {
+    let mut output = String::new();
+    let mut previous_space = true;
+    for character in value.chars() {
+        if character.is_alphanumeric() {
+            for lower in character.to_lowercase() {
+                output.push(lower);
+            }
+            previous_space = false;
+        } else if !previous_space {
+            output.push(' ');
+            previous_space = true;
+        }
+    }
+    output.trim().to_string()
+}
+
+fn external_sha256(value: &str) -> String {
+    format!("{:x}", Sha256::digest(value.as_bytes()))
+}
+
+fn clean_external_list(values: Vec<String>, max_items: usize, max_chars: usize) -> Vec<String> {
+    let mut seen = HashSet::new();
+    values
+        .into_iter()
+        .map(|value| value.trim().chars().take(max_chars).collect::<String>())
+        .filter(|value| !value.is_empty())
+        .filter(|value| seen.insert(value.to_ascii_lowercase()))
+        .take(max_items)
+        .collect()
+}
+
+fn valid_verification_status(value: &str) -> bool {
+    matches!(
+        value,
+        "NEW" | "TRIAGED" | "VERIFYING" | "SUPPORTED" | "REJECTED" | "UNRESOLVED"
+    )
+}
+
+fn external_research_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ExternalResearchItem> {
+    let assets_json: String = row.get(13)?;
+    let indicators_json: String = row.get(14)?;
+    let tools_json: String = row.get(15)?;
+    let claims_json: String = row.get(16)?;
+    let evidence_links_json: String = row.get(17)?;
+    Ok(ExternalResearchItem {
+        id: row.get(0)?,
+        source_id: row.get(1)?,
+        author: row.get(2)?,
+        source_type: row.get(3)?,
+        source_tier: row.get(4)?,
+        canonical_url: row.get(5)?,
+        title: row.get(6)?,
+        summary: row.get(7)?,
+        published_at: row.get(8)?,
+        retrieved_at: row.get(9)?,
+        raw_content: row.get(10)?,
+        content_hash: row.get(11)?,
+        duplicate_of: row.get(12)?,
+        topic: row.get(18)?,
+        assets: serde_json::from_str(&assets_json).unwrap_or_default(),
+        mentioned_indicators: serde_json::from_str(&indicators_json).unwrap_or_default(),
+        mentioned_tools: serde_json::from_str(&tools_json).unwrap_or_default(),
+        extracted_claims: serde_json::from_str(&claims_json).unwrap_or_else(|_| serde_json::json!([])),
+        evidence_links: serde_json::from_str(&evidence_links_json).unwrap_or_default(),
+        possible_commercial_relationship: row.get(19)?,
+        verification_status: row.get(20)?,
+        linked_experiment_id: row.get(21)?,
+        hypothesis: row.get(22)?,
+        research_result: row.get(23)?,
+        disposition: row.get(24)?,
+        rejection_reason: row.get(25)?,
+        ingestion_provider: row.get(26)?,
+        created_at: row.get(27)?,
+        updated_at: row.get(28)?,
+    })
+}
+
 #[derive(Clone)]
 pub struct TradingRuntimeState {
     inner: Arc<RwLock<TradingRuntimeSnapshot>>,
@@ -2045,6 +2237,47 @@ impl TradingRuntimeState {
              );
              CREATE INDEX IF NOT EXISTS decision_provider_attempts_time
                ON decision_provider_attempts(attempted_at DESC);
+             CREATE TABLE IF NOT EXISTS external_research_items (
+               id INTEGER PRIMARY KEY AUTOINCREMENT,
+               source_id TEXT NOT NULL,
+               author TEXT NOT NULL,
+               source_type TEXT NOT NULL,
+               source_tier TEXT NOT NULL,
+               canonical_url TEXT NOT NULL UNIQUE,
+               title TEXT NOT NULL,
+               summary TEXT NOT NULL,
+               published_at TEXT NOT NULL,
+               retrieved_at TEXT NOT NULL,
+               raw_content TEXT NOT NULL,
+               content_hash TEXT NOT NULL,
+               normalized_hash TEXT NOT NULL,
+               duplicate_of INTEGER,
+               assets_json TEXT NOT NULL,
+               indicators_json TEXT NOT NULL,
+               tools_json TEXT NOT NULL,
+               claims_json TEXT NOT NULL,
+               evidence_links_json TEXT NOT NULL,
+               topic TEXT NOT NULL,
+               possible_commercial_relationship TEXT NOT NULL,
+               verification_status TEXT NOT NULL,
+               linked_experiment_id TEXT NOT NULL,
+               hypothesis TEXT NOT NULL,
+               research_result TEXT NOT NULL,
+               disposition TEXT NOT NULL,
+               rejection_reason TEXT NOT NULL,
+               ingestion_provider TEXT NOT NULL,
+               created_at TEXT NOT NULL,
+               updated_at TEXT NOT NULL,
+               FOREIGN KEY(duplicate_of) REFERENCES external_research_items(id)
+             );
+             CREATE INDEX IF NOT EXISTS external_research_status_time
+               ON external_research_items(verification_status, retrieved_at DESC);
+             CREATE INDEX IF NOT EXISTS external_research_source_topic
+               ON external_research_items(source_id, topic, retrieved_at DESC);
+             CREATE INDEX IF NOT EXISTS external_research_content_hash
+               ON external_research_items(content_hash);
+             CREATE INDEX IF NOT EXISTS external_research_normalized_hash
+               ON external_research_items(normalized_hash);
              CREATE TABLE IF NOT EXISTS runtime_scan_health (
                id INTEGER PRIMARY KEY CHECK(id = 1),
                last_attempt_at TEXT NOT NULL,
@@ -2106,6 +2339,273 @@ impl TradingRuntimeState {
         let connection = guard.as_mut()
             .ok_or_else(|| "Kardii 交易研究数据库尚未初始化。".to_string())?;
         action(connection)
+    }
+
+    pub fn upsert_external_research_item(
+        &self,
+        input: ExternalResearchUpsert,
+    ) -> Result<ExternalResearchItem, String> {
+        let canonical_url = canonical_external_url(&input.canonical_url)?;
+        let raw_content = input.raw_content.trim().chars().take(120_000).collect::<String>();
+        if raw_content.chars().count() < 12 {
+            return Err("External Research 内容太短，无法建立可验证研究记录。".to_string());
+        }
+        let content_hash = external_sha256(&raw_content);
+        let normalized_hash = external_sha256(&normalized_external_content(&raw_content));
+        let now = Utc::now().to_rfc3339();
+
+        self.with_database(|connection| {
+            if let Some(existing_id) = connection
+                .query_row(
+                    "SELECT id FROM external_research_items WHERE canonical_url = ?1",
+                    [&canonical_url],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()
+                .map_err(|error| format!("无法检查 External Research URL 去重：{error}"))?
+            {
+                return self.load_external_research_item(existing_id);
+            }
+
+            let duplicate_of = connection
+                .query_row(
+                    "SELECT id FROM external_research_items
+                     WHERE content_hash = ?1 OR normalized_hash = ?2
+                     ORDER BY id ASC LIMIT 1",
+                    params![content_hash, normalized_hash],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()
+                .map_err(|error| format!("无法检查 External Research 内容去重：{error}"))?;
+
+            connection.execute(
+                "INSERT INTO external_research_items(
+                   source_id, author, source_type, source_tier, canonical_url, title, summary,
+                   published_at, retrieved_at, raw_content, content_hash, normalized_hash,
+                   duplicate_of, assets_json, indicators_json, tools_json, claims_json,
+                   evidence_links_json, topic, possible_commercial_relationship,
+                   verification_status, linked_experiment_id, hypothesis, research_result,
+                   disposition, rejection_reason, ingestion_provider, created_at, updated_at
+                 ) VALUES(
+                   ?1, ?2, ?3, 'unknown', ?4, ?5, '', ?6, ?7, ?8, ?9, ?10, ?11,
+                   '[]', '[]', '[]', '[]', '[]', 'unclassified', 'unknown',
+                   'NEW', '', '', '', 'unresolved', '', ?12, ?7, ?7
+                 )",
+                params![
+                    input.source_id.trim().chars().take(200).collect::<String>(),
+                    input.author.trim().chars().take(200).collect::<String>(),
+                    input.source_type.trim().chars().take(80).collect::<String>(),
+                    canonical_url,
+                    input.title.trim().chars().take(500).collect::<String>(),
+                    input.published_at.trim().chars().take(120).collect::<String>(),
+                    now,
+                    raw_content,
+                    content_hash,
+                    normalized_hash,
+                    duplicate_of,
+                    input.ingestion_provider.trim().chars().take(80).collect::<String>(),
+                ],
+            ).map_err(|error| format!("无法保存 External Research item：{error}"))?;
+
+            self.load_external_research_item(connection.last_insert_rowid())
+        })
+    }
+
+    pub fn load_external_research_item(&self, id: i64) -> Result<ExternalResearchItem, String> {
+        self.with_database(|connection| {
+            connection
+                .query_row(
+                    "SELECT
+                       id, source_id, author, source_type, source_tier, canonical_url, title,
+                       summary, published_at, retrieved_at, raw_content, content_hash, duplicate_of,
+                       assets_json, indicators_json, tools_json, claims_json, evidence_links_json,
+                       topic, possible_commercial_relationship, verification_status,
+                       linked_experiment_id, hypothesis, research_result, disposition,
+                       rejection_reason, ingestion_provider, created_at, updated_at
+                     FROM external_research_items WHERE id = ?1",
+                    [id],
+                    external_research_from_row,
+                )
+                .map_err(|error| format!("无法读取 External Research item：{error}"))
+        })
+    }
+
+    pub fn list_external_research_items(
+        &self,
+        limit: usize,
+        verification_status: Option<String>,
+    ) -> Result<Vec<ExternalResearchItem>, String> {
+        self.with_database(|connection| {
+            let limit = limit.clamp(1, 100) as i64;
+            let status = verification_status
+                .map(|value| value.trim().to_uppercase())
+                .filter(|value| valid_verification_status(value));
+            let sql = if status.is_some() {
+                "SELECT
+                   id, source_id, author, source_type, source_tier, canonical_url, title,
+                   summary, published_at, retrieved_at, raw_content, content_hash, duplicate_of,
+                   assets_json, indicators_json, tools_json, claims_json, evidence_links_json,
+                   topic, possible_commercial_relationship, verification_status,
+                   linked_experiment_id, hypothesis, research_result, disposition,
+                   rejection_reason, ingestion_provider, created_at, updated_at
+                 FROM external_research_items
+                 WHERE verification_status = ?1
+                 ORDER BY retrieved_at DESC, id DESC LIMIT ?2"
+            } else {
+                "SELECT
+                   id, source_id, author, source_type, source_tier, canonical_url, title,
+                   summary, published_at, retrieved_at, raw_content, content_hash, duplicate_of,
+                   assets_json, indicators_json, tools_json, claims_json, evidence_links_json,
+                   topic, possible_commercial_relationship, verification_status,
+                   linked_experiment_id, hypothesis, research_result, disposition,
+                   rejection_reason, ingestion_provider, created_at, updated_at
+                 FROM external_research_items
+                 ORDER BY retrieved_at DESC, id DESC LIMIT ?1"
+            };
+            let mut statement = connection
+                .prepare(sql)
+                .map_err(|error| format!("无法准备 External Research Inbox：{error}"))?;
+            let rows = if let Some(status) = status {
+                statement.query_map(params![status, limit], external_research_from_row)
+            } else {
+                statement.query_map([limit], external_research_from_row)
+            }
+            .map_err(|error| format!("无法读取 External Research Inbox：{error}"))?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(|error| format!("无法整理 External Research Inbox：{error}"))
+        })
+    }
+
+    pub fn apply_external_research_analysis(
+        &self,
+        id: i64,
+        update: ExternalResearchAnalysisUpdate,
+    ) -> Result<ExternalResearchItem, String> {
+        let topic = update.topic.trim().chars().take(120).collect::<String>();
+        let source_tier = match update.source_tier.trim() {
+            "primary-official" | "institutional-quant" | "market-intelligence"
+            | "practitioner-social" | "unknown" => update.source_tier.trim().to_string(),
+            _ => "unknown".to_string(),
+        };
+        let assets = clean_external_list(update.assets, 24, 40);
+        let indicators = clean_external_list(update.mentioned_indicators, 24, 80);
+        let tools = clean_external_list(update.mentioned_tools, 24, 120);
+        let links = clean_external_list(update.evidence_links, 24, 2_000);
+        let claims_json = serde_json::to_string(&update.extracted_claims)
+            .map_err(|error| format!("无法序列化 External Research claims：{error}"))?;
+        let now = Utc::now().to_rfc3339();
+
+        self.with_database(|connection| {
+            connection.execute(
+                "UPDATE external_research_items SET
+                   summary = ?1,
+                   topic = ?2,
+                   source_tier = ?3,
+                   assets_json = ?4,
+                   indicators_json = ?5,
+                   tools_json = ?6,
+                   claims_json = ?7,
+                   evidence_links_json = ?8,
+                   possible_commercial_relationship = ?9,
+                   hypothesis = CASE WHEN hypothesis = '' THEN ?10 ELSE hypothesis END,
+                   verification_status = CASE WHEN verification_status = 'NEW' THEN 'TRIAGED' ELSE verification_status END,
+                   updated_at = ?11
+                 WHERE id = ?12",
+                params![
+                    update.summary.trim().chars().take(4_000).collect::<String>(),
+                    if topic.is_empty() { "unclassified".to_string() } else { topic },
+                    source_tier,
+                    serde_json::to_string(&assets).unwrap_or_else(|_| "[]".to_string()),
+                    serde_json::to_string(&indicators).unwrap_or_else(|_| "[]".to_string()),
+                    serde_json::to_string(&tools).unwrap_or_else(|_| "[]".to_string()),
+                    claims_json,
+                    serde_json::to_string(&links).unwrap_or_else(|_| "[]".to_string()),
+                    update.possible_commercial_relationship.trim().chars().take(500).collect::<String>(),
+                    update.hypothesis.trim().chars().take(2_000).collect::<String>(),
+                    now,
+                    id,
+                ],
+            ).map_err(|error| format!("无法更新 External Research claims：{error}"))?;
+            self.load_external_research_item(id)
+        })
+    }
+
+    pub fn set_external_research_verification(
+        &self,
+        id: i64,
+        verification_status: String,
+        research_result: String,
+        rejection_reason: String,
+    ) -> Result<ExternalResearchItem, String> {
+        let status = verification_status.trim().to_uppercase();
+        if !valid_verification_status(&status) {
+            return Err("Verification status 必须是 NEW / TRIAGED / VERIFYING / SUPPORTED / REJECTED / UNRESOLVED。".to_string());
+        }
+        let disposition = if status == "REJECTED" { "rejected" } else { "unresolved" };
+        let now = Utc::now().to_rfc3339();
+        self.with_database(|connection| {
+            connection.execute(
+                "UPDATE external_research_items SET
+                   verification_status = ?1,
+                   research_result = ?2,
+                   rejection_reason = ?3,
+                   disposition = CASE WHEN disposition = 'promoted' THEN disposition ELSE ?4 END,
+                   updated_at = ?5
+                 WHERE id = ?6",
+                params![
+                    status,
+                    research_result.trim().chars().take(8_000).collect::<String>(),
+                    rejection_reason.trim().chars().take(2_000).collect::<String>(),
+                    disposition,
+                    now,
+                    id,
+                ],
+            ).map_err(|error| format!("无法更新 External Research verification：{error}"))?;
+            self.load_external_research_item(id)
+        })
+    }
+
+    pub fn promote_external_research_hypothesis(
+        &self,
+        id: i64,
+        hypothesis: String,
+        linked_experiment_id: String,
+    ) -> Result<ExternalResearchItem, String> {
+        let hypothesis = hypothesis.trim().chars().take(2_000).collect::<String>();
+        if hypothesis.len() < 8 {
+            return Err("Hypothesis 太短，无法进入可重复验证流程。".to_string());
+        }
+        let linked_experiment_id = linked_experiment_id.trim().chars().take(120).collect::<String>();
+        if !linked_experiment_id.is_empty() {
+            let exists = self.with_database(|connection| {
+                connection
+                    .query_row(
+                        "SELECT 1 FROM strategy_experiments WHERE symbol = ?1 LIMIT 1",
+                        [&linked_experiment_id],
+                        |_| Ok(true),
+                    )
+                    .optional()
+                    .map(|value| value.unwrap_or(false))
+                    .map_err(|error| format!("无法检查 experiment linkage：{error}"))
+            })?;
+            if !exists {
+                return Err("当前 linkedExperimentId 必须对应已有 strategy_experiments.symbol；也可以先留空。".to_string());
+            }
+        }
+        let now = Utc::now().to_rfc3339();
+        self.with_database(|connection| {
+            connection.execute(
+                "UPDATE external_research_items SET
+                   hypothesis = ?1,
+                   linked_experiment_id = ?2,
+                   disposition = 'promoted',
+                   verification_status = CASE WHEN verification_status = 'NEW' THEN 'TRIAGED' ELSE verification_status END,
+                   updated_at = ?3
+                 WHERE id = ?4",
+                params![hypothesis, linked_experiment_id, now, id],
+            ).map_err(|error| format!("无法创建 External Research hypothesis：{error}"))?;
+            self.load_external_research_item(id)
+        })
     }
 
     fn load_execution_guard(&self) -> Result<ExecutionGuardStatus, String> {
@@ -3891,6 +4391,41 @@ impl TradingRuntimeState {
 
         Ok(RiskDecision { allowed: reasons.is_empty(), reasons, policy })
     }
+}
+
+#[tauri::command]
+pub fn list_external_research_items(
+    state: tauri::State<'_, TradingRuntimeState>,
+    limit: Option<usize>,
+    verification_status: Option<String>,
+) -> Result<Vec<ExternalResearchItem>, String> {
+    state.list_external_research_items(limit.unwrap_or(50), verification_status)
+}
+
+#[tauri::command]
+pub fn set_external_research_verification(
+    state: tauri::State<'_, TradingRuntimeState>,
+    item_id: i64,
+    verification_status: String,
+    research_result: String,
+    rejection_reason: String,
+) -> Result<ExternalResearchItem, String> {
+    state.set_external_research_verification(
+        item_id,
+        verification_status,
+        research_result,
+        rejection_reason,
+    )
+}
+
+#[tauri::command]
+pub fn promote_external_research_hypothesis(
+    state: tauri::State<'_, TradingRuntimeState>,
+    item_id: i64,
+    hypothesis: String,
+    linked_experiment_id: String,
+) -> Result<ExternalResearchItem, String> {
+    state.promote_external_research_hypothesis(item_id, hypothesis, linked_experiment_id)
 }
 
 #[tauri::command]
