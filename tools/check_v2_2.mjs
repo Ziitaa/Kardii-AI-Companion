@@ -11,6 +11,7 @@ const workbench = fs.readFileSync("src/workbench.html", "utf8");
 const workbenchJs = fs.readFileSync("src/workbench.js", "utf8");
 const railway = fs.readFileSync("infra/market-gateway/railway.json", "utf8");
 const remoteTransport = fs.readFileSync("infra/remote-transport/README.md", "utf8");
+const gatewayLive = fs.readFileSync("tools/check_market_gateway_live.mjs", "utf8");
 
 assert.match(trading, /KARDII_MARKET_GATEWAY_BASE/);
 assert.match(trading, /KARDII_MARKET_GATEWAY_TOKEN/);
@@ -33,6 +34,10 @@ assert.match(gateway, /OKX_PUBLIC_PATHS/);
 assert.match(gateway, /KARDII_OKX_PUBLIC_BASE/);
 assert.match(gateway, /official okx\.com domain/);
 assert.match(gateway, /X-Kardii-Market-Token/i);
+assert.match(gatewayLive, /api\/v3\/ticker\/price\?symbol=BTCUSDT/);
+assert.match(gatewayLive, /api\/v3\/account/);
+assert.match(gatewayLive, /okx\/api\/v5\/account\/balance/);
+assert.match(gatewayLive, /accountCredentialsUsed: false/);
 assert.doesNotMatch(gateway, /api[-_ ]?key/i);
 assert.doesNotMatch(gateway, /secret/i);
 assert.doesNotMatch(gateway, /withdraw/i);

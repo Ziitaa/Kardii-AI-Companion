@@ -82,3 +82,31 @@ When configured, the gateway accepts only these OKX public routes under the `/ok
 - `/okx/api/v5/public/instruments`
 
 Account, order, transfer and withdrawal endpoints remain blocked. This provider is optional and is not used for private account access.
+
+
+## Live smoke test
+
+Kardii includes an opt-in live verifier that is **not** part of normal CI because public
+exchange availability can vary by region and network route.
+
+It starts a temporary local gateway, generates a one-run random token, verifies the
+authenticated Binance public BTC price route, verifies that unauthenticated and private
+routes stay blocked, and optionally verifies the configured OKX public BTC ticker route.
+
+Run Binance-only:
+
+```bash
+npm run test:gateway-live
+```
+
+Run Binance + OKX using the official OKX API root that applies to the user's actual
+region/account eligibility:
+
+```bash
+KARDII_OKX_PUBLIC_BASE=https://<official-okx-api-root> npm run test:gateway-live
+```
+
+The verifier does not use Binance/OKX account credentials and never calls account,
+order, transfer, or withdrawal endpoints. A successful local smoke test proves the
+gateway path works from that machine; it does **not** by itself prove a future remote
+deployment is reachable.
