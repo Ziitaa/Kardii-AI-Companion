@@ -1,6 +1,6 @@
 # Canonical Handoff — Research Intelligence / External Evidence V0
 
-Status: implemented on `agent/niko-workbench-v0` pending/subject to CI for the final commit in this execution unit.
+Status: CLOSED / VALIDATED on `agent/niko-workbench-v0` at `c09cac2d47a9861ea5242d607784f75ad10d95f1`.
 
 ## Architecture audit
 
@@ -143,6 +143,21 @@ The execution unit adds checks for:
 - Decision layer contains no External Research dependency;
 - deterministic `evaluate_risk` block contains no External Research dependency;
 - existing JS syntax, Rust unit tests, market-gateway boundary checks and cross-platform CI remain authoritative.
+
+## Validation closeout
+
+Final validation evidence for this execution unit:
+
+- branch: `agent/niko-workbench-v0`;
+- validated code SHA: `c09cac2d47a9861ea5242d607784f75ad10d95f1` (`fix: normalize research URL paths before dedupe`);
+- Windows workflow run `35817214103`: **success**;
+- macOS Universal workflow run `35817214156`: **success**;
+- Rust unit suite reached 42 tests; the preceding canonical-URL regression (`/research/?...` vs `/research?...`) was reproduced in CI and fixed before the validated SHA;
+- market-gateway boundary verification passed before the Rust test/build stages in the successful workflows;
+- no OpenMagpie/X collector/Jev implementation was introduced;
+- External Research remains isolated from Decision, deterministic Risk Engine, Kill Switch, ledger reconciliation, and real execution boundaries.
+
+This closes Research Intelligence / External Evidence V0. Any later X/social intake is a new adapter execution unit against the provider-neutral contract above, not a continuation of this V0 scope.
 
 ## Deliberately not implemented
 
