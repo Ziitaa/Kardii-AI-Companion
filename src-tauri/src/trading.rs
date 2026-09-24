@@ -2623,7 +2623,11 @@ impl TradingRuntimeState {
                    hypothesis = ?1,
                    linked_experiment_id = ?2,
                    disposition = 'promoted',
-                   verification_status = CASE WHEN verification_status = 'NEW' THEN 'TRIAGED' ELSE verification_status END,
+                   verification_status = CASE
+                     WHEN ?2 <> '' AND verification_status IN ('NEW', 'TRIAGED') THEN 'VERIFYING'
+                     WHEN verification_status = 'NEW' THEN 'TRIAGED'
+                     ELSE verification_status
+                   END,
                    updated_at = ?3
                  WHERE id = ?4",
                 params![hypothesis, linked_experiment_id, now, id],
