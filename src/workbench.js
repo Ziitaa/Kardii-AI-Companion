@@ -436,7 +436,15 @@ if (externalResearchList) {
       } else if (action === "hypothesis") {
         const hypothesis = window.prompt("写入一个可被历史数据 / experiment 证伪的 Hypothesis：");
         if (!hypothesis) return;
-        const linkedExperimentId = window.prompt("可选：关联已有 strategy experiment symbol；没有就留空。", "") || "";
+        let experimentHint = "可选：关联已有 strategy experiment symbol；没有就留空。";
+        try {
+          const runtime = await invokeCore("get_trading_runtime_status");
+          const symbols = Array.isArray(runtime?.strategyExperiments)
+            ? runtime.strategyExperiments.map(item => String(item.symbol || "")).filter(Boolean)
+            : [];
+          if (symbols.length) experimentHint += "\n当前可选：" + symbols.slice(0, 12).join(" / ");
+        } catch {}
+        const linkedExperimentId = window.prompt(experimentHint, "") || "";
         await invokeCore("promote_external_research_hypothesis", { itemId, hypothesis, linkedExperimentId });
       } else if (action === "status") {
         const verificationStatus = String(window.prompt(
