@@ -1521,6 +1521,14 @@ mod tests {
     }
 
     #[test]
+    fn research_experiment_linkage_schema_is_explicit() {
+        let schema = "research_item_id experiment_symbol relation_type created_at";
+        assert!(schema.contains("research_item_id"));
+        assert!(schema.contains("experiment_symbol"));
+        assert!(schema.contains("relation_type"));
+    }
+
+    #[test]
     fn thin_markets_do_not_become_candidates() {
         assert!(candidate_from(&sample("ABCUSDT", 20.0, 100000.0, 50)).is_none());
     }
@@ -2296,6 +2304,17 @@ impl TradingRuntimeState {
                ON external_research_items(content_hash);
              CREATE INDEX IF NOT EXISTS external_research_normalized_hash
                ON external_research_items(normalized_hash);
+             CREATE TABLE IF NOT EXISTS research_experiment_links (
+               research_item_id INTEGER NOT NULL,
+               experiment_symbol TEXT NOT NULL,
+               relation_type TEXT NOT NULL,
+               created_at TEXT NOT NULL,
+               PRIMARY KEY(research_item_id, experiment_symbol),
+               FOREIGN KEY(research_item_id) REFERENCES external_research_items(id) ON DELETE CASCADE,
+               FOREIGN KEY(experiment_symbol) REFERENCES strategy_experiments(symbol) ON DELETE CASCADE
+             );
+             CREATE INDEX IF NOT EXISTS research_experiment_links_experiment
+               ON research_experiment_links(experiment_symbol, research_item_id);
              CREATE TABLE IF NOT EXISTS runtime_scan_health (
                id INTEGER PRIMARY KEY CHECK(id = 1),
                last_attempt_at TEXT NOT NULL,
@@ -2597,7 +2616,9 @@ impl TradingRuntimeState {
         }
         let now = Utc::now().to_rfc3339();
         self.with_database(|connection| {
-            connection.execute(
+            let transaction = connection.unchecked_transaction()
+                .map_err(|error| format!("无法开始 External Research experiment linkage：{error}"))?;
+            transaction.execute(
                 "UPDATE external_research_items SET
                    hypothesis = ?1,
                    linked_experiment_id = ?2,
@@ -2607,6 +2628,20 @@ impl TradingRuntimeState {
                  WHERE id = ?4",
                 params![hypothesis, linked_experiment_id, now, id],
             ).map_err(|error| format!("无法创建 External Research hypothesis：{error}"))?;
+            transaction.execute(
+                "DELETE FROM research_experiment_links WHERE research_item_id = ?1",
+                [id],
+            ).map_err(|error| format!("无法刷新 External Research experiment linkage：{error}"))?;
+            if !linked_experiment_id.is_empty() {
+                transaction.execute(
+                    "INSERT INTO research_experiment_links(
+                       research_item_id, experiment_symbol, relation_type, created_at
+                     ) VALUES(?1, ?2, 'verification', ?3)",
+                    params![id, linked_experiment_id, now],
+                ).map_err(|error| format!("无法写入 External Research experiment linkage：{error}"))?;
+            }
+            transaction.commit()
+                .map_err(|error| format!("无法提交 External Research experiment linkage：{error}"))?;
             external_research_by_id(connection, id)
         })
     }
