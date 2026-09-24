@@ -397,6 +397,7 @@ async function refreshExternalResearchInbox() {
         '<small>'+esc(meta + duplicate + commercial)+'</small>' +
         (claimPreview ? '<small>Claims: '+esc(claimPreview)+'</small>' : '') +
         (item.hypothesis ? '<small>Hypothesis: '+esc(item.hypothesis)+'</small>' : '') +
+        (item.linkedExperimentId ? '<small>Experiment: '+esc(item.linkedExperimentId)+'</small>' : '') +
         (verification ? '<small>'+esc(verification)+'</small>' : '') +
         '<div class="research-actions">' +
           '<button type="button" class="secondary" data-research-action="analyze">提取 Claims</button>' +
