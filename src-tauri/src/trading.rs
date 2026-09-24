@@ -2315,6 +2315,16 @@ impl TradingRuntimeState {
              );
              CREATE INDEX IF NOT EXISTS research_experiment_links_experiment
                ON research_experiment_links(experiment_symbol, research_item_id);
+             INSERT OR IGNORE INTO research_experiment_links(
+               research_item_id, experiment_symbol, relation_type, created_at
+             )
+             SELECT id, linked_experiment_id, 'verification', updated_at
+             FROM external_research_items
+             WHERE linked_experiment_id <> ''
+               AND EXISTS(
+                 SELECT 1 FROM strategy_experiments
+                 WHERE strategy_experiments.symbol = external_research_items.linked_experiment_id
+               );
              CREATE TABLE IF NOT EXISTS runtime_scan_health (
                id INTEGER PRIMARY KEY CHECK(id = 1),
                last_attempt_at TEXT NOT NULL,
