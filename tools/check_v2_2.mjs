@@ -170,7 +170,10 @@ assert.match(trading, /FOREIGN KEY\(research_item_id\) REFERENCES external_resea
 assert.match(trading, /FOREIGN KEY\(experiment_symbol\) REFERENCES strategy_experiments\(symbol\) ON DELETE CASCADE/);
 assert.match(trading, /DELETE FROM research_experiment_links WHERE research_item_id = \?1/);
 assert.match(trading, /INSERT INTO research_experiment_links/);
+assert.match(trading, /SELECT id, linked_experiment_id, 'verification', updated_at/);
+assert.match(trading, /WHEN \?2 <> '' AND verification_status IN \('NEW', 'TRIAGED'\) THEN 'VERIFYING'/);
 assert.match(workbenchJs, /Experiment: /);
+assert.match(workbenchJs, /当前可选：/);
 assert.match(lib, /ingest_external_research_url/);
 assert.match(lib, /ingest_external_research_rss/);
 assert.match(lib, /analyze_external_research_item/);
