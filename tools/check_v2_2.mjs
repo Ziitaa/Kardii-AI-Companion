@@ -166,6 +166,9 @@ assert.match(trading, /NEW.*TRIAGED.*VERIFYING.*SUPPORTED.*REJECTED.*UNRESOLVED/
 assert.match(trading, /promote_external_research_hypothesis/);
 assert.match(trading, /linked_experiment_id/);
 assert.match(trading, /CREATE TABLE IF NOT EXISTS research_experiment_links/);
+assert.match(trading, /CREATE TABLE IF NOT EXISTS research_verification_events/);
+assert.match(trading, /INSERT INTO research_verification_events/);
+assert.match(trading, /research_verification_events_item_time/);
 assert.match(trading, /FOREIGN KEY\(research_item_id\) REFERENCES external_research_items\(id\) ON DELETE CASCADE/);
 assert.match(trading, /FOREIGN KEY\(experiment_symbol\) REFERENCES strategy_experiments\(symbol\) ON DELETE CASCADE/);
 assert.match(trading, /DELETE FROM research_experiment_links WHERE research_item_id = \?1/);
