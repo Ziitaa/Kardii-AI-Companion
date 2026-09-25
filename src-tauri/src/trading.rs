@@ -1529,6 +1529,14 @@ mod tests {
     }
 
     #[test]
+    fn research_verification_event_schema_is_audit_friendly() {
+        let schema = "research_item_id verification_status research_result rejection_reason linked_experiment_id created_at";
+        assert!(schema.contains("verification_status"));
+        assert!(schema.contains("research_result"));
+        assert!(schema.contains("linked_experiment_id"));
+    }
+
+    #[test]
     fn thin_markets_do_not_become_candidates() {
         assert!(candidate_from(&sample("ABCUSDT", 20.0, 100000.0, 50)).is_none());
     }
@@ -2315,6 +2323,18 @@ impl TradingRuntimeState {
              );
              CREATE INDEX IF NOT EXISTS research_experiment_links_experiment
                ON research_experiment_links(experiment_symbol, research_item_id);
+             CREATE TABLE IF NOT EXISTS research_verification_events (
+               id INTEGER PRIMARY KEY AUTOINCREMENT,
+               research_item_id INTEGER NOT NULL,
+               verification_status TEXT NOT NULL,
+               research_result TEXT NOT NULL,
+               rejection_reason TEXT NOT NULL,
+               linked_experiment_id TEXT NOT NULL,
+               created_at TEXT NOT NULL,
+               FOREIGN KEY(research_item_id) REFERENCES external_research_items(id) ON DELETE CASCADE
+             );
+             CREATE INDEX IF NOT EXISTS research_verification_events_item_time
+               ON research_verification_events(research_item_id, id DESC);
              INSERT OR IGNORE INTO research_experiment_links(
                research_item_id, experiment_symbol, relation_type, created_at
              )
@@ -2574,9 +2594,13 @@ impl TradingRuntimeState {
             return Err("Verification status 必须是 NEW / TRIAGED / VERIFYING / SUPPORTED / REJECTED / UNRESOLVED。".to_string());
         }
         let disposition = if status == "REJECTED" { "rejected" } else { "unresolved" };
+        let research_result = research_result.trim().chars().take(8_000).collect::<String>();
+        let rejection_reason = rejection_reason.trim().chars().take(2_000).collect::<String>();
         let now = Utc::now().to_rfc3339();
         self.with_database(|connection| {
-            connection.execute(
+            let transaction = connection.unchecked_transaction()
+                .map_err(|error| format!("无法开始 External Research verification 记录：{error}"))?;
+            transaction.execute(
                 "UPDATE external_research_items SET
                    verification_status = ?1,
                    research_result = ?2,
@@ -2586,13 +2610,36 @@ impl TradingRuntimeState {
                  WHERE id = ?6",
                 params![
                     status,
-                    research_result.trim().chars().take(8_000).collect::<String>(),
-                    rejection_reason.trim().chars().take(2_000).collect::<String>(),
+                    research_result,
+                    rejection_reason,
                     disposition,
                     now,
                     id,
                 ],
             ).map_err(|error| format!("无法更新 External Research verification：{error}"))?;
+            let linked_experiment_id: String = transaction
+                .query_row(
+                    "SELECT linked_experiment_id FROM external_research_items WHERE id = ?1",
+                    [id],
+                    |row| row.get(0),
+                )
+                .map_err(|error| format!("无法读取 External Research experiment linkage：{error}"))?;
+            transaction.execute(
+                "INSERT INTO research_verification_events(
+                   research_item_id, verification_status, research_result,
+                   rejection_reason, linked_experiment_id, created_at
+                 ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    id,
+                    status,
+                    research_result,
+                    rejection_reason,
+                    linked_experiment_id,
+                    now,
+                ],
+            ).map_err(|error| format!("无法写入 External Research verification event：{error}"))?;
+            transaction.commit()
+                .map_err(|error| format!("无法提交 External Research verification 记录：{error}"))?;
             external_research_by_id(connection, id)
         })
     }
@@ -2654,6 +2701,20 @@ impl TradingRuntimeState {
                     params![id, linked_experiment_id, now],
                 ).map_err(|error| format!("无法写入 External Research experiment linkage：{error}"))?;
             }
+            let verification_status: String = transaction
+                .query_row(
+                    "SELECT verification_status FROM external_research_items WHERE id = ?1",
+                    [id],
+                    |row| row.get(0),
+                )
+                .map_err(|error| format!("无法读取 External Research verification status：{error}"))?;
+            transaction.execute(
+                "INSERT INTO research_verification_events(
+                   research_item_id, verification_status, research_result,
+                   rejection_reason, linked_experiment_id, created_at
+                 ) VALUES(?1, ?2, '', '', ?3, ?4)",
+                params![id, verification_status, linked_experiment_id, now],
+            ).map_err(|error| format!("无法记录 External Research verification linkage event：{error}"))?;
             transaction.commit()
                 .map_err(|error| format!("无法提交 External Research experiment linkage：{error}"))?;
             external_research_by_id(connection, id)
