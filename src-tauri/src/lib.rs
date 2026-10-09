@@ -253,29 +253,60 @@ struct ResearchSource {
     author: String,
 }
 
+fn deserialize_nullable_string<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Option::<String>::deserialize(deserializer)?.unwrap_or_default())
+}
+
+fn deserialize_nullable_vec<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Ok(Option::<Vec<T>>::deserialize(deserializer)?.unwrap_or_default())
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ExternalResearchClaim {
+    #[serde(default, deserialize_with = "deserialize_nullable_string")]
     claim: String,
+    #[serde(default, deserialize_with = "deserialize_nullable_string")]
     claim_type: String,
+    #[serde(default, deserialize_with = "deserialize_nullable_string")]
     indicator: String,
+    #[serde(default, deserialize_with = "deserialize_nullable_string")]
     threshold: String,
+    #[serde(default, deserialize_with = "deserialize_nullable_string")]
     horizon: String,
+    #[serde(default, deserialize_with = "deserialize_nullable_string")]
     verification_question: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ExternalResearchExtraction {
+    #[serde(default, deserialize_with = "deserialize_nullable_string")]
     summary: String,
+    #[serde(default, deserialize_with = "deserialize_nullable_string")]
     topic: String,
+    #[serde(default, deserialize_with = "deserialize_nullable_string")]
     source_tier: String,
+    #[serde(default, deserialize_with = "deserialize_nullable_vec")]
     assets: Vec<String>,
+    #[serde(default, deserialize_with = "deserialize_nullable_vec")]
     mentioned_indicators: Vec<String>,
+    #[serde(default, deserialize_with = "deserialize_nullable_vec")]
     mentioned_tools: Vec<String>,
+    #[serde(default, deserialize_with = "deserialize_nullable_vec")]
     claims: Vec<ExternalResearchClaim>,
+    #[serde(default, deserialize_with = "deserialize_nullable_vec")]
     evidence_links: Vec<String>,
+    #[serde(default, deserialize_with = "deserialize_nullable_string")]
     possible_commercial_relationship: String,
+    #[serde(default, deserialize_with = "deserialize_nullable_string")]
     hypothesis: String,
 }
 
@@ -2563,8 +2594,9 @@ Do not decide whether a claim is true. Do not invent author identity, thresholds
     )
     .await?;
     let value = json_object_from_ai(&content)?;
-    let extraction: ExternalResearchExtraction = serde_json::from_value(value)
+    let mut extraction: ExternalResearchExtraction = serde_json::from_value(value)
         .map_err(|error| format!("Research claim extraction JSON 无法读取：{error}"))?;
+    extraction.claims.retain(|claim| !claim.claim.trim().is_empty());
     let claims = serde_json::to_value(&extraction.claims)
         .map_err(|error| format!("无法整理 Research claims：{error}"))?;
 
@@ -6401,6 +6433,42 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running Kardii AI Companion");
+}
+
+#[cfg(test)]
+mod external_research_json_tests {
+    use super::*;
+
+    #[test]
+    fn claim_extraction_accepts_null_optional_fields() {
+        let value = serde_json::json!({
+            "summary": "Example",
+            "topic": null,
+            "sourceTier": null,
+            "assets": null,
+            "mentionedIndicators": null,
+            "mentionedTools": [],
+            "claims": [{
+                "claim": "Example claim",
+                "claimType": null,
+                "indicator": null,
+                "threshold": null,
+                "horizon": null,
+                "verificationQuestion": null
+            }],
+            "evidenceLinks": null,
+            "possibleCommercialRelationship": null,
+            "hypothesis": null
+        });
+
+        let parsed: ExternalResearchExtraction = serde_json::from_value(value).unwrap();
+        assert_eq!(parsed.summary, "Example");
+        assert_eq!(parsed.topic, "");
+        assert!(parsed.assets.is_empty());
+        assert_eq!(parsed.claims[0].claim, "Example claim");
+        assert_eq!(parsed.claims[0].indicator, "");
+        assert_eq!(parsed.hypothesis, "");
+    }
 }
 
 #[cfg(test)]
