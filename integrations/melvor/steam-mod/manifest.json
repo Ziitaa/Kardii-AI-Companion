@@ -1,0 +1,4 @@
+{
+  "namespace": "kardii_bridge",
+  "setup": "setup.mjs"
+}
