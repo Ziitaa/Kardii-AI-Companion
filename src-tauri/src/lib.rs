@@ -6238,7 +6238,7 @@ pub fn run() {
             let storage_state = StorageState::new(&app_data_dir)
                 .map_err(|error| format!("无法初始化 Kardii 本机数据库：{error}"))?;
             let trading_runtime = app.state::<TradingRuntimeState>().inner().clone();
-            app.manage(ResearchState::new(trading_runtime.clone(), app_data_dir.join("kardii-research.sqlite3")));
+            app.manage(ResearchState::new(app_data_dir.join("kardii-research.sqlite3")));
             trading_runtime
                 .initialize_persistence(&app_data_dir)
                 .map_err(|error| format!("无法初始化 Kardii 交易运行层：{error}"))?;
