@@ -14,7 +14,7 @@
       <button class="nav" data-view="ledger">▤ <span>真实账本</span></button>
       <button class="nav" data-view="research">◎ <span>研究日志</span></button>
     </nav>
-    <div class="side-note">市场数据、机会扫描、策略实验与风险规则可以由 Kardii 在后台保存，不要求你手动管理。</div>
+    <div class="side-note">研究资料和 Agent 任务记录由 Kardii 在本机管理。</div>
   </aside>
   <section class="main">
     <header id="workbenchDragHeader" data-tauri-drag-region>
@@ -23,36 +23,22 @@
     </header>
     <div class="content">
       <section class="view active" data-panel="overview">
-        <div class="hero"><div><span class="eyebrow">STATUS</span><h2>这里不是你的工作台，是 Kardii 自己的运行台。</h2><p>你只需要看它现在在做什么、是否需要你批准，以及真实资金有没有变化。</p></div><span class="badge">LOCAL</span></div>
+        <div class="hero"><div><span class="eyebrow">STATUS</span><h2>这里不是你的工作台，是 Kardii 自己的运行台。</h2><p>你只需要看它现在在做什么、是否需要你批准，以及研究与任务进展。</p></div><span class="badge">LOCAL</span></div>
         <div class="cards">
           <article><span>Agent</span><strong id="agentCount">0</strong><small id="agentDetail">没有运行中的任务</small></article>
           <article><span>市场数据</span><strong id="marketStatus">未接入</strong><small>接入后由 Kardii 内部维护</small></article>
           <article><span>机会扫描</span><strong id="scanStatus">未运行</strong><small>不会为了展示而制造假结果</small></article>
           <article><span>需要批准</span><strong id="approvalCount">0</strong><small>只有真正需要你介入时才出现</small></article>
         </div>
-        <section class="panel connection-panel">
-          <div class="panel-head"><div><span class="eyebrow">ACCOUNT</span><h3>Binance · 只读连接</h3></div></div>
-          <div class="connection-row">
-            <div><strong id="binanceConnectionStatus">未连接</strong><span id="binanceConnectionDetail">以后注册好账户后再连接即可。</span></div>
-            <div class="connection-actions"><button id="binanceConnectBtn" class="primary">连接只读 API</button><button id="binanceDisconnectBtn" class="secondary hidden">断开</button></div>
-          </div>
-          <div class="connection-note">Kardii 只接受严格只读权限。检测到交易、提现、内部转账、Margin、Futures、Options 等权限会直接拒绝保存。</div>
-        </section>
-        <section class="panel connection-panel">
-          <div class="panel-head"><div><span class="eyebrow">MARKET DATA EGRESS</span><h3>公共行情 Gateway</h3></div></div>
-          <div class="connection-row">
-            <div><strong id="marketGatewayStatus">Direct</strong><span id="marketGatewayDetail">未配置 Gateway，公共行情使用桌面直连。</span></div>
-            <div class="connection-actions"><button id="marketGatewayConfigureBtn" class="primary">配置 Gateway</button><button id="marketGatewayDisconnectBtn" class="secondary hidden">清除</button></div>
-          </div>
-          <div class="connection-note">Gateway 只代理 ticker / klines / depth / exchangeInfo 等公开行情。账户、订单、转账、提现和任何私有 API 永远不会经过这里。</div>
-        </section>
+        
+        
         <section class="panel connection-panel">
           <div class="panel-head"><div><span class="eyebrow">REMOTE · FULL STATUS</span><h3>远程 Kardii 全状态镜像</h3></div></div>
           <div class="connection-row">
-            <div><strong id="remoteViewerStatus">未连接</strong><span id="remoteViewerDetail">公司电脑只保存远程配对凭据，不保存交易所 API。</span></div>
+            <div><strong id="remoteViewerStatus">未连接</strong><span id="remoteViewerDetail">远程配对凭据仅保存在本机。</span></div>
             <div class="connection-actions"><button id="remoteViewerPublicBaseBtn" class="secondary">设置 HTTPS 入口</button><button id="remoteViewerPublicBaseClearBtn" class="secondary hidden">清除入口</button><button id="remoteViewerPairingBtn" class="secondary">复制本机配对链接</button><button id="remoteViewerConnectBtn" class="primary">连接</button><button id="remoteViewerDisconnectBtn" class="secondary hidden">断开</button></div>
           </div>
-          <div class="connection-note">连接后显示完整运行状态：研究、策略实验、Shadow、余额快照、真实账本、Trade Intent、Risk Gate 与 Kill Switch。跨设备使用时，本机只读服务仍绑定 127.0.0.1，由独立 HTTPS transport 暴露；密钥不会进入镜像，远程控制与交易执行仍保持关闭。</div>
+          <div class="connection-note">远程镜像仅用于查看状态；本机只读服务绑定 127.0.0.1，跨设备连接需要独立 HTTPS transport。</div>
         </section>
         <section class="panel"><div class="panel-head"><div><span class="eyebrow">INTERNAL</span><h3>内部状态</h3></div></div>
           <div class="internal-list">
@@ -62,18 +48,11 @@
             <div><strong id="runtimeHealthStatus">运行健康检查中</strong><span id="runtimeHealthDetail">数据库、扫描新鲜度与 Shadow settlement 会在这里汇总。</span></div>
           </div>
         </section>
-        <section class="panel connection-panel">
-          <div class="panel-head"><div><span class="eyebrow">FAST DECISION · SHADOW</span><h3>Decision Provider Benchmark</h3></div></div>
-          <div class="connection-row">
-            <div><strong id="decisionShadowStatus">初始化中</strong><span id="decisionShadowDetail">规则 baseline 先运行；外部 Decision Provider 尚未配置。</span></div>
-            <div class="connection-actions"><button id="jevConnectBtn" class="primary">连接 Jev</button><button id="jevDisconnectBtn" class="secondary hidden">断开 Jev</button></div>
-          </div>
-          <div class="connection-note">Jev 仅作为 Shadow 对照组，与 Rule Baseline 在同一批样本上比较。TypeSafe Key 只保存在本机系统安全凭据库；此层没有下单、转账、提现或资金执行路径。</div>
-        </section>
+        
       </section>
 
       <section class="view" data-panel="remote">
-        <div class="hero compact"><div><span class="eyebrow">REMOTE · FULL STATUS</span><h2>个人 Kardii 全状态</h2><p>这里镜像个人电脑上的 Kardii 运行状态。显示完整状态，但不会把 Binance API Key / Secret 复制到公司电脑。</p></div><span class="badge">MIRROR</span></div>
+        <div class="hero compact"><div><span class="eyebrow">REMOTE · FULL STATUS</span><h2>个人 Kardii 全状态</h2><p>这里镜像个人电脑上的 Kardii 运行状态。只读查看远程 Kardii 的运行信息，不复制本机密钥。</p></div><span class="badge">MIRROR</span></div>
         <div class="cards">
           <article><span>运行模式</span><strong id="remoteMode">未连接</strong><small id="remoteModeDetail">等待远程 Kardii</small></article>
           <article><span>研究记录</span><strong id="remoteResearchCount">0</strong><small>最近研究与机会证据</small></article>
