@@ -47,7 +47,8 @@ export function createMelvorReceiver({ token = randomBytes(32).toString("hex"), 
         if (Math.abs(Date.now() - Date.parse(snapshot.capturedAt)) > 120000) return reply(422, { error: "stale-snapshot" });
         const assessment = assessMelvorSnapshot(snapshot);
         latest = { snapshot, assessment };
-        onSnapshot(latest);
+        // A UI observer failure must not invalidate an already accepted snapshot.
+        try { onSnapshot(latest); } catch { /* isolate optional observer errors */ }
         return reply(200, { accepted: true, warnings: assessment.warnings, mayExecute: false });
       } catch {
         return reply(422, { error: "invalid-snapshot" });
