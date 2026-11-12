@@ -9,14 +9,27 @@ const constantTimeEqual = (a, b) => {
   return x.length === y.length && timingSafeEqual(x, y);
 };
 
-export function createMelvorReceiver({ token = randomBytes(32).toString("hex"), onSnapshot = () => {} } = {}) {
+export function createMelvorReceiver({ token = randomBytes(32).toString("hex"), onSnapshot = () => {}, allowedOrigins = [] } = {}) {
   if (typeof token !== "string" || token.length < 32) throw new Error("Receiver token must be at least 32 characters");
   let latest = null;
   const server = http.createServer((req, res) => {
+    const origin = req.headers.origin;
+    const corsAllowed = typeof origin === "string" && allowedOrigins.includes(origin);
+    if (corsAllowed) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Vary", "Origin");
+      res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Kardii-Token");
+    }
     const reply = (code, body) => {
       res.writeHead(code, { "Content-Type": "application/json", "Cache-Control": "no-store" });
       res.end(JSON.stringify(body));
     };
+    if (req.url === "/v1/snapshot" && req.method === "OPTIONS") {
+      res.writeHead(corsAllowed ? 204 : 403);
+      return res.end();
+    }
+    if (origin && !corsAllowed) return reply(403, { error: "origin-not-allowed" });
     if (req.url !== "/v1/snapshot" || req.method !== "POST") return reply(404, { error: "not-found" });
     if (!constantTimeEqual(req.headers["x-kardii-token"], token)) return reply(401, { error: "unauthorized" });
     const chunks = [];
