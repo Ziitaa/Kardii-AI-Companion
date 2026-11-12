@@ -6236,6 +6236,7 @@ pub fn run() {
                 .map_err(|error| format!("无法初始化 Kardii 本机数据库：{error}"))?;
             research_storage::initialize_research_storage(&app_data_dir)
                 .map_err(|error| format!("无法初始化 Kardii 独立研究存储：{error}"))?;
+            app.manage(ResearchState::new(app_data_dir.join("kardii-research.sqlite3")));
             let _ = initialize_readonly_viewer(&app_data_dir);
             let voice_state = VoiceState::new(app_data_dir);
             voice_state.initialize_if_installed();
