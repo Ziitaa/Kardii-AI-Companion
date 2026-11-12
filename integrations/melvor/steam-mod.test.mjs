@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createSnapshot, setup } from "./steam-mod/setup.mjs";
+import { createSnapshot, setup, sendSnapshot } from "./steam-mod/setup.mjs";
 
 test("incomplete game state is never fabricated", () => {
   assert.equal(createSnapshot(null), null);
@@ -34,7 +34,7 @@ test("mod does not expose commands and waits for interface readiness", () => {
   assert.deepEqual(api.getStatus(), { ready: false, mode: "read-only", transport: "in-game-mod-api" });
   assert.equal(api.getSnapshot(), null);
   assert.deepEqual(api.getDiagnostics(), { ready: false, missing: ["character-not-ready"] });
-  assert.deepEqual(Object.keys(api).sort(), ["getDiagnostics", "getSnapshot", "getStatus"]);
+  assert.deepEqual(Object.keys(api).sort(), ["getDiagnostics", "getSnapshot", "getStatus", "sendOnce"]);
   readyCallback();
   assert.equal(api.getStatus().ready, true);
   assert.deepEqual(api.getDiagnostics(), { ready: true, missing: ["game"] });
@@ -55,4 +55,25 @@ test("diagnostics report missing runtime fields without guessing", () => {
     if (oldGame === undefined) delete globalThis.game;
     else globalThis.game = oldGame;
   }
+});
+
+test("sender only permits loopback, requires token and never sends game commands", async () => {
+  const game = {
+    gp: { amount: 3 }, bank: { items: [], maximumSlots: 10 },
+    skills: { getObjectByID: () => ({ level: 1 }) }
+  };
+  const calls = [];
+  const fetchImpl = async (url, options) => {
+    calls.push({ url, options });
+    return { ok: true, json: async () => ({ accepted: true, mayExecute: false }) };
+  };
+  const token = "a".repeat(64);
+  await assert.rejects(sendSnapshot({ game, url: "https://example.com/v1/snapshot", token, fetchImpl }), /Only the local/);
+  await assert.rejects(sendSnapshot({ game, url: "http://127.0.0.1:3000/v1/snapshot", token: "bad", fetchImpl }), /token/);
+  const result = await sendSnapshot({ game, url: "http://127.0.0.1:3000/v1/snapshot", token, fetchImpl });
+  assert.equal(result.accepted, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].options.method, "POST");
+  assert.equal(calls[0].options.headers["x-kardii-token"], token);
+  assert.equal(JSON.parse(calls[0].options.body).source, "read-only-mod");
 });
