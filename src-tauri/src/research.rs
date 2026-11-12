@@ -4,7 +4,9 @@
 use crate::research_types::{ExternalResearchAnalysisUpdate, ExternalResearchItem, ExternalResearchUpsert};
 use crate::trading::TradingRuntimeState;
 use crate::research_storage::external_research_from_row;
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, params, OptionalExtension};
+use chrono::Utc;
+use crate::research_storage::{canonical_external_url, external_sha256, normalized_external_content, external_research_by_id};
 use std::path::PathBuf;
 
 #[derive(Clone)]
@@ -15,6 +17,84 @@ pub struct ResearchState {
 
 impl ResearchState {
     pub fn new(legacy: TradingRuntimeState, database_path: PathBuf) -> Self { Self { legacy, database_path } }
+
+    fn with_independent_database<T>(&self, action: impl FnOnce(&Connection) -> Result<T, String>) -> Result<T, String> {
+        let db = Connection::open(&self.database_path)
+            .map_err(|e| format!("无法打开独立研究数据库：{e}"))?;
+        db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;")
+            .map_err(|e| format!("无法配置独立研究数据库：{e}"))?;
+        action(&db)
+    }
+
+    pub fn upsert_independent_research_item(
+        &self,
+        input: ExternalResearchUpsert,
+    ) -> Result<ExternalResearchItem, String> {
+        let canonical_url = canonical_external_url(&input.canonical_url)?;
+        let raw_content = input.raw_content.trim().chars().take(120_000).collect::<String>();
+        if raw_content.chars().count() < 12 {
+            return Err("External Research 内容太短，无法建立可验证研究记录。".to_string());
+        }
+        let content_hash = external_sha256(&raw_content);
+        let normalized_hash = external_sha256(&normalized_external_content(&raw_content));
+        let now = Utc::now().to_rfc3339();
+
+        self.with_independent_database(|connection| {
+            if let Some(existing_id) = connection
+                .query_row(
+                    "SELECT id FROM external_research_items WHERE canonical_url = ?1",
+                    [&canonical_url],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()
+                .map_err(|error| format!("无法检查 External Research URL 去重：{error}"))?
+            {
+                return external_research_by_id(connection, existing_id);
+            }
+
+            let duplicate_of = connection
+                .query_row(
+                    "SELECT id FROM external_research_items
+                     WHERE content_hash = ?1 OR normalized_hash = ?2
+                     ORDER BY id ASC LIMIT 1",
+                    params![content_hash, normalized_hash],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()
+                .map_err(|error| format!("无法检查 External Research 内容去重：{error}"))?;
+
+            connection.execute(
+                "INSERT INTO external_research_items(
+                   source_id, author, source_type, source_tier, canonical_url, title, summary,
+                   published_at, retrieved_at, raw_content, content_hash, normalized_hash,
+                   duplicate_of, assets_json, indicators_json, tools_json, claims_json,
+                   evidence_links_json, topic, possible_commercial_relationship,
+                   verification_status, linked_experiment_id, hypothesis, research_result,
+                   disposition, rejection_reason, ingestion_provider, created_at, updated_at
+                 ) VALUES(
+                   ?1, ?2, ?3, 'unknown', ?4, ?5, '', ?6, ?7, ?8, ?9, ?10, ?11,
+                   '[]', '[]', '[]', '[]', '[]', 'unclassified', 'unknown',
+                   'NEW', '', '', '', 'unresolved', '', ?12, ?7, ?7
+                 )",
+                params![
+                    input.source_id.trim().chars().take(200).collect::<String>(),
+                    input.author.trim().chars().take(200).collect::<String>(),
+                    input.source_type.trim().chars().take(80).collect::<String>(),
+                    canonical_url,
+                    input.title.trim().chars().take(500).collect::<String>(),
+                    input.published_at.trim().chars().take(120).collect::<String>(),
+                    now,
+                    raw_content,
+                    content_hash,
+                    normalized_hash,
+                    duplicate_of,
+                    input.ingestion_provider.trim().chars().take(80).collect::<String>(),
+                ],
+            ).map_err(|error| format!("无法保存 External Research item：{error}"))?;
+
+            external_research_by_id(connection, connection.last_insert_rowid())
+        })
+    }
 
     pub fn upsert_external_research_item(&self, item: ExternalResearchUpsert) -> Result<ExternalResearchItem, String> {
         self.legacy.upsert_external_research_item(item)
