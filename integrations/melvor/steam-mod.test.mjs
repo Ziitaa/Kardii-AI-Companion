@@ -33,7 +33,26 @@ test("mod does not expose commands and waits for interface readiness", () => {
   });
   assert.deepEqual(api.getStatus(), { ready: false, mode: "read-only", transport: "in-game-mod-api" });
   assert.equal(api.getSnapshot(), null);
-  assert.deepEqual(Object.keys(api).sort(), ["getSnapshot", "getStatus"]);
+  assert.deepEqual(api.getDiagnostics(), { ready: false, missing: ["character-not-ready"] });
+  assert.deepEqual(Object.keys(api).sort(), ["getDiagnostics", "getSnapshot", "getStatus"]);
   readyCallback();
   assert.equal(api.getStatus().ready, true);
+  assert.deepEqual(api.getDiagnostics(), { ready: true, missing: ["game"] });
+});
+
+test("diagnostics report missing runtime fields without guessing", () => {
+  const oldGame = globalThis.game;
+  let callback, api;
+  try {
+    globalThis.game = { skills: { getObjectByID: () => undefined } };
+    setup({ onInterfaceReady: fn => { callback = fn; }, api: endpoints => { api = endpoints; } });
+    callback();
+    assert.deepEqual(api.getDiagnostics().missing, [
+      "gp", "bank.used", "bank.capacity",
+      "skills.Fishing", "skills.Cooking", "skills.Mining", "skills.Smithing"
+    ]);
+  } finally {
+    if (oldGame === undefined) delete globalThis.game;
+    else globalThis.game = oldGame;
+  }
 });
