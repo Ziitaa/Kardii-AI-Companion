@@ -6,6 +6,7 @@ mod oauth;
 mod decision;
 mod trading;
 mod research_types;
+mod research_storage;
 mod research;
 use research::{ResearchState, list_external_research_items, set_external_research_verification, promote_external_research_hypothesis};
 mod readonly_viewer;
@@ -6241,6 +6242,8 @@ pub fn run() {
             trading_runtime
                 .initialize_persistence(&app_data_dir)
                 .map_err(|error| format!("无法初始化 Kardii 交易运行层：{error}"))?;
+            research_storage::initialize_research_storage(&app_data_dir)
+                .map_err(|error| format!("无法初始化 Kardii 独立研究存储：{error}"))?;
             let _ = initialize_readonly_viewer(&app_data_dir);
             let voice_state = VoiceState::new(app_data_dir);
             voice_state.initialize_if_installed();
