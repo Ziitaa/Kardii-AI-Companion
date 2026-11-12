@@ -2,6 +2,8 @@
 //! This initialization never deletes or rewrites the legacy trading database.
 use rusqlite::{Connection, params};
 use std::path::Path;
+use std::collections::HashSet;
+use sha2::{Digest, Sha256};
 use crate::research_types::ExternalResearchItem;
 
 pub fn initialize_research_storage(app_data_dir: &Path) -> Result<(), String> {
@@ -154,5 +156,77 @@ pub(crate) fn external_research_by_id(
             external_research_from_row,
         )
         .map_err(|error| format!("无法读取 External Research item：{error}"))
+}
+
+
+pub(crate) fn canonical_external_url(raw: &str) -> Result<String, String> {
+    let mut url = reqwest::Url::parse(raw.trim())
+        .map_err(|_| "External Research URL 格式不正确。".to_string())?;
+    if !matches!(url.scheme(), "http" | "https")
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return Err("External Research 只接受公开 http/https URL，且不能包含用户名或密码。".to_string());
+    }
+    url.set_fragment(None);
+    if url.path() != "/" && url.path().ends_with('/') {
+        let trimmed_path = url.path().trim_end_matches('/').to_string();
+        url.set_path(&trimmed_path);
+    }
+
+    let mut pairs: Vec<(String, String)> = url
+        .query_pairs()
+        .filter(|(key, _)| {
+            let lower = key.to_ascii_lowercase();
+            !lower.starts_with("utm_")
+                && !matches!(lower.as_str(), "gclid" | "fbclid" | "ref" | "ref_src")
+        })
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+        .collect();
+    pairs.sort();
+    url.set_query(None);
+    if !pairs.is_empty() {
+        url.query_pairs_mut().extend_pairs(pairs.iter().map(|(key, value)| (key, value)));
+    }
+    Ok(url.to_string())
+}
+
+pub(crate) fn normalized_external_content(value: &str) -> String {
+    let mut output = String::new();
+    let mut previous_space = true;
+    for character in value.chars() {
+        if character.is_alphanumeric() {
+            for lower in character.to_lowercase() {
+                output.push(lower);
+            }
+            previous_space = false;
+        } else if !previous_space {
+            output.push(' ');
+            previous_space = true;
+        }
+    }
+    output.trim().to_string()
+}
+
+pub(crate) fn external_sha256(value: &str) -> String {
+    format!("{:x}", Sha256::digest(value.as_bytes()))
+}
+
+pub(crate) fn clean_external_list(values: Vec<String>, max_items: usize, max_chars: usize) -> Vec<String> {
+    let mut seen = HashSet::new();
+    values
+        .into_iter()
+        .map(|value| value.trim().chars().take(max_chars).collect::<String>())
+        .filter(|value| !value.is_empty())
+        .filter(|value| seen.insert(value.to_ascii_lowercase()))
+        .take(max_items)
+        .collect()
+}
+
+pub(crate) fn valid_verification_status(value: &str) -> bool {
+    matches!(
+        value,
+        "NEW" | "TRIAGED" | "VERIFYING" | "SUPPORTED" | "REJECTED" | "UNRESOLVED"
+    )
 }
 
