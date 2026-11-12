@@ -3,8 +3,6 @@ mod mcp;
 mod storage;
 mod voice;
 mod oauth;
-mod decision;
-mod trading;
 mod research_types;
 mod research_storage;
 mod research;
