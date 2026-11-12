@@ -64,3 +64,21 @@ test("receiver does not expose status or command endpoints", async () => {
     assert.equal(status.status, 404);
   } finally { await receiver.stop(); }
 });
+
+test("browser preflight only permits configured Steam origins", async () => {
+  const origin = "https://melvoridle.com";
+  const receiver = createMelvorReceiver({ allowedOrigins: [origin] });
+  const port = await receiver.start();
+  try {
+    const url = `http://127.0.0.1:${port}/v1/snapshot`;
+    const ok = await fetch(url, {
+      method: "OPTIONS",
+      headers: { Origin: origin, "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "x-kardii-token,content-type" }
+    });
+    assert.equal(ok.status, 204);
+    assert.equal(ok.headers.get("access-control-allow-origin"), origin);
+    const bad = await fetch(url, { method: "OPTIONS", headers: { Origin: "https://untrusted.example" } });
+    assert.equal(bad.status, 403);
+    assert.equal(bad.headers.get("access-control-allow-origin"), null);
+  } finally { await receiver.stop(); }
+});
