@@ -3,7 +3,7 @@
 const safeInt = (n) => Number.isSafeInteger(n) && n >= 0 ? n : null;
 const safeLevel = (n) => Number.isSafeInteger(n) && n >= 1 && n <= 120 ? n : null;
 const skillLevel = (game, name) => {
-  const skill = game?.skills?.getObjectByID?.("melvorD:" + name);
+  const skill = game?.skills?.getObjectByID?.("melvorD:" + name) ?? game?.[name.toLowerCase()];
   return safeLevel(skill?.level);
 };
 export function createSnapshot(game) {
@@ -16,7 +16,7 @@ export function createSnapshot(game) {
     schemaVersion: "melvor.snapshot.v0", game: "melvor-idle-1",
     source: "read-only-mod", capturedAt: new Date().toISOString(),
     gp, skills,
-    bank: { used: safeInt(game.bank?.items?.length), capacity: safeInt(game.bank?.maximumSlots) },
+    bank: { used: safeInt(game.bank?.items?.length ?? game.bank?.items?.size), capacity: safeInt(game.bank?.maximumSlots) },
     currentAction: { skill: null, actionId: null },
     combat: { hp: null, maxHp: null, foodEquipped: null }
   };
@@ -26,6 +26,19 @@ export function setup(ctx) {
   ctx.onInterfaceReady(() => { ready = true; });
   ctx.api({
     getStatus: () => ({ ready, mode: "read-only", transport: "in-game-mod-api" }),
-    getSnapshot: () => ready ? createSnapshot(globalThis.game) : null
+    getSnapshot: () => ready ? createSnapshot(globalThis.game) : null,
+    getDiagnostics: () => {
+      if (!ready) return { ready: false, missing: ["character-not-ready"] };
+      const snapshot = createSnapshot(globalThis.game);
+      if (!snapshot) return { ready: true, missing: ["game"] };
+      const missing = [];
+      if (snapshot.gp === null) missing.push("gp");
+      if (snapshot.bank.used === null) missing.push("bank.used");
+      if (snapshot.bank.capacity === null) missing.push("bank.capacity");
+      for (const [name, level] of Object.entries(snapshot.skills)) {
+        if (level === null) missing.push("skills." + name);
+      }
+      return { ready: true, missing };
+    }
   });
 }
