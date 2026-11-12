@@ -69,8 +69,7 @@ pub fn initialize_research_storage(app_data_dir: &Path) -> Result<(), String> {
     let legacy = app_data_dir.join("kardii-trading.sqlite3");
     if !legacy.is_file() { return Ok(()); }
     // ATTACH is read-only: preserve the source database and all original IDs.
-    let uri = format!("file:{}?mode=ro", legacy.to_string_lossy());
-    db.execute("ATTACH DATABASE ?1 AS legacy", params![uri])
+    db.execute("ATTACH DATABASE ?1 AS legacy", params![legacy.to_string_lossy().to_string()])
         .map_err(|e| format!("无法读取旧研究数据库：{e}"))?;
     let result = (|| -> Result<(), String> {
         let exists: i64 = db.query_row(
