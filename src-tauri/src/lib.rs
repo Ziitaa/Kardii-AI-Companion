@@ -7,7 +7,7 @@ mod decision;
 mod trading;
 mod research_types;
 mod research;
-use research::ResearchState;
+use research::{ResearchState, list_external_research_items, set_external_research_verification, promote_external_research_hypothesis};
 mod readonly_viewer;
 mod remote_viewer;
 mod wecom;
@@ -51,7 +51,7 @@ use readonly_viewer::{
     initialize_readonly_viewer, open_readonly_viewer, readonly_viewer_pairing_link,
     readonly_viewer_status, save_readonly_viewer_public_base,
 };
-use trading::{create_trade_intent, delete_binance_readonly_credentials, delete_jev_provider_credentials, delete_market_gateway_connection, evaluate_trade_risk, get_binance_readonly_status, get_decision_shadow_status, get_execution_guard_status, get_execution_readiness, get_jev_provider_status, get_market_gateway_connection_status, get_market_snapshot, get_real_ledger_status, get_runtime_health_status, get_shadow_experiment_status, get_symbol_research, get_trading_runtime_status, list_external_research_items, list_trade_intents, promote_external_research_hypothesis, refresh_trading_runtime, reset_execution_kill_switch, save_binance_readonly_credentials, save_jev_provider_credentials, save_market_gateway_connection, scan_market_opportunities, set_external_research_verification, sync_binance_readonly_ledger, ExternalResearchAnalysisUpdate, ExternalResearchItem, ExternalResearchUpsert, TradingRuntimeState};
+use trading::{create_trade_intent, delete_binance_readonly_credentials, delete_jev_provider_credentials, delete_market_gateway_connection, evaluate_trade_risk, get_binance_readonly_status, get_decision_shadow_status, get_execution_guard_status, get_execution_readiness, get_jev_provider_status, get_market_gateway_connection_status, get_market_snapshot, get_real_ledger_status, get_runtime_health_status, get_shadow_experiment_status, get_symbol_research, get_trading_runtime_status, list_trade_intents, refresh_trading_runtime, reset_execution_kill_switch, save_binance_readonly_credentials, save_jev_provider_credentials, save_market_gateway_connection, scan_market_opportunities, sync_binance_readonly_ledger, ExternalResearchAnalysisUpdate, ExternalResearchItem, ExternalResearchUpsert, TradingRuntimeState};
 use wecom::{
     cancel_wecom_qr_authorization, delete_wecom_bot_secret, disconnect_wecom_documents,
     has_wecom_bot_secret, read_wecom_document, reply_wecom_media, reply_wecom_message,
