@@ -6242,15 +6242,11 @@ pub fn run() {
             voice_state.initialize_if_installed();
             app.manage(storage_state);
             app.manage(voice_state);
-            tauri::async_runtime::spawn(async move {
-                let _ = trading_runtime.refresh().await;
-                let _ = trading_runtime.sync_binance_readonly_snapshot().await;
-                loop {
-                    tokio::time::sleep(Duration::from_secs(300)).await;
-                    let _ = trading_runtime.refresh().await;
-                    let _ = trading_runtime.sync_binance_readonly_snapshot().await;
-                }
-            });
+            // General-purpose Kardii does not poll crypto exchanges in the background.
+            // Keep the legacy runtime registered temporarily for migration compatibility;
+            // remove its commands and storage only after the UI dependencies are audited.
+            // In particular, do not delete existing keychain credentials or user data.
+
 
             let background_scheduler = app.handle().clone();
             tauri::async_runtime::spawn(async move {
