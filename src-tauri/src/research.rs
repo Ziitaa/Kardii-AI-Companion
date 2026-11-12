@@ -6,7 +6,7 @@ use crate::trading::TradingRuntimeState;
 use crate::research_storage::external_research_from_row;
 use rusqlite::{Connection, params, OptionalExtension};
 use chrono::Utc;
-use crate::research_storage::{canonical_external_url, external_sha256, normalized_external_content, external_research_by_id, clean_external_list};
+use crate::research_storage::{canonical_external_url, external_sha256, normalized_external_content, external_research_by_id, clean_external_list, valid_verification_status};
 use std::path::PathBuf;
 
 #[derive(Clone)]
@@ -198,6 +198,118 @@ impl ResearchState {
         }.map_err(|e| format!("无法查询研究记录：{e}"))?;
         rows.collect::<rusqlite::Result<Vec<_>>>()
             .map_err(|e| format!("无法解析研究记录：{e}"))
+    }
+
+    pub fn set_independent_research_verification(
+        &self,
+        id: i64,
+        verification_status: String,
+        research_result: String,
+        rejection_reason: String,
+    ) -> Result<ExternalResearchItem, String> {
+        let status = verification_status.trim().to_uppercase();
+        if !valid_verification_status(&status) {
+            return Err("Verification status 必须是 NEW / TRIAGED / VERIFYING / SUPPORTED / REJECTED / UNRESOLVED。".to_string());
+        }
+        let disposition = if status == "REJECTED" { "rejected" } else { "unresolved" };
+        let research_result = research_result.trim().chars().take(8_000).collect::<String>();
+        let rejection_reason = rejection_reason.trim().chars().take(2_000).collect::<String>();
+        let now = Utc::now().to_rfc3339();
+        self.with_independent_database(|connection| {
+            let transaction = connection.unchecked_transaction()
+                .map_err(|error| format!("无法开始 External Research verification 记录：{error}"))?;
+            transaction.execute(
+                "UPDATE external_research_items SET
+                   verification_status = ?1,
+                   research_result = ?2,
+                   rejection_reason = ?3,
+                   disposition = CASE WHEN disposition = 'promoted' THEN disposition ELSE ?4 END,
+                   updated_at = ?5
+                 WHERE id = ?6",
+                params![
+                    status,
+                    research_result,
+                    rejection_reason,
+                    disposition,
+                    now,
+                    id,
+                ],
+            ).map_err(|error| format!("无法更新 External Research verification：{error}"))?;
+            let linked_experiment_id: String = transaction
+                .query_row(
+                    "SELECT linked_experiment_id FROM external_research_items WHERE id = ?1",
+                    [id],
+                    |row| row.get(0),
+                )
+                .map_err(|error| format!("无法读取 External Research experiment linkage：{error}"))?;
+            transaction.execute(
+                "INSERT INTO research_verification_events(
+                   research_item_id, verification_status, research_result,
+                   rejection_reason, linked_experiment_id, created_at
+                 ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    id,
+                    status,
+                    research_result,
+                    rejection_reason,
+                    linked_experiment_id,
+                    now,
+                ],
+            ).map_err(|error| format!("无法写入 External Research verification event：{error}"))?;
+            transaction.commit()
+                .map_err(|error| format!("无法提交 External Research verification 记录：{error}"))?;
+            external_research_by_id(connection, id)
+        })
+    }
+
+
+    pub fn promote_independent_research_hypothesis(
+        &self,
+        id: i64,
+        hypothesis: String,
+        linked_experiment_id: String,
+    ) -> Result<ExternalResearchItem, String> {
+        let hypothesis = hypothesis.trim().chars().take(2_000).collect::<String>();
+        if hypothesis.len() < 8 {
+            return Err("Hypothesis 太短，无法进入可重复验证流程。".to_string());
+        }
+        let linked_experiment_id = linked_experiment_id.trim().chars().take(120).collect::<String>();
+        let now = Utc::now().to_rfc3339();
+        self.with_independent_database(|connection| {
+            let transaction = connection.unchecked_transaction()
+                .map_err(|error| format!("无法开始 External Research experiment linkage：{error}"))?;
+            transaction.execute(
+                "UPDATE external_research_items SET
+                   hypothesis = ?1,
+                   linked_experiment_id = ?2,
+                   disposition = 'promoted',
+                   verification_status = CASE
+                     WHEN ?2 <> '' AND verification_status IN ('NEW', 'TRIAGED') THEN 'VERIFYING'
+                     WHEN verification_status = 'NEW' THEN 'TRIAGED'
+                     ELSE verification_status
+                   END,
+                   updated_at = ?3
+                 WHERE id = ?4",
+                params![hypothesis, linked_experiment_id, now, id],
+            ).map_err(|error| format!("无法创建 External Research hypothesis：{error}"))?;
+            let verification_status: String = transaction
+                .query_row(
+                    "SELECT verification_status FROM external_research_items WHERE id = ?1",
+                    [id],
+                    |row| row.get(0),
+                )
+                .map_err(|error| format!("无法读取 External Research verification status：{error}"))?;
+            transaction.execute(
+                "INSERT INTO research_verification_events(
+                   research_item_id, verification_status, research_result,
+                   rejection_reason, linked_experiment_id, created_at
+                 ) VALUES(?1, ?2, '', '', ?3, ?4)",
+                params![id, verification_status, linked_experiment_id, now],
+            ).map_err(|error| format!("无法记录 External Research verification linkage event：{error}"))?;
+            transaction.commit()
+                .map_err(|error| format!("无法提交 External Research experiment linkage：{error}"))?;
+            external_research_by_id(connection, id)
+        })
     }
 
     pub fn set_external_research_verification(&self, id: i64, status: String, result: String, reason: String) -> Result<ExternalResearchItem, String> {
