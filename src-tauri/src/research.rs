@@ -23,4 +23,46 @@ impl ResearchState {
     pub fn apply_external_research_analysis(&self, id: i64, update: ExternalResearchAnalysisUpdate) -> Result<ExternalResearchItem, String> {
         self.legacy.apply_external_research_analysis(id, update)
     }
+    pub fn list_external_research_items(&self, limit: usize, verification_status: Option<String>) -> Result<Vec<ExternalResearchItem>, String> {
+        self.legacy.list_external_research_items(limit, verification_status)
+    }
+
+    pub fn set_external_research_verification(&self, id: i64, status: String, result: String, reason: String) -> Result<ExternalResearchItem, String> {
+        self.legacy.set_external_research_verification(id, status, result, reason)
+    }
+
+    pub fn promote_external_research_hypothesis(&self, id: i64, hypothesis: String, linked_experiment_id: String) -> Result<ExternalResearchItem, String> {
+        self.legacy.promote_external_research_hypothesis(id, hypothesis, linked_experiment_id)
+    }
+
+}
+
+#[tauri::command]
+pub fn list_external_research_items(
+    state: tauri::State<'_, ResearchState>,
+    limit: Option<usize>,
+    verification_status: Option<String>,
+) -> Result<Vec<ExternalResearchItem>, String> {
+    state.list_external_research_items(limit.unwrap_or(50), verification_status)
+}
+
+#[tauri::command]
+pub fn set_external_research_verification(
+    state: tauri::State<'_, ResearchState>,
+    item_id: i64,
+    verification_status: String,
+    research_result: String,
+    rejection_reason: String,
+) -> Result<ExternalResearchItem, String> {
+    state.set_external_research_verification(item_id, verification_status, research_result, rejection_reason)
+}
+
+#[tauri::command]
+pub fn promote_external_research_hypothesis(
+    state: tauri::State<'_, ResearchState>,
+    item_id: i64,
+    hypothesis: String,
+    linked_experiment_id: String,
+) -> Result<ExternalResearchItem, String> {
+    state.promote_external_research_hypothesis(item_id, hypothesis, linked_experiment_id)
 }
