@@ -52,7 +52,7 @@ use readonly_viewer::{
     initialize_readonly_viewer, open_readonly_viewer, readonly_viewer_pairing_link,
     readonly_viewer_status, save_readonly_viewer_public_base,
 };
-use trading::{create_trade_intent, delete_binance_readonly_credentials, delete_jev_provider_credentials, delete_market_gateway_connection, evaluate_trade_risk, get_binance_readonly_status, get_decision_shadow_status, get_execution_guard_status, get_execution_readiness, get_jev_provider_status, get_market_gateway_connection_status, get_market_snapshot, get_real_ledger_status, get_runtime_health_status, get_shadow_experiment_status, get_symbol_research, get_trading_runtime_status, list_trade_intents, refresh_trading_runtime, reset_execution_kill_switch, save_binance_readonly_credentials, save_jev_provider_credentials, save_market_gateway_connection, scan_market_opportunities, sync_binance_readonly_ledger, ExternalResearchAnalysisUpdate, ExternalResearchItem, ExternalResearchUpsert, TradingRuntimeState};
+use research_types::{ExternalResearchAnalysisUpdate, ExternalResearchItem, ExternalResearchUpsert};
 use wecom::{
     cancel_wecom_qr_authorization, delete_wecom_bot_secret, disconnect_wecom_documents,
     has_wecom_bot_secret, read_wecom_document, reply_wecom_media, reply_wecom_message,
@@ -6229,7 +6229,6 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(StreamState::default())
         .manage(WecomState::default())
-        .manage(TradingRuntimeState::default())
         .setup(|app| {
             let app_data_dir = app
                 .path()
@@ -6237,11 +6236,6 @@ pub fn run() {
                 .map_err(|error| format!("无法打开 Kardii 数据文件夹：{error}"))?;
             let storage_state = StorageState::new(&app_data_dir)
                 .map_err(|error| format!("无法初始化 Kardii 本机数据库：{error}"))?;
-            let trading_runtime = app.state::<TradingRuntimeState>().inner().clone();
-            app.manage(ResearchState::new(app_data_dir.join("kardii-research.sqlite3")));
-            trading_runtime
-                .initialize_persistence(&app_data_dir)
-                .map_err(|error| format!("无法初始化 Kardii 交易运行层：{error}"))?;
             research_storage::initialize_research_storage(&app_data_dir)
                 .map_err(|error| format!("无法初始化 Kardii 独立研究存储：{error}"))?;
             let _ = initialize_readonly_viewer(&app_data_dir);
@@ -6249,10 +6243,6 @@ pub fn run() {
             voice_state.initialize_if_installed();
             app.manage(storage_state);
             app.manage(voice_state);
-            // General-purpose Kardii does not poll crypto exchanges in the background.
-            // Keep the legacy runtime registered temporarily for migration compatibility;
-            // remove its commands and storage only after the UI dependencies are audited.
-            // In particular, do not delete existing keychain credentials or user data.
 
 
             let background_scheduler = app.handle().clone();
@@ -6359,25 +6349,6 @@ pub fn run() {
             list_external_research_items,
             set_external_research_verification,
             promote_external_research_hypothesis,
-            evaluate_trade_risk,
-            create_trade_intent,
-            list_trade_intents,
-            save_binance_readonly_credentials,
-            get_binance_readonly_status,
-            delete_binance_readonly_credentials,
-            save_market_gateway_connection,
-            get_market_gateway_connection_status,
-            delete_market_gateway_connection,
-            get_real_ledger_status,
-            get_execution_readiness,
-            get_execution_guard_status,
-            get_shadow_experiment_status,
-            get_decision_shadow_status,
-            get_runtime_health_status,
-            save_jev_provider_credentials,
-            get_jev_provider_status,
-            delete_jev_provider_credentials,
-            reset_execution_kill_switch,
             readonly_viewer_status,
             open_readonly_viewer,
             readonly_viewer_pairing_link,
@@ -6387,12 +6358,6 @@ pub fn run() {
             save_remote_viewer_connection,
             get_remote_viewer_connection_status,
             delete_remote_viewer_connection,
-            sync_binance_readonly_ledger,
-            get_market_snapshot,
-            get_symbol_research,
-            get_trading_runtime_status,
-            refresh_trading_runtime,
-            scan_market_opportunities,
             create_agent_plan,
             decide_agent_action,
             prepare_agent_attachment,
