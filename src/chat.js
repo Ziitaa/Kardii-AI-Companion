@@ -2225,68 +2225,16 @@ function addLocalExchange(userText, replyText) {
   updateReplyActions();
 }
 
-async function handleTradingRuntimeQuestion(text) {
-  const question=String(text||"").trim();
-  if(/(?:只读查看|远程查看|打开只读状态|查看只读状态)/.test(question)){
-    try{
-      const viewer=await invoke("open_readonly_viewer");
-      addLocalExchange(question,"已经打开 Kardii 只读查看页。当前只绑定本机 "+viewer.bindAddress+":"+viewer.port+"，不会暴露到公网。");
-    }catch(error){
-      addLocalExchange(question,"只读查看页暂时打不开："+String(error));
-    }
-    return true;
+async function handleReadonlyViewerQuestion(text) {
+  const question = String(text || "").trim();
+  if (!/(?:只读查看|远程查看|打开只读状态|查看只读状态)/.test(question)) return false;
+  try {
+    const viewer = await invoke("open_readonly_viewer");
+    addLocalExchange(question, "已经打开 Kardii 只读查看页。本机地址：" + viewer.bindAddress + ":" + viewer.port);
+  } catch (error) {
+    addLocalExchange(question, "只读查看页暂时打不开：" + String(error));
   }
-  const looksRelevant=/(?:现在在(?:干嘛|做什么)|最近在(?:干嘛|做什么|研究什么)|运行状态|市场扫描|机会扫描|候选|盯着什么|为什么盯|为什么看|研究了什么|研究历史|策略实验|风险规则|支持市场|美股|港股|Binance|币安|账户|余额|API|赚了多少|赚多少钱|真实账本|账本怎么样)/i.test(question);
-  if(!looksRelevant)return false;
-  try{
-    const runtime=await invoke("get_trading_runtime_status");
-    const wantsExecution=/(?:执行准备|为什么不能下单|为什么还不能|能不能下单|可以下单|准备好交易|下单条件|真实执行)/.test(question);
-    let executionReadiness=null;
-    if(wantsExecution){
-      try{executionReadiness=await invoke("get_execution_readiness");}catch{}
-    }
-    let coreLedger=null;
-    try{coreLedger=await invoke("get_real_ledger_status");}catch{}
-    let shadowStatus=null;
-    try{shadowStatus=await invoke("get_shadow_experiment_status");}catch{}
-    const wantsAccount=/(?:Binance|币安|账户|余额|API)/i.test(question);
-    let binanceAccount=null;
-    if(wantsAccount){
-      try{binanceAccount=await invoke("get_binance_readonly_status");}catch{}
-    }
-    let ledger={ledger:[]};
-    try{ledger=JSON.parse(localStorage.getItem("kardii-trading-state-v1")||"{}")||{};}catch{}
-    const rows=Array.isArray(ledger.ledger)?ledger.ledger:[];
-    const realized=rows.filter(x=>x.type==="realized_pnl").reduce((sum,x)=>sum+(Number(x.amount)||0),0);
-    const top=Array.isArray(runtime.candidates)?runtime.candidates.slice(0,3):[];
-    const research=Array.isArray(runtime.research)?runtime.research.slice(0,3):[];
-    const history=Array.isArray(runtime.recentHistory)?runtime.recentHistory.slice(0,5):[];
-    const experiments=Array.isArray(runtime.strategyExperiments)?runtime.strategyExperiments.filter(x=>x.status==="observing").slice(0,5):[];
-    const lines=[
-      "当前模式："+(runtime.mode==="research-only"?"只读研究":"运行中"),
-      runtime.refreshing?"市场正在刷新。":runtime.lastScanAt?("最近扫描："+new Date(runtime.lastScanAt).toLocaleString("zh-CN")):"还没有完成第一次市场扫描。",
-      runtime.lastError?("数据状态："+runtime.lastError):("当前候选："+(runtime.candidateCount||0)+" 个。"),
-      top.length?("优先研究："+top.map(x=>x.symbol+"（"+Number(x.attentionScore||0).toFixed(1)+"）").join("、")):"暂时没有候选。",
-      research.length?("当前证据已补充："+research.map(x=>x.symbol).join("、")):"",
-      experiments.length?("正在观察的策略实验："+experiments.map(x=>x.symbol+"（已观察 "+x.observationCount+" 次）").join("、")):"当前没有持续观察实验。",
-      shadowStatus?("Shadow 1小时实验：进行中 "+shadowStatus.openCount+" 个，已结算 "+shadowStatus.closedCount+" 个，平均结果 "+Number(shadowStatus.averageReturnPercent||0).toFixed(3)+"%。"):"",
-      history.length?("最近研究历史："+history.map(x=>x.symbol+" "+new Date(x.scannedAt).toLocaleTimeString("zh-CN",{hour:"2-digit",minute:"2-digit"})).join("、")):"",
-      runtime.persistenceError?("本地研究库状态："+runtime.persistenceError):"研究历史已写入本机持久化数据库。",
-      coreLedger?("核心真实账本："+coreLedger.eventCount+" 条真实事件；余额快照 "+coreLedger.snapshotCount+" 条；对账状态 "+coreLedger.reconciliationStatus+"。"):"",
-      rows.length?("旧版手工账本仍有 "+rows.length+" 条本地记录；后续迁移时会和核心真实账本分开处理。"):"",
-      binanceAccount?(binanceAccount.configured
-        ?("Binance 只读账户："+(binanceAccount.safeReadOnly?"已安全连接":"权限不安全/待处理")+"；非零余额资产 "+(binanceAccount.nonzeroBalances?.length||0)+" 个。")
-        :"Binance 只读账户：尚未配置。"):"",
-      executionReadiness?("真实执行准备："+(executionReadiness.ready?"已满足":"未满足")+"。"+(executionReadiness.reasons?.length?" 原因："+executionReadiness.reasons.join("；"):"")):"",
-      Array.isArray(runtime.markets)?("支持市场："+runtime.markets.map(x=>x.label+"["+(x.status==="active"?"运行中":"计划中")+"]").join("、")):"",
-      runtime.riskPolicy?.note||""
-    ].filter(Boolean);
-    addLocalExchange(question,lines.join("\n"));
-    return true;
-  }catch(error){
-    addLocalExchange(question,"Kardii 的交易运行状态暂时读取失败："+String(error));
-    return true;
-  }
+  return true;
 }
 
 function handleMemoryCommand(text) {
@@ -3907,7 +3855,7 @@ form.addEventListener("submit", async (event) => {
     resizeInput();
     return;
   }
-  if (!attachments.length && await handleTradingRuntimeQuestion(question)) {
+  if (!attachments.length && await handleReadonlyViewerQuestion(question)) {
     input.value = "";
     activeChatSession().draft = "";
     persistChatSessionStore();
