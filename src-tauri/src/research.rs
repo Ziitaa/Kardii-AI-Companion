@@ -1,8 +1,5 @@
-//! Transitional research service boundary.
-//! Research commands use this service rather than referencing TradingRuntimeState.
-//! The legacy SQLite persistence is delegated temporarily; migration is pending.
+//! General-purpose research service backed by its own SQLite database.
 use crate::research_types::{ExternalResearchAnalysisUpdate, ExternalResearchItem, ExternalResearchUpsert};
-use crate::trading::TradingRuntimeState;
 use crate::research_storage::external_research_from_row;
 use rusqlite::{Connection, params, OptionalExtension};
 use chrono::Utc;
@@ -11,12 +8,11 @@ use std::path::PathBuf;
 
 #[derive(Clone)]
 pub struct ResearchState {
-    legacy: TradingRuntimeState,
     database_path: PathBuf,
 }
 
 impl ResearchState {
-    pub fn new(legacy: TradingRuntimeState, database_path: PathBuf) -> Self { Self { legacy, database_path } }
+    pub fn new(database_path: PathBuf) -> Self { Self { database_path } }
 
     fn with_independent_database<T>(&self, action: impl FnOnce(&Connection) -> Result<T, String>) -> Result<T, String> {
         let db = Connection::open(&self.database_path)
@@ -97,7 +93,7 @@ impl ResearchState {
     }
 
     pub fn upsert_external_research_item(&self, item: ExternalResearchUpsert) -> Result<ExternalResearchItem, String> {
-        self.legacy.upsert_external_research_item(item)
+        self.upsert_independent_research_item(item)
     }
 
     pub fn load_independent_research_item(&self, id: i64) -> Result<ExternalResearchItem, String> {
@@ -105,14 +101,12 @@ impl ResearchState {
         crate::research_storage::external_research_by_id(&db, id)
     }
 
-    // Keep command reads on the legacy store until writes are migrated too.
-    // Mixing independent reads with legacy writes would hide new changes.
     pub fn load_external_research_item(&self, id: i64) -> Result<ExternalResearchItem, String> {
-        self.legacy.load_external_research_item(id)
+        self.load_independent_research_item(id)
     }
 
     pub fn list_external_research_items(&self, limit: usize, verification_status: Option<String>) -> Result<Vec<ExternalResearchItem>, String> {
-        self.legacy.list_external_research_items(limit, verification_status)
+        self.list_independent_research_items(limit, verification_status)
     }
 
     pub fn apply_independent_research_analysis(
@@ -170,7 +164,7 @@ impl ResearchState {
     }
 
     pub fn apply_external_research_analysis(&self, id: i64, update: ExternalResearchAnalysisUpdate) -> Result<ExternalResearchItem, String> {
-        self.legacy.apply_external_research_analysis(id, update)
+        self.apply_independent_research_analysis(id, update)
     }
     pub fn list_independent_research_items(&self, limit: usize, verification_status: Option<String>) -> Result<Vec<ExternalResearchItem>, String> {
         let db = Connection::open(&self.database_path).map_err(|e| format!("无法打开研究数据库：{e}"))?;
@@ -313,11 +307,11 @@ impl ResearchState {
     }
 
     pub fn set_external_research_verification(&self, id: i64, status: String, result: String, reason: String) -> Result<ExternalResearchItem, String> {
-        self.legacy.set_external_research_verification(id, status, result, reason)
+        self.set_independent_research_verification(id, status, result, reason)
     }
 
     pub fn promote_external_research_hypothesis(&self, id: i64, hypothesis: String, linked_experiment_id: String) -> Result<ExternalResearchItem, String> {
-        self.legacy.promote_external_research_hypothesis(id, hypothesis, linked_experiment_id)
+        self.promote_independent_research_hypothesis(id, hypothesis, linked_experiment_id)
     }
 
 }
