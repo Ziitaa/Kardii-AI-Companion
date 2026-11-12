@@ -45,7 +45,10 @@ export function setup(ctx) {
   let ready = false;
   ctx.onInterfaceReady(() => { ready = true; });
   ctx.api({
-    getStatus: () => ({ ready, mode: "read-only", transport: "in-game-mod-api" }),\n    sendOnce: (url, token) => ready\n      ? sendSnapshot({ game: globalThis.game, url, token })\n      : Promise.reject(new Error("Character not ready")),
+    getStatus: () => ({ ready, mode: "read-only", transport: "in-game-mod-api" }),
+    sendOnce: (url, token) => ready
+      ? sendSnapshot({ game: globalThis.game, url, token })
+      : Promise.reject(new Error("Character not ready")),
     getSnapshot: () => ready ? createSnapshot(globalThis.game) : null,
     getDiagnostics: () => {
       if (!ready) return { ready: false, missing: ["character-not-ready"] };
