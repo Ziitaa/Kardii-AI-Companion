@@ -21,11 +21,31 @@ export function createSnapshot(game) {
     combat: { hp: null, maxHp: null, foodEquipped: null }
   };
 }
+// Explicit opt-in. Disabled by default; never sends credentials or save files.
+// This is an experimental Steam WebView transport: localhost CORS must be verified.
+export async function sendSnapshot({ game, url, token, fetchImpl = globalThis.fetch }) {
+  if (typeof url !== "string" || !/^http:\/\/127\.0\.0\.1:\d+\/v1\/snapshot$/.test(url)) {
+    throw new Error("Only the local Kardii snapshot endpoint is allowed");
+  }
+  if (typeof token !== "string" || token.length < 32) throw new Error("Missing session token");
+  if (typeof fetchImpl !== "function") throw new Error("Network transport unavailable");
+  const snapshot = createSnapshot(game);
+  if (!snapshot) throw new Error("Character not ready");
+  const response = await fetchImpl(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-kardii-token": token },
+    body: JSON.stringify(snapshot),
+    cache: "no-store"
+  });
+  if (!response.ok) throw new Error("Kardii receiver rejected snapshot: " + response.status);
+  return response.json();
+}
+
 export function setup(ctx) {
   let ready = false;
   ctx.onInterfaceReady(() => { ready = true; });
   ctx.api({
-    getStatus: () => ({ ready, mode: "read-only", transport: "in-game-mod-api" }),
+    getStatus: () => ({ ready, mode: "read-only", transport: "in-game-mod-api" }),\n    sendOnce: (url, token) => ready\n      ? sendSnapshot({ game: globalThis.game, url, token })\n      : Promise.reject(new Error("Character not ready")),
     getSnapshot: () => ready ? createSnapshot(globalThis.game) : null,
     getDiagnostics: () => {
       if (!ready) return { ready: false, missing: ["character-not-ready"] };
