@@ -6,7 +6,7 @@ use crate::trading::TradingRuntimeState;
 use crate::research_storage::external_research_from_row;
 use rusqlite::{Connection, params, OptionalExtension};
 use chrono::Utc;
-use crate::research_storage::{canonical_external_url, external_sha256, normalized_external_content, external_research_by_id};
+use crate::research_storage::{canonical_external_url, external_sha256, normalized_external_content, external_research_by_id, clean_external_list};
 use std::path::PathBuf;
 
 #[derive(Clone)]
@@ -113,6 +113,60 @@ impl ResearchState {
 
     pub fn list_external_research_items(&self, limit: usize, verification_status: Option<String>) -> Result<Vec<ExternalResearchItem>, String> {
         self.legacy.list_external_research_items(limit, verification_status)
+    }
+
+    pub fn apply_independent_research_analysis(
+        &self,
+        id: i64,
+        update: ExternalResearchAnalysisUpdate,
+    ) -> Result<ExternalResearchItem, String> {
+        let topic = update.topic.trim().chars().take(120).collect::<String>();
+        let source_tier = match update.source_tier.trim() {
+            "primary-official" | "institutional-quant" | "market-intelligence"
+            | "practitioner-social" | "unknown" => update.source_tier.trim().to_string(),
+            _ => "unknown".to_string(),
+        };
+        let assets = clean_external_list(update.assets, 24, 40);
+        let indicators = clean_external_list(update.mentioned_indicators, 24, 80);
+        let tools = clean_external_list(update.mentioned_tools, 24, 120);
+        let links = clean_external_list(update.evidence_links, 24, 2_000);
+        let claims_json = serde_json::to_string(&update.extracted_claims)
+            .map_err(|error| format!("无法序列化 External Research claims：{error}"))?;
+        let now = Utc::now().to_rfc3339();
+
+        self.with_independent_database(|connection| {
+            connection.execute(
+                "UPDATE external_research_items SET
+                   summary = ?1,
+                   topic = ?2,
+                   source_tier = ?3,
+                   assets_json = ?4,
+                   indicators_json = ?5,
+                   tools_json = ?6,
+                   claims_json = ?7,
+                   evidence_links_json = ?8,
+                   possible_commercial_relationship = ?9,
+                   hypothesis = CASE WHEN hypothesis = '' THEN ?10 ELSE hypothesis END,
+                   verification_status = CASE WHEN verification_status = 'NEW' THEN 'TRIAGED' ELSE verification_status END,
+                   updated_at = ?11
+                 WHERE id = ?12",
+                params![
+                    update.summary.trim().chars().take(4_000).collect::<String>(),
+                    if topic.is_empty() { "unclassified".to_string() } else { topic },
+                    source_tier,
+                    serde_json::to_string(&assets).unwrap_or_else(|_| "[]".to_string()),
+                    serde_json::to_string(&indicators).unwrap_or_else(|_| "[]".to_string()),
+                    serde_json::to_string(&tools).unwrap_or_else(|_| "[]".to_string()),
+                    claims_json,
+                    serde_json::to_string(&links).unwrap_or_else(|_| "[]".to_string()),
+                    update.possible_commercial_relationship.trim().chars().take(500).collect::<String>(),
+                    update.hypothesis.trim().chars().take(2_000).collect::<String>(),
+                    now,
+                    id,
+                ],
+            ).map_err(|error| format!("无法更新 External Research claims：{error}"))?;
+            external_research_by_id(connection, id)
+        })
     }
 
     pub fn apply_external_research_analysis(&self, id: i64, update: ExternalResearchAnalysisUpdate) -> Result<ExternalResearchItem, String> {
