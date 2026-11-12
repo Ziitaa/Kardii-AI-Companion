@@ -20,15 +20,25 @@ impl ResearchState {
         self.legacy.upsert_external_research_item(item)
     }
 
-    pub fn load_external_research_item(&self, id: i64) -> Result<ExternalResearchItem, String> {
+    pub fn load_independent_research_item(&self, id: i64) -> Result<ExternalResearchItem, String> {
         let db = Connection::open(&self.database_path).map_err(|e| format!("无法打开研究数据库：{e}"))?;
         crate::research_storage::external_research_by_id(&db, id)
+    }
+
+    // Keep command reads on the legacy store until writes are migrated too.
+    // Mixing independent reads with legacy writes would hide new changes.
+    pub fn load_external_research_item(&self, id: i64) -> Result<ExternalResearchItem, String> {
+        self.legacy.load_external_research_item(id)
+    }
+
+    pub fn list_external_research_items(&self, limit: usize, verification_status: Option<String>) -> Result<Vec<ExternalResearchItem>, String> {
+        self.legacy.list_external_research_items(limit, verification_status)
     }
 
     pub fn apply_external_research_analysis(&self, id: i64, update: ExternalResearchAnalysisUpdate) -> Result<ExternalResearchItem, String> {
         self.legacy.apply_external_research_analysis(id, update)
     }
-    pub fn list_external_research_items(&self, limit: usize, verification_status: Option<String>) -> Result<Vec<ExternalResearchItem>, String> {
+    pub fn list_independent_research_items(&self, limit: usize, verification_status: Option<String>) -> Result<Vec<ExternalResearchItem>, String> {
         let db = Connection::open(&self.database_path).map_err(|e| format!("无法打开研究数据库：{e}"))?;
         let status = verification_status
             .map(|value| value.trim().to_uppercase())
