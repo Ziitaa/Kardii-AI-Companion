@@ -55,7 +55,7 @@ pub fn initialize_research_storage(app_data_dir: &Path) -> Result<(), String> {
              CREATE INDEX IF NOT EXISTS external_research_normalized_hash
                ON external_research_items(normalized_hash);
              
-        CREATE TABLE IF NOT EXISTS research_verification_events (
+        CREATE TABLE IF NOT EXISTS research_migrations (\n          migration_key TEXT PRIMARY KEY,\n          completed_at TEXT NOT NULL\n        );\n        CREATE TABLE IF NOT EXISTS research_verification_events (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           research_item_id INTEGER NOT NULL,
           verification_status TEXT NOT NULL,
@@ -66,9 +66,9 @@ pub fn initialize_research_storage(app_data_dir: &Path) -> Result<(), String> {
           FOREIGN KEY(research_item_id) REFERENCES external_research_items(id) ON DELETE CASCADE
         );
     "#).map_err(|e| format!("无法初始化独立研究数据表：{e}"))?;
-    let legacy = app_data_dir.join("kardii-trading.sqlite3");
+    let already_migrated: i64 = db.query_row(\n        "SELECT COUNT(*) FROM research_migrations WHERE migration_key = ?1",\n        params!["legacy-trading-research-v1"], |row| row.get(0)\n    ).map_err(|e| format!("无法检查研究迁移状态：{e}"))?;\n    if already_migrated != 0 { return Ok(()); }\n    let legacy = app_data_dir.join("kardii-trading.sqlite3");
     if !legacy.is_file() { return Ok(()); }
-    // ATTACH is read-only: preserve the source database and all original IDs.
+    // Source is only queried by SELECT. Do not mutate or remove the legacy database.
     db.execute("ATTACH DATABASE ?1 AS legacy", params![legacy.to_string_lossy().to_string()])
         .map_err(|e| format!("无法读取旧研究数据库：{e}"))?;
     let result = (|| -> Result<(), String> {
@@ -92,7 +92,7 @@ pub fn initialize_research_storage(app_data_dir: &Path) -> Result<(), String> {
             tx.execute_batch("INSERT OR IGNORE INTO research_verification_events SELECT * FROM legacy.research_verification_events;")
                 .map_err(|e| format!("无法迁移研究验证记录：{e}"))?;
         }
-        tx.commit().map_err(|e| format!("无法提交研究数据迁移：{e}"))
+        tx.execute(\n            "INSERT INTO research_migrations (migration_key, completed_at) VALUES (?1, ?2)",\n            params!["legacy-trading-research-v1", chrono::Utc::now().to_rfc3339()]\n        ).map_err(|e| format!("无法记录研究迁移状态：{e}"))?;\n        tx.commit().map_err(|e| format!("无法提交研究数据迁移：{e}"))
     })();
     let _ = db.execute_batch("DETACH DATABASE legacy;");
     result
