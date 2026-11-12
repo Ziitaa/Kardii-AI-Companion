@@ -21,12 +21,14 @@ export function createMelvorReceiver({ token = randomBytes(32).toString("hex"), 
     if (!constantTimeEqual(req.headers["x-kardii-token"], token)) return reply(401, { error: "unauthorized" });
     const chunks = [];
     let size = 0;
+    let oversized = false;
     req.on("data", chunk => {
       size += chunk.length;
-      if (size > MAX_BYTES) { req.destroy(); return; }
+      if (size > MAX_BYTES) { oversized = true; return; }
       chunks.push(chunk);
     });
     req.on("end", () => {
+      if (oversized) return reply(413, { error: "payload-too-large" });
       try {
         const snapshot = parseMelvorSnapshot(JSON.parse(Buffer.concat(chunks).toString("utf8")));
         if (Math.abs(Date.now() - Date.parse(snapshot.capturedAt)) > 120000) return reply(422, { error: "stale-snapshot" });
