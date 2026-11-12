@@ -43,3 +43,24 @@ test("valid snapshot is received and never grants execution", async () => {
     assert.equal(received.length, 1);
   } finally { await receiver.stop(); }
 });
+
+test("receiver rejects oversized payloads without replacing latest state", async () => {
+  const receiver = createMelvorReceiver();
+  const port = await receiver.start();
+  try {
+    assert.equal((await post(port, receiver.token, sample())).status, 200);
+    const large = { ...sample(), extra: "x".repeat(9000) };
+    assert.equal((await post(port, receiver.token, large)).status, 413);
+    assert.equal(receiver.latest().snapshot.gp, 123);
+  } finally { await receiver.stop(); }
+});
+test("receiver does not expose status or command endpoints", async () => {
+  const receiver = createMelvorReceiver();
+  const port = await receiver.start();
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/v1/command`, { method: "POST" });
+    assert.equal(res.status, 404);
+    const status = await fetch(`http://127.0.0.1:${port}/v1/snapshot`);
+    assert.equal(status.status, 404);
+  } finally { await receiver.stop(); }
+});
