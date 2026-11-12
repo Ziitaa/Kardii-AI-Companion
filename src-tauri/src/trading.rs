@@ -1939,64 +1939,7 @@ fn valid_verification_status(value: &str) -> bool {
     )
 }
 
-fn external_research_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ExternalResearchItem> {
-    let assets_json: String = row.get(13)?;
-    let indicators_json: String = row.get(14)?;
-    let tools_json: String = row.get(15)?;
-    let claims_json: String = row.get(16)?;
-    let evidence_links_json: String = row.get(17)?;
-    Ok(ExternalResearchItem {
-        id: row.get(0)?,
-        source_id: row.get(1)?,
-        author: row.get(2)?,
-        source_type: row.get(3)?,
-        source_tier: row.get(4)?,
-        canonical_url: row.get(5)?,
-        title: row.get(6)?,
-        summary: row.get(7)?,
-        published_at: row.get(8)?,
-        retrieved_at: row.get(9)?,
-        raw_content: row.get(10)?,
-        content_hash: row.get(11)?,
-        duplicate_of: row.get(12)?,
-        topic: row.get(18)?,
-        assets: serde_json::from_str(&assets_json).unwrap_or_default(),
-        mentioned_indicators: serde_json::from_str(&indicators_json).unwrap_or_default(),
-        mentioned_tools: serde_json::from_str(&tools_json).unwrap_or_default(),
-        extracted_claims: serde_json::from_str(&claims_json).unwrap_or_else(|_| serde_json::json!([])),
-        evidence_links: serde_json::from_str(&evidence_links_json).unwrap_or_default(),
-        possible_commercial_relationship: row.get(19)?,
-        verification_status: row.get(20)?,
-        linked_experiment_id: row.get(21)?,
-        hypothesis: row.get(22)?,
-        research_result: row.get(23)?,
-        disposition: row.get(24)?,
-        rejection_reason: row.get(25)?,
-        ingestion_provider: row.get(26)?,
-        created_at: row.get(27)?,
-        updated_at: row.get(28)?,
-    })
-}
-
-fn external_research_by_id(
-    connection: &Connection,
-    id: i64,
-) -> Result<ExternalResearchItem, String> {
-    connection
-        .query_row(
-            "SELECT
-               id, source_id, author, source_type, source_tier, canonical_url, title,
-               summary, published_at, retrieved_at, raw_content, content_hash, duplicate_of,
-               assets_json, indicators_json, tools_json, claims_json, evidence_links_json,
-               topic, possible_commercial_relationship, verification_status,
-               linked_experiment_id, hypothesis, research_result, disposition,
-               rejection_reason, ingestion_provider, created_at, updated_at
-             FROM external_research_items WHERE id = ?1",
-            [id],
-            external_research_from_row,
-        )
-        .map_err(|error| format!("无法读取 External Research item：{error}"))
-}
+use crate::research_storage::{external_research_from_row, external_research_by_id};
 
 #[derive(Clone)]
 pub struct TradingRuntimeState {
