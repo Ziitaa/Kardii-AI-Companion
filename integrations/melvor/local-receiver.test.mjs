@@ -82,3 +82,14 @@ test("browser preflight only permits configured Steam origins", async () => {
     assert.equal(bad.headers.get("access-control-allow-origin"), null);
   } finally { await receiver.stop(); }
 });
+
+test("observer errors cannot turn an accepted snapshot into an invalid response", async () => {
+  const receiver = createMelvorReceiver({ onSnapshot: () => { throw new Error("UI unavailable"); } });
+  const port = await receiver.start();
+  try {
+    const response = await post(port, receiver.token, sample());
+    assert.equal(response.status, 200);
+    assert.equal(response.body.accepted, true);
+    assert.equal(receiver.latest().snapshot.gp, 123);
+  } finally { await receiver.stop(); }
+});
