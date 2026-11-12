@@ -5,6 +5,7 @@ mod voice;
 mod oauth;
 mod decision;
 mod trading;
+mod research_types;
 mod readonly_viewer;
 mod remote_viewer;
 mod wecom;
