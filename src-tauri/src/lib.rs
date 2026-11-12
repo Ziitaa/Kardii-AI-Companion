@@ -6,6 +6,8 @@ mod oauth;
 mod decision;
 mod trading;
 mod research_types;
+mod research;
+use research::ResearchState;
 mod readonly_viewer;
 mod remote_viewer;
 mod wecom;
@@ -2456,7 +2458,7 @@ async fn fetch_external_rss_text(raw_url: &str) -> Result<(reqwest::Url, String)
 
 #[tauri::command]
 async fn ingest_external_research_url(
-    state: tauri::State<'_, TradingRuntimeState>,
+    state: tauri::State<'_, ResearchState>,
     url: String,
 ) -> Result<ExternalResearchItem, String> {
     let start_url = validate_public_crawl_url(&url)?;
@@ -2514,7 +2516,7 @@ async fn ingest_external_research_url(
 
 #[tauri::command]
 async fn ingest_external_research_rss(
-    state: tauri::State<'_, TradingRuntimeState>,
+    state: tauri::State<'_, ResearchState>,
     feed_url: String,
     max_items: Option<usize>,
 ) -> Result<Vec<ExternalResearchItem>, String> {
@@ -2551,7 +2553,7 @@ async fn ingest_external_research_rss(
 
 #[tauri::command]
 async fn analyze_external_research_item(
-    state: tauri::State<'_, TradingRuntimeState>,
+    state: tauri::State<'_, ResearchState>,
     item_id: i64,
     provider: String,
     model: String,
@@ -6235,6 +6237,7 @@ pub fn run() {
             let storage_state = StorageState::new(&app_data_dir)
                 .map_err(|error| format!("无法初始化 Kardii 本机数据库：{error}"))?;
             let trading_runtime = app.state::<TradingRuntimeState>().inner().clone();
+            app.manage(ResearchState::new(trading_runtime.clone()));
             trading_runtime
                 .initialize_persistence(&app_data_dir)
                 .map_err(|error| format!("无法初始化 Kardii 交易运行层：{error}"))?;
