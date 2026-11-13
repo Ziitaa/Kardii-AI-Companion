@@ -93,3 +93,23 @@ test("observer errors cannot turn an accepted snapshot into an invalid response"
     assert.equal(receiver.latest().snapshot.gp, 123);
   } finally { await receiver.stop(); }
 });
+
+test("malformed timestamps and forbidden preflight methods are rejected", async () => {
+  const origin = "https://melvoridle.com";
+  const receiver = createMelvorReceiver({ allowedOrigins: [origin] });
+  const port = await receiver.start();
+  try {
+    const malformed = { ...sample(), capturedAt: "not-a-date" };
+    assert.equal((await post(port, receiver.token, malformed)).status, 422);
+    const url = `http://127.0.0.1:${port}/v1/snapshot`;
+    const badMethod = await fetch(url, { method: "OPTIONS", headers: {
+      Origin: origin, "Access-Control-Request-Method": "DELETE"
+    } });
+    assert.equal(badMethod.status, 403);
+    const badHeader = await fetch(url, { method: "OPTIONS", headers: {
+      Origin: origin, "Access-Control-Request-Method": "POST",
+      "Access-Control-Request-Headers": "authorization"
+    } });
+    assert.equal(badHeader.status, 403);
+  } finally { await receiver.stop(); }
+});
