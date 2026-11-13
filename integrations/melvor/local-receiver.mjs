@@ -26,7 +26,11 @@ export function createMelvorReceiver({ token = randomBytes(32).toString("hex"), 
       res.end(JSON.stringify(body));
     };
     if (req.url === "/v1/snapshot" && req.method === "OPTIONS") {
-      res.writeHead(corsAllowed ? 204 : 403);
+      const requestedMethod = req.headers["access-control-request-method"];
+      const requestedHeaders = (req.headers["access-control-request-headers"] || "").toLowerCase().split(",").map(x => x.trim()).filter(Boolean);
+      const headersAllowed = requestedHeaders.every(x => x === "content-type" || x === "x-kardii-token");
+      const preflightAllowed = corsAllowed && requestedMethod === "POST" && headersAllowed;
+      res.writeHead(preflightAllowed ? 204 : 403);
       return res.end();
     }
     if (origin && !corsAllowed) return reply(403, { error: "origin-not-allowed" });
@@ -44,7 +48,7 @@ export function createMelvorReceiver({ token = randomBytes(32).toString("hex"), 
       if (oversized) return reply(413, { error: "payload-too-large" });
       try {
         const snapshot = parseMelvorSnapshot(JSON.parse(Buffer.concat(chunks).toString("utf8")));
-        if (Math.abs(Date.now() - Date.parse(snapshot.capturedAt)) > 120000) return reply(422, { error: "stale-snapshot" });
+        if (!Number.isFinite(Date.parse(snapshot.capturedAt)) || Math.abs(Date.now() - Date.parse(snapshot.capturedAt)) > 120000) return reply(422, { error: "stale-snapshot" });
         const assessment = assessMelvorSnapshot(snapshot);
         latest = { snapshot, assessment };
         // A UI observer failure must not invalidate an already accepted snapshot.
