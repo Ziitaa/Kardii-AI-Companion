@@ -127,3 +127,17 @@ test("receiver refuses non-JSON submissions even with a valid session token", as
     assert.equal(receiver.latest(), null);
   } finally { await receiver.stop(); }
 });
+
+test("unsupported endpoints cannot replace the last accepted snapshot", async () => {
+  const receiver = createMelvorReceiver();
+  const port = await receiver.start();
+  try {
+    assert.equal((await post(port, receiver.token, sample())).status, 200);
+    const response = await fetch(`http://127.0.0.1:${port}/v1/action`, {
+      method: "POST", headers: { "Content-Type": "application/json", "x-kardii-token": receiver.token },
+      body: JSON.stringify({ action: "click", x: 1, y: 2 })
+    });
+    assert.equal(response.status, 404);
+    assert.equal(receiver.latest().snapshot.gp, 123);
+  } finally { await receiver.stop(); }
+});
