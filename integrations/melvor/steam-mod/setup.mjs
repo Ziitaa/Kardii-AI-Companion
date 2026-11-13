@@ -29,6 +29,9 @@ export async function sendSnapshot({ game, url, token, fetchImpl = globalThis.fe
   }
   if (typeof token !== "string" || token.length < 32) throw new Error("Missing session token");
   if (typeof fetchImpl !== "function") throw new Error("Network transport unavailable");
+  if (!Number.isInteger(new URL(url).port * 1) || Number(new URL(url).port) < 1 || Number(new URL(url).port) > 65535) {
+    throw new Error("Invalid local receiver port");
+  }
   const snapshot = createSnapshot(game);
   if (!snapshot) throw new Error("Character not ready");
   const missing = [];
