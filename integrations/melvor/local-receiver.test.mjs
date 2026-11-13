@@ -113,3 +113,17 @@ test("malformed timestamps and forbidden preflight methods are rejected", async 
     assert.equal(badHeader.status, 403);
   } finally { await receiver.stop(); }
 });
+
+test("receiver refuses non-JSON submissions even with a valid session token", async () => {
+  const receiver = createMelvorReceiver();
+  const port = await receiver.start();
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/v1/snapshot`, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain", "x-kardii-token": receiver.token },
+      body: JSON.stringify(sample())
+    });
+    assert.equal(response.status, 415);
+    assert.equal(receiver.latest(), null);
+  } finally { await receiver.stop(); }
+});
