@@ -1,5 +1,5 @@
 // Steam Melvor Idle 1: opt-in, read-only in-game bridge.
-// Exposes a snapshot to the mod API. No network, writes, or automation.
+// Exposes a read-only snapshot; network sending requires explicit opt-in.
 const safeInt = (n) => Number.isSafeInteger(n) && n >= 0 ? n : null;
 const safeLevel = (n) => Number.isSafeInteger(n) && n >= 1 && n <= 120 ? n : null;
 const skillLevel = (game, name) => {
@@ -31,6 +31,14 @@ export async function sendSnapshot({ game, url, token, fetchImpl = globalThis.fe
   if (typeof fetchImpl !== "function") throw new Error("Network transport unavailable");
   const snapshot = createSnapshot(game);
   if (!snapshot) throw new Error("Character not ready");
+  const missing = [];
+  if (snapshot.gp === null) missing.push("gp");
+  if (snapshot.bank.used === null) missing.push("bank.used");
+  if (snapshot.bank.capacity === null) missing.push("bank.capacity");
+  for (const [name, value] of Object.entries(snapshot.skills)) {
+    if (value === null) missing.push("skills." + name);
+  }
+  if (missing.length) throw new Error("Incomplete character snapshot: " + missing.join(", "));
   const response = await fetchImpl(url, {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-kardii-token": token },
