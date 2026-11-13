@@ -77,3 +77,17 @@ test("sender only permits loopback, requires token and never sends game commands
   assert.equal(calls[0].options.headers["x-kardii-token"], token);
   assert.equal(JSON.parse(calls[0].options.body).source, "read-only-mod");
 });
+
+test("sender rejects incomplete Steam game data before any network request", async () => {
+  let called = false;
+  await assert.rejects(
+    sendSnapshot({
+      game: { skills: { getObjectByID: () => undefined } },
+      url: "http://127.0.0.1:3000/v1/snapshot",
+      token: "a".repeat(64),
+      fetchImpl: async () => { called = true; throw new Error("must not send"); }
+    }),
+    /Incomplete character snapshot/
+  );
+  assert.equal(called, false);
+});
