@@ -91,3 +91,18 @@ test("sender rejects incomplete Steam game data before any network request", asy
   );
   assert.equal(called, false);
 });
+
+test("sender rejects invalid local receiver ports before network activity", async () => {
+  const game = {
+    gp: { amount: 3 }, bank: { items: [], maximumSlots: 10 },
+    skills: { getObjectByID: () => ({ level: 1 }) }
+  };
+  let called = false;
+  await assert.rejects(
+    sendSnapshot({
+      game, url: "http://127.0.0.1:99999/v1/snapshot", token: "a".repeat(64),
+      fetchImpl: async () => { called = true; }
+    })
+  );
+  assert.equal(called, false);
+});
