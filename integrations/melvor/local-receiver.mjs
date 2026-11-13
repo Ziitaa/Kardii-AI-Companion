@@ -35,6 +35,7 @@ export function createMelvorReceiver({ token = randomBytes(32).toString("hex"), 
     }
     if (origin && !corsAllowed) return reply(403, { error: "origin-not-allowed" });
     if (req.url !== "/v1/snapshot" || req.method !== "POST") return reply(404, { error: "not-found" });
+    if (req.headers["transfer-encoding"] && req.headers["content-length"]) return reply(400, { error: "ambiguous-body-framing" });
     if (!constantTimeEqual(req.headers["x-kardii-token"], token)) return reply(401, { error: "unauthorized" });
     // Reject unexpected request body types and duplicate or malformed auth headers.
     const contentType = String(req.headers["content-type"] || "").toLowerCase().split(";")[0].trim();
